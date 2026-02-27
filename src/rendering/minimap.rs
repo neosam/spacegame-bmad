@@ -230,6 +230,11 @@ pub fn update_minimap_blips(
         return;
     };
     let Ok(root_entity) = minimap_root.single() else {
+        // Clean up stale blips if minimap root was removed (e.g. state transition)
+        for blip_entity in state.blips.values() {
+            commands.entity(*blip_entity).despawn();
+        }
+        state.blips.clear();
         return;
     };
 

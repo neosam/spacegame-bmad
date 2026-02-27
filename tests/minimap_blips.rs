@@ -3,9 +3,11 @@
 mod helpers;
 
 use bevy::prelude::*;
+use bevy::ui::BackgroundColor;
 use helpers::{spawn_asteroid, spawn_drone, spawn_player, test_app};
 use void_drifter::rendering::minimap::{
-    update_minimap_blips, MinimapBlip, MinimapConfig, MinimapRoot, MinimapState,
+    blip_color, update_minimap_blips, BlipType, MinimapBlip, MinimapConfig, MinimapRoot,
+    MinimapState,
 };
 
 /// Create a test app with the minimap update system added to Update schedule.
@@ -207,4 +209,85 @@ fn minimap_shows_blips_for_both_asteroid_and_drone_types() {
     assert!(state.blips.contains_key(&a3), "Asteroid 3 should have blip");
     assert!(state.blips.contains_key(&d1), "Drone 1 should have blip");
     assert!(state.blips.contains_key(&d2), "Drone 2 should have blip");
+}
+
+#[test]
+fn minimap_blip_colors_match_entity_type() {
+    let mut app = minimap_test_app();
+    let _player = spawn_player(&mut app);
+
+    let asteroid = spawn_asteroid(&mut app, Vec2::new(100.0, 0.0), 20.0, 50.0);
+    let drone = spawn_drone(&mut app, Vec2::new(-100.0, 0.0), 10.0, 30.0);
+
+    app.update();
+    app.update();
+
+    let config = app.world().resource::<MinimapConfig>().clone();
+    let state = app.world().resource::<MinimapState>();
+
+    // Verify asteroid blip has correct gray color
+    let asteroid_blip = state
+        .blips
+        .get(&asteroid)
+        .expect("Asteroid should have a blip");
+    let asteroid_bg = app
+        .world()
+        .entity(*asteroid_blip)
+        .get::<BackgroundColor>()
+        .expect("Asteroid blip should have BackgroundColor");
+    let expected_asteroid = blip_color(BlipType::Asteroid, &config);
+    assert_eq!(
+        asteroid_bg.0, expected_asteroid,
+        "Asteroid blip should use asteroid color from config"
+    );
+
+    // Verify drone blip has correct red color
+    let drone_blip = state
+        .blips
+        .get(&drone)
+        .expect("Drone should have a blip");
+    let drone_bg = app
+        .world()
+        .entity(*drone_blip)
+        .get::<BackgroundColor>()
+        .expect("Drone blip should have BackgroundColor");
+    let expected_drone = blip_color(BlipType::ScoutDrone, &config);
+    assert_eq!(
+        drone_bg.0, expected_drone,
+        "Drone blip should use drone color from config"
+    );
+}
+
+#[test]
+fn minimap_state_cleared_when_root_missing() {
+    let mut app = minimap_test_app();
+    let _player = spawn_player(&mut app);
+    let _asteroid = spawn_asteroid(&mut app, Vec2::new(100.0, 0.0), 20.0, 50.0);
+
+    // Create blips
+    app.update();
+    app.update();
+
+    let state = app.world().resource::<MinimapState>();
+    assert!(
+        !state.blips.is_empty(),
+        "Should have blips before root removal"
+    );
+
+    // Remove the MinimapRoot entity
+    let root = app
+        .world_mut()
+        .query_filtered::<Entity, With<MinimapRoot>>()
+        .single(app.world())
+        .expect("MinimapRoot should exist");
+    app.world_mut().despawn(root);
+
+    // Run update — should clean up stale blips
+    app.update();
+
+    let state = app.world().resource::<MinimapState>();
+    assert!(
+        state.blips.is_empty(),
+        "MinimapState should be cleared after MinimapRoot removal"
+    );
 }

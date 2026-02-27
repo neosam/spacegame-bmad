@@ -199,12 +199,13 @@ Claude Opus 4.6
 ### Change Log
 
 - 2026-02-26: Code review fixes — entity_query now uses `Or<(With<Asteroid>, With<ScoutDrone>)>` filter with `Has<Asteroid>` (was unfiltered iterating all entities), `color_station` field added to MinimapConfig (was hardcoded green), `HashMap` import added (was inline `std::collections::HashMap`). 202 total tests, clippy clean.
+- 2026-02-26: Adversarial code review — M1: Added integration test for blip color correctness (BackgroundColor verification). M2: Added MinimapState cleanup when MinimapRoot is despawned (stale blip prevention). Added test for root-removal cleanup. 199 total tests (117 unit + 82 integration), clippy clean.
 
 ### File List
 
 - `src/rendering/minimap.rs` — NEW: BlipType, MinimapConfig, pure functions, marker components, MinimapState, setup_minimap, update_minimap_blips, 12 unit tests
 - `src/rendering/mod.rs` — MODIFIED: Added `pub mod minimap`, minimap imports, MinimapConfig loading, system registration
 - `assets/config/minimap.ron` — NEW: Minimap configuration (scanner_range, colors, sizes, color_station)
-- `tests/minimap_blips.rs` — NEW: 5 integration tests for minimap blip lifecycle
+- `tests/minimap_blips.rs` — NEW: 7 integration tests for minimap blip lifecycle, color correctness, root-removal cleanup
 - `tests/helpers/mod.rs` — MODIFIED: Added MinimapConfig and MinimapState to test harness
 - `Cargo.toml` — MODIFIED: Added `bevy_ui` feature to bevy dependencies
