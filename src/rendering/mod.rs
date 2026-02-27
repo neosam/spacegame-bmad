@@ -1,3 +1,4 @@
+pub mod background;
 pub mod effects;
 pub mod vector_art;
 
@@ -16,6 +17,7 @@ use self::effects::{
     spawn_laser_impact_flash, trigger_damage_flash, trigger_screen_shake, update_damage_flash,
     update_destruction_effects, update_impact_flashes, ScreenShake,
 };
+use self::background::{setup_starfield, update_starfield, StarfieldConfig};
 use self::vector_art::{generate_laser_mesh, generate_player_mesh, generate_projectile_mesh};
 
 pub struct RenderingPlugin;
@@ -24,6 +26,7 @@ impl Plugin for RenderingPlugin {
     fn build(&self, app: &mut App) {
         // Initialize resources
         app.init_resource::<ScreenShake>();
+        app.init_resource::<StarfieldConfig>();
         
         // Startup systems
         app.add_systems(
@@ -35,6 +38,7 @@ impl Plugin for RenderingPlugin {
                 setup_flash_materials,
                 setup_destruction_assets,
                 setup_impact_flash_assets,
+                setup_starfield,
             ),
         );
         
@@ -52,6 +56,7 @@ impl Plugin for RenderingPlugin {
                 update_destruction_effects,
                 spawn_laser_impact_flash,
                 update_impact_flashes,
+                update_starfield,
             ),
         );
         

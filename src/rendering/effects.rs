@@ -358,12 +358,12 @@ mod tests {
         app.add_plugins(MinimalPlugins);
         app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(0.05)));
         app.insert_resource(Time::<Update>::default());
-        
+
         let mut materials = Assets::<ColorMaterial>::default();
         let original_material = materials.add(ColorMaterial::from(Color::srgb(0.5, 0.5, 0.5)));
         let flash_material = materials.add(ColorMaterial::from(Color::srgb(1.0, 1.0, 1.0)));
         app.insert_resource(materials);
-        
+
         let entity = app.world_mut().spawn((
             DamageFlash {
                 timer: 0.1,
@@ -371,16 +371,154 @@ mod tests {
             },
             MeshMaterial2d(flash_material),
         )).id();
-        
+
         app.add_systems(Update, update_damage_flash);
         app.update(); // Prime
         app.update(); // Advance time (0.05s)
-        
+
         let flash = app.world().entity(entity).get::<DamageFlash>();
         assert!(flash.is_some(), "Flash should still exist");
         let flash = flash.expect("Flash should still exist after partial decay");
         assert!(flash.timer < 0.1, "Timer should have decremented");
         assert!(flash.timer > 0.0, "Timer should not have expired yet");
+    }
+
+    #[test]
+    fn remove_just_damaged_without_material_removes_component() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+
+        // Spawn entity with JustDamaged but WITHOUT MeshMaterial2d
+        let entity = app.world_mut().spawn(JustDamaged { amount: 10.0 }).id();
+
+        app.add_systems(Update, remove_just_damaged_without_material);
+        app.update();
+
+        let has_just_damaged = app.world().entity(entity).contains::<JustDamaged>();
+        assert!(!has_just_damaged, "JustDamaged should be removed from entity without MeshMaterial2d");
+    }
+
+    #[test]
+    fn spawn_destruction_effects_creates_entities_at_positions() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+
+        // Manually create DestructionAssets
+        let mut meshes = Assets::<Mesh>::default();
+        let mesh = meshes.add(Circle::new(5.0));
+        app.insert_resource(meshes);
+
+        let mut materials = Assets::<ColorMaterial>::default();
+        let material = materials.add(ColorMaterial::from(Color::srgb(1.0, 0.7, 0.1)));
+        app.insert_resource(materials);
+
+        app.insert_resource(DestructionAssets { mesh, material });
+
+        // Add destroyed position
+        let mut destroyed_positions = DestroyedPositions::default();
+        destroyed_positions.positions.push(Vec2::new(100.0, 200.0));
+        app.insert_resource(destroyed_positions);
+
+        app.add_systems(Update, spawn_destruction_effects);
+        app.update();
+
+        // Verify entity spawned at correct position
+        let mut query = app.world_mut().query::<(&DestructionEffect, &Transform)>();
+        let results: Vec<_> = query.iter(app.world()).collect();
+        assert_eq!(results.len(), 1, "Should spawn exactly one destruction effect");
+        let (effect, transform) = results[0];
+        assert!((transform.translation.x - 100.0).abs() < 0.1, "X position should match");
+        assert!((transform.translation.y - 200.0).abs() < 0.1, "Y position should match");
+        assert!((effect.timer - DESTRUCTION_LIFETIME).abs() < 0.01, "Timer should be set to DESTRUCTION_LIFETIME");
+
+        // Verify positions were drained
+        let positions = app.world().resource::<DestroyedPositions>();
+        assert!(positions.positions.is_empty(), "Positions should be drained after consumption");
+    }
+
+    #[test]
+    fn destruction_effect_scale_expands_over_lifetime() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(0.15)));
+        app.insert_resource(Time::<Fixed>::from_seconds(0.15));
+
+        // Spawn destruction effect at half of its lifetime
+        let entity = app.world_mut().spawn((
+            DestructionEffect {
+                timer: DESTRUCTION_LIFETIME,
+                max_lifetime: DESTRUCTION_LIFETIME,
+            },
+            Transform::default(),
+        )).id();
+
+        app.add_systems(Update, update_destruction_effects);
+        app.update(); // Prime (dt=0)
+        app.update(); // Advance 0.15s (half of 0.3s lifetime)
+
+        // At half lifetime, progress = 0.5, scale should be 1.0 + 0.5 * 4.0 = 3.0
+        let transform = app.world().entity(entity).get::<Transform>()
+            .expect("Entity should still exist at half lifetime");
+        assert!(transform.scale.x > 1.5, "Scale should have expanded, got {}", transform.scale.x);
+        assert!(transform.scale.x < 4.5, "Scale should not have fully expanded yet, got {}", transform.scale.x);
+    }
+
+    #[test]
+    fn spawn_laser_impact_flash_creates_entities_at_positions() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+
+        // Manually create ImpactFlashAssets
+        let mut meshes = Assets::<Mesh>::default();
+        let mesh = meshes.add(Circle::new(3.0));
+        app.insert_resource(meshes);
+
+        let mut materials = Assets::<ColorMaterial>::default();
+        let material = materials.add(ColorMaterial::from(Color::srgb(0.4, 0.9, 1.0)));
+        app.insert_resource(materials);
+
+        app.insert_resource(ImpactFlashAssets { mesh, material });
+
+        // Add laser hit position
+        let mut laser_hit_positions = LaserHitPositions::default();
+        laser_hit_positions.positions.push(Vec2::new(30.0, 40.0));
+        app.insert_resource(laser_hit_positions);
+
+        app.add_systems(Update, spawn_laser_impact_flash);
+        app.update();
+
+        // Verify entity spawned at correct position
+        let mut query = app.world_mut().query::<(&ImpactFlash, &Transform)>();
+        let results: Vec<_> = query.iter(app.world()).collect();
+        assert_eq!(results.len(), 1, "Should spawn exactly one impact flash");
+        let (flash, transform) = results[0];
+        assert!((transform.translation.x - 30.0).abs() < 0.1, "X position should match");
+        assert!((transform.translation.y - 40.0).abs() < 0.1, "Y position should match");
+        assert!((flash.timer - IMPACT_FLASH_LIFETIME).abs() < 0.01, "Timer should be set to IMPACT_FLASH_LIFETIME");
+
+        // Verify positions were drained
+        let positions = app.world().resource::<LaserHitPositions>();
+        assert!(positions.positions.is_empty(), "Positions should be drained after consumption");
+    }
+
+    #[test]
+    fn impact_flash_despawns_when_timer_expires() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(0.1)));
+        app.insert_resource(Time::<Fixed>::from_seconds(0.1));
+
+        let entity = app.world_mut().spawn(ImpactFlash { timer: IMPACT_FLASH_LIFETIME }).id();
+
+        app.add_systems(Update, update_impact_flashes);
+        app.update(); // Prime (dt=0)
+        app.update(); // Advance 0.1s (exceeds 0.08s timer)
+
+        // Entity should be despawned
+        assert!(
+            app.world().get_entity(entity).is_err(),
+            "Impact flash entity should be despawned after timer expires"
+        );
     }
 }
 

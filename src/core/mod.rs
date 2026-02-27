@@ -19,8 +19,7 @@ use self::weapons::{
 };
 
 /// System ordering within FixedUpdate. Prevents race conditions.
-/// Input and Physics are active in Story 0.1.
-/// Collision, Damage, Events reserved for future stories.
+/// Input → Physics → Collision → Damage → Events (chained).
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum CoreSet {
     /// Input reading and action mapping

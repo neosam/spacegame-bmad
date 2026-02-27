@@ -409,7 +409,7 @@ No debug issues encountered during story creation. All artifacts analyzed and in
   - Added 3 unit tests and 5 integration tests
   - All 68 existing tests pass (no regressions)
   - Story status updated to "review"
-- **2026-02-26**: Code review fixes applied
+- **2026-02-26**: Code review #1 fixes applied
   - [H1] Fixed system ordering: trigger_screen_shake now runs before spawn_destruction_effects (AC #2 was unreliable)
   - [H2] Fixed GPU asset leak: spawn_laser_impact_flash now uses cached ImpactFlashAssets resource instead of allocating per frame
   - [H3] Removed fake test `all_existing_tests_still_pass` (asserted true, validated nothing)
@@ -418,6 +418,14 @@ No debug issues encountered during story creation. All artifacts analyzed and in
   - [M3] Added integration test for AC #2: screen shake from nearby destruction + distant destruction (no trigger)
   - [M4] Added integration tests for AC #3/#4: damage flash material swap (white for non-player, red for player)
   - Test count: 79 total (34 unit + 45 integration), all pass
+- **2026-02-26**: Code review #2 fixes applied
+  - [M1] Added unit test for `remove_just_damaged_without_material` — graceful skip when entity has no MeshMaterial2d (Task 2.8)
+  - [M2] Added unit test for `spawn_destruction_effects` — verifies entity spawning at correct position with correct timer
+  - [M3] Added unit test for destruction effect scale expansion (1x → 5x over lifetime, Task 3.5)
+  - [M4] Added unit test for `spawn_laser_impact_flash` — verifies entity spawning at correct position with correct timer
+  - [M5] Added unit test for `update_impact_flashes` auto-despawn when timer expires
+  - [L1] Fixed stale comment in `src/core/mod.rs` — updated CoreSet doc comment to reflect active Collision/Damage sets
+  - Test count: 98 total (44 unit + 54 integration), all pass
 
 ### File List
 
