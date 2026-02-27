@@ -9,7 +9,8 @@ use self::camera::camera_follow_player;
 use self::flight::{apply_drag, apply_rotation, apply_thrust, apply_velocity, FlightConfig};
 use self::input::{read_input, ActionState};
 use self::weapons::{
-    fire_laser, tick_fire_cooldown, tick_laser_pulses, LaserFired, WeaponConfig,
+    fire_weapon, move_spread_projectiles, regenerate_energy, tick_fire_cooldown,
+    tick_laser_pulses, tick_spread_projectiles, LaserFired, SpreadFired, WeaponConfig,
 };
 
 /// System ordering within FixedUpdate. Prevents race conditions.
@@ -69,6 +70,7 @@ impl Plugin for CorePlugin {
         };
         app.insert_resource(weapon_config);
         app.add_message::<LaserFired>();
+        app.add_message::<SpreadFired>();
 
         // Configure system ordering in FixedUpdate
         app.configure_sets(
@@ -86,8 +88,11 @@ impl Plugin for CorePlugin {
         // Input reading in PreUpdate
         app.add_systems(PreUpdate, read_input);
 
-        // Fire cooldown ticking in Input set
-        app.add_systems(FixedUpdate, tick_fire_cooldown.in_set(CoreSet::Input));
+        // Fire cooldown and energy regen in Input set
+        app.add_systems(
+            FixedUpdate,
+            (tick_fire_cooldown, regenerate_energy).in_set(CoreSet::Input),
+        );
 
         // Flight physics in FixedUpdate
         app.add_systems(
@@ -100,7 +105,12 @@ impl Plugin for CorePlugin {
         // Weapon systems after Physics, before Collision
         app.add_systems(
             FixedUpdate,
-            (fire_laser, tick_laser_pulses)
+            (
+                fire_weapon,
+                tick_laser_pulses,
+                move_spread_projectiles,
+                tick_spread_projectiles,
+            )
                 .chain()
                 .after(CoreSet::Physics)
                 .before(CoreSet::Collision),

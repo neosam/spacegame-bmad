@@ -223,4 +223,20 @@
     </output>
   </step>
 
+  <step n="6" goal="Commit completed story with jj">
+    <check if="{{new_status}} == 'done'">
+      <action>Describe the current jj working copy with the story summary:
+        `jj describe -m "feat({{story_key}}): short description of what the story implemented"`
+      </action>
+      <action>Create a new empty working copy for the next story:
+        `jj new`
+      </action>
+      <action>Verify with `jj log --limit 3`</action>
+      <output>📦 Committed: {{story_key}} via jj</output>
+    </check>
+    <check if="{{new_status}} != 'done'">
+      <output>⏭️ Skipping commit — story not yet done.</output>
+    </check>
+  </step>
+
 </workflow>

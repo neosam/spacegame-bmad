@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use helpers::{spawn_player, test_app};
 use void_drifter::core::input::ActionState;
 use void_drifter::core::weapons::{
-    fire_laser, FireCooldown, LaserFired, LaserPulse, WeaponConfig,
+    fire_weapon, FireCooldown, LaserFired, LaserPulse, WeaponConfig,
 };
 
 // Note: Gamepad input tests (GamepadButton::South, right trigger threshold) are omitted
@@ -226,7 +226,7 @@ fn count_laser_fired(
 fn laser_fired_message_emitted_on_fire() {
     let mut app = test_app();
     app.init_resource::<LaserFiredCount>();
-    app.add_systems(FixedUpdate, count_laser_fired.after(fire_laser));
+    app.add_systems(FixedUpdate, count_laser_fired.after(fire_weapon));
     spawn_player(&mut app);
 
     app.world_mut().resource_mut::<ActionState>().fire = true;

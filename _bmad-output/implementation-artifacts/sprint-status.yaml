@@ -44,7 +44,7 @@ development_status:
   epic-0: in-progress
   0-1-thrust-and-rotate-ship: done
   0-2-fire-laser: done
-  0-3-fire-spread-projectiles: backlog
+  0-3-fire-spread-projectiles: done
   0-4-switch-weapons: backlog
   0-5-destroy-asteroids-and-drones: backlog
   0-6-visual-feedback: backlog

@@ -7,7 +7,9 @@ use void_drifter::core::flight::{
 };
 use void_drifter::core::input::ActionState;
 use void_drifter::core::weapons::{
-    fire_laser, tick_fire_cooldown, tick_laser_pulses, FireCooldown, LaserFired, WeaponConfig,
+    fire_weapon, move_spread_projectiles, regenerate_energy, tick_fire_cooldown, tick_laser_pulses,
+    tick_spread_projectiles, ActiveWeapon, Energy, FireCooldown, LaserFired, SpreadFired,
+    WeaponConfig,
 };
 use void_drifter::shared::components::Velocity;
 
@@ -21,15 +23,24 @@ pub fn test_app() -> App {
     app.insert_resource(FlightConfig::default());
     app.insert_resource(WeaponConfig::default());
     app.add_message::<LaserFired>();
+    app.add_message::<SpreadFired>();
     // Match production: flight systems in FixedUpdate
     app.add_systems(
         FixedUpdate,
         (apply_thrust, apply_rotation, apply_drag, apply_velocity).chain(),
     );
-    // Weapon systems: cooldown tick, fire, pulse tick
+    // Weapon systems: cooldown tick, energy regen, fire, pulse/projectile tick
     app.add_systems(
         FixedUpdate,
-        (tick_fire_cooldown, fire_laser, tick_laser_pulses).chain(),
+        (
+            tick_fire_cooldown,
+            regenerate_energy,
+            fire_weapon,
+            tick_laser_pulses,
+            move_spread_projectiles,
+            tick_spread_projectiles,
+        )
+            .chain(),
     );
     // Fixed 1/60s time step for deterministic tests
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
@@ -41,13 +52,15 @@ pub fn test_app() -> App {
     app
 }
 
-/// Spawn a player entity at the origin facing +Y with FireCooldown.
+/// Spawn a player entity at the origin facing +Y with FireCooldown, Energy, and ActiveWeapon.
 pub fn spawn_player(app: &mut App) -> Entity {
     app.world_mut()
         .spawn((
             Player,
             Velocity::default(),
             FireCooldown::default(),
+            Energy::default(),
+            ActiveWeapon::default(),
             Transform::default(),
         ))
         .id()
@@ -61,7 +74,18 @@ pub fn spawn_player_with_velocity(app: &mut App, velocity: Vec2) -> Entity {
             Player,
             Velocity(velocity),
             FireCooldown::default(),
+            Energy::default(),
+            ActiveWeapon::default(),
             Transform::default(),
         ))
         .id()
+}
+
+/// Set a player entity's active weapon to Spread.
+#[allow(dead_code)]
+pub fn set_active_weapon_spread(app: &mut App, entity: Entity) {
+    *app.world_mut()
+        .entity_mut(entity)
+        .get_mut::<ActiveWeapon>()
+        .expect("Player should have ActiveWeapon") = ActiveWeapon::Spread;
 }

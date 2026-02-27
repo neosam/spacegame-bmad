@@ -4,4 +4,13 @@
     laser_damage: 10.0,
     laser_pulse_duration: 0.08,
     laser_width: 2.0,
+    energy_max: 100.0,
+    energy_regen_rate: 15.0,
+    spread_energy_cost: 20.0,
+    spread_projectile_count: 5,
+    spread_arc_degrees: 30.0,
+    spread_projectile_speed: 600.0,
+    spread_projectile_lifetime: 0.8,
+    spread_damage: 5.0,
+    spread_fire_rate: 2.0,
 )

@@ -67,6 +67,11 @@ pub fn generate_laser_mesh(length: f32, width: f32) -> Mesh {
     Mesh::from(Rectangle::new(width, length))
 }
 
+/// Generate a small circle mesh for spread projectile rendering.
+pub fn generate_projectile_mesh(radius: f32) -> Mesh {
+    Mesh::from(Circle::new(radius))
+}
+
 /// Fallback mesh if lyon tessellation fails (graceful degradation).
 fn generate_fallback_mesh() -> Mesh {
     let positions = vec![
