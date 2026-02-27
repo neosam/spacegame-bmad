@@ -7,9 +7,9 @@ use void_drifter::core::flight::{
 };
 use void_drifter::core::input::ActionState;
 use void_drifter::core::weapons::{
-    fire_weapon, move_spread_projectiles, regenerate_energy, tick_fire_cooldown, tick_laser_pulses,
-    tick_spread_projectiles, ActiveWeapon, Energy, FireCooldown, LaserFired, SpreadFired,
-    WeaponConfig,
+    fire_weapon, move_spread_projectiles, regenerate_energy, switch_weapon, tick_fire_cooldown,
+    tick_laser_pulses, tick_spread_projectiles, ActiveWeapon, Energy, FireCooldown, LaserFired,
+    SpreadFired, WeaponConfig,
 };
 use void_drifter::shared::components::Velocity;
 
@@ -29,12 +29,13 @@ pub fn test_app() -> App {
         FixedUpdate,
         (apply_thrust, apply_rotation, apply_drag, apply_velocity).chain(),
     );
-    // Weapon systems: cooldown tick, energy regen, fire, pulse/projectile tick
+    // Weapon systems: cooldown tick, energy regen, switch, fire, pulse/projectile tick
     app.add_systems(
         FixedUpdate,
         (
             tick_fire_cooldown,
             regenerate_energy,
+            switch_weapon,
             fire_weapon,
             tick_laser_pulses,
             move_spread_projectiles,

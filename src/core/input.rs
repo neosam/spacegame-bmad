@@ -43,6 +43,11 @@ pub fn read_input(
         action_state.fire = true;
     }
 
+    // Keyboard: switch weapon (rising edge only)
+    if keyboard.just_pressed(KeyCode::Tab) {
+        action_state.switch_weapon = true;
+    }
+
     // Clamp rotation
     action_state.rotate = action_state.rotate.clamp(-1.0, 1.0);
 
@@ -66,6 +71,12 @@ pub fn read_input(
         // Fire: South button or right trigger threshold
         if gamepad.pressed(GamepadButton::South) || right_trigger > 0.5 {
             action_state.fire = true;
+        }
+
+        // Switch weapon: Left Bumper (rising edge only)
+        // Note: In Bevy 0.18, GamepadButton::LeftTrigger maps to the Left Bumper (LB) button
+        if gamepad.just_pressed(GamepadButton::LeftTrigger) {
+            action_state.switch_weapon = true;
         }
     }
 
@@ -174,6 +185,50 @@ mod tests {
 
         let state = app.world().resource::<ActionState>();
         assert!(!state.fire, "Fire should be false when Space is not pressed");
+    }
+
+    #[test]
+    fn read_input_tab_sets_switch_weapon() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<ActionState>();
+        app.init_resource::<ButtonInput<KeyCode>>();
+        app.add_systems(Update, read_input);
+
+        // Simulate Tab press (just_pressed requires press then update)
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Tab);
+
+        app.update();
+
+        let state = app.world().resource::<ActionState>();
+        assert!(
+            state.switch_weapon,
+            "Tab key should set switch_weapon to true"
+        );
+    }
+
+    #[test]
+    fn read_input_no_tab_leaves_switch_weapon_false() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<ActionState>();
+        app.init_resource::<ButtonInput<KeyCode>>();
+        app.add_systems(Update, read_input);
+
+        // Only press Space (fire), not Tab
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Space);
+
+        app.update();
+
+        let state = app.world().resource::<ActionState>();
+        assert!(
+            !state.switch_weapon,
+            "switch_weapon should be false when Tab is not pressed"
+        );
     }
 
     #[test]

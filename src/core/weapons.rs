@@ -315,6 +315,22 @@ pub fn tick_spread_projectiles(
     }
 }
 
+/// Toggles the player's active weapon when switch input is active.
+pub fn switch_weapon(
+    action_state: Res<ActionState>,
+    mut query: Query<&mut ActiveWeapon, With<Player>>,
+) {
+    if !action_state.switch_weapon {
+        return;
+    }
+    for mut weapon in query.iter_mut() {
+        *weapon = match *weapon {
+            ActiveWeapon::Laser => ActiveWeapon::Spread,
+            ActiveWeapon::Spread => ActiveWeapon::Laser,
+        };
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -437,6 +453,91 @@ mod tests {
             energy.current > 50.0,
             "Energy should regenerate, got {}",
             energy.current
+        );
+    }
+
+    #[test]
+    fn switch_weapon_toggles_laser_to_spread() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<ActionState>();
+        app.add_systems(Update, switch_weapon);
+
+        let entity = app
+            .world_mut()
+            .spawn((Player, ActiveWeapon::Laser))
+            .id();
+
+        // Set switch_weapon input
+        app.world_mut().resource_mut::<ActionState>().switch_weapon = true;
+
+        app.update();
+
+        let weapon = app
+            .world()
+            .entity(entity)
+            .get::<ActiveWeapon>()
+            .expect("Should have ActiveWeapon");
+        assert_eq!(
+            *weapon,
+            ActiveWeapon::Spread,
+            "Should toggle from Laser to Spread"
+        );
+    }
+
+    #[test]
+    fn switch_weapon_toggles_spread_to_laser() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<ActionState>();
+        app.add_systems(Update, switch_weapon);
+
+        let entity = app
+            .world_mut()
+            .spawn((Player, ActiveWeapon::Spread))
+            .id();
+
+        // Set switch_weapon input
+        app.world_mut().resource_mut::<ActionState>().switch_weapon = true;
+
+        app.update();
+
+        let weapon = app
+            .world()
+            .entity(entity)
+            .get::<ActiveWeapon>()
+            .expect("Should have ActiveWeapon");
+        assert_eq!(
+            *weapon,
+            ActiveWeapon::Laser,
+            "Should toggle from Spread to Laser"
+        );
+    }
+
+    #[test]
+    fn switch_weapon_no_input_keeps_current() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<ActionState>();
+        app.add_systems(Update, switch_weapon);
+
+        let entity = app
+            .world_mut()
+            .spawn((Player, ActiveWeapon::Laser))
+            .id();
+
+        // switch_weapon defaults to false — no toggle
+        app.update();
+
+        let weapon = app
+            .world()
+            .entity(entity)
+            .get::<ActiveWeapon>()
+            .expect("Should have ActiveWeapon");
+        assert_eq!(
+            *weapon,
+            ActiveWeapon::Laser,
+            "Should remain Laser when no switch input"
         );
     }
 

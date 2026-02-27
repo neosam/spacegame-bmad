@@ -9,7 +9,7 @@ use self::camera::camera_follow_player;
 use self::flight::{apply_drag, apply_rotation, apply_thrust, apply_velocity, FlightConfig};
 use self::input::{read_input, ActionState};
 use self::weapons::{
-    fire_weapon, move_spread_projectiles, regenerate_energy, tick_fire_cooldown,
+    fire_weapon, move_spread_projectiles, regenerate_energy, switch_weapon, tick_fire_cooldown,
     tick_laser_pulses, tick_spread_projectiles, LaserFired, SpreadFired, WeaponConfig,
 };
 
@@ -88,10 +88,10 @@ impl Plugin for CorePlugin {
         // Input reading in PreUpdate
         app.add_systems(PreUpdate, read_input);
 
-        // Fire cooldown and energy regen in Input set
+        // Fire cooldown, energy regen, and weapon switching in Input set
         app.add_systems(
             FixedUpdate,
-            (tick_fire_cooldown, regenerate_energy).in_set(CoreSet::Input),
+            (tick_fire_cooldown, regenerate_energy, switch_weapon).in_set(CoreSet::Input),
         );
 
         // Flight physics in FixedUpdate
