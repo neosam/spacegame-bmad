@@ -13,7 +13,7 @@ pub struct WeaponConfig {
     pub laser_fire_rate: f32,
     /// Max range in world units
     pub laser_range: f32,
-    /// Damage per pulse (unused until Story 0.5)
+    /// Damage per laser pulse
     pub laser_damage: f32,
     /// Visual flash duration in seconds
     pub laser_pulse_duration: f32,
@@ -33,7 +33,7 @@ pub struct WeaponConfig {
     pub spread_projectile_speed: f32,
     /// Projectile lifetime in seconds
     pub spread_projectile_lifetime: f32,
-    /// Damage per spread projectile (unused until Story 0.5)
+    /// Damage per spread projectile
     pub spread_damage: f32,
     /// Spread fire rate in shots per second
     pub spread_fire_rate: f32,
@@ -92,7 +92,7 @@ pub enum ActiveWeapon {
 }
 
 /// Hitscan laser pulse — purely visual flash along the firing line.
-/// Origin, direction, and range stored for future collision detection (Story 0.5).
+/// Origin, direction, and range used by collision detection.
 #[derive(Component)]
 pub struct LaserPulse {
     pub origin: Vec2,
@@ -107,7 +107,7 @@ pub struct LaserPulse {
 pub struct NeedsLaserVisual;
 
 /// Spread projectile — physical entity that moves through space.
-/// Data stored for future collision detection (Story 0.5).
+/// Checked for circle-circle collision each frame.
 #[derive(Component)]
 pub struct SpreadProjectile {
     pub origin: Vec2,
@@ -129,7 +129,7 @@ pub struct FireCooldown {
     pub timer: f32,
 }
 
-/// Emitted when a laser pulse is fired. For future collision system subscription.
+/// Emitted when a laser pulse is fired. Read by collision detection.
 #[derive(Message)]
 pub struct LaserFired {
     pub origin: Vec2,
@@ -137,7 +137,7 @@ pub struct LaserFired {
     pub range: f32,
 }
 
-/// Emitted when spread projectiles are fired. For future systems.
+/// Emitted when spread projectiles are fired.
 #[derive(Message)]
 pub struct SpreadFired {
     pub origin: Vec2,

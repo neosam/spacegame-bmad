@@ -219,10 +219,11 @@ fn multiple_projectiles_can_hit_same_target() {
         .get::<Health>()
         .expect("Asteroid should still exist");
 
-    // At least one projectile should have hit (possibly more depending on iteration order)
+    // All 3 projectiles should have hit the same target (AC #7: no invincibility frames)
+    let expected = 100.0 - 3.0 * config.spread_damage;
     assert!(
-        health.current < 100.0,
-        "Asteroid should have taken damage from at least one projectile, got {}",
+        (health.current - expected).abs() < 0.01,
+        "All 3 projectiles should hit same target: expected health {expected}, got {}",
         health.current
     );
 }

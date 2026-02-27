@@ -1,3 +1,5 @@
+#![deny(clippy::unwrap_used)]
+
 pub mod core;
 pub mod dev;
 pub mod game_states;

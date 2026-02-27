@@ -1,6 +1,6 @@
 # Story 0.5: Destroy Asteroids and Drones
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -355,11 +355,14 @@ No debug issues encountered. All tasks implemented cleanly in a single pass.
 ### Change Log
 
 - 2026-02-26: Implemented collision detection and damage system — ray-circle for laser hitscan, circle-circle for projectiles. DamageQueue buffers damage between system sets. 5 unit tests + 8 integration tests added.
+- 2026-02-26: Code review fixes — strengthened multi-hit test assertion (AC #7), added `#![deny(clippy::unwrap_used)]` to lib.rs (AC #9), updated 6 stale "future story" comments in weapons.rs.
 
 ### File List
 
 - `src/core/collision.rs` — CREATED: Collision math functions, Collider/Health components, DamageQueue resource, check_laser_collisions, check_projectile_collisions, apply_damage, despawn_destroyed systems, 5 unit tests
 - `src/core/mod.rs` — MODIFIED: Added `pub mod collision`, imported collision systems and DamageQueue, registered systems in CoreSet::Collision and CoreSet::Damage
+- `src/core/weapons.rs` — MODIFIED: Updated 6 stale "future story" comments to reflect current implementation
+- `src/lib.rs` — MODIFIED: Added `#![deny(clippy::unwrap_used)]` enforcement
 - `tests/collision_damage.rs` — CREATED: 8 integration tests for collision and damage (laser/spread vs asteroid/drone, despawn, multiple hits, damage values)
 - `tests/helpers/mod.rs` — MODIFIED: Added collision/damage system imports and registration in test_app(), added spawn_asteroid() and spawn_drone() helpers
 
