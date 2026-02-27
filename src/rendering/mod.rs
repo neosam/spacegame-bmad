@@ -1,25 +1,62 @@
+pub mod effects;
 pub mod vector_art;
 
 use bevy::prelude::*;
 
+use crate::core::camera::camera_follow_player;
 use crate::core::flight::Player;
 use crate::core::weapons::{
     ActiveWeapon, Energy, FireCooldown, NeedsLaserVisual, NeedsProjectileVisual, WeaponConfig,
 };
 use crate::shared::components::Velocity;
 
+use self::effects::{
+    apply_screen_shake, remove_just_damaged_without_material, setup_destruction_assets,
+    setup_flash_materials, setup_impact_flash_assets, spawn_destruction_effects,
+    spawn_laser_impact_flash, trigger_damage_flash, trigger_screen_shake, update_damage_flash,
+    update_destruction_effects, update_impact_flashes, ScreenShake,
+};
 use self::vector_art::{generate_laser_mesh, generate_player_mesh, generate_projectile_mesh};
 
 pub struct RenderingPlugin;
 
 impl Plugin for RenderingPlugin {
     fn build(&self, app: &mut App) {
+        // Initialize resources
+        app.init_resource::<ScreenShake>();
+        
+        // Startup systems
         app.add_systems(
             Startup,
-            (setup_player, setup_laser_assets, setup_projectile_assets),
+            (
+                setup_player,
+                setup_laser_assets,
+                setup_projectile_assets,
+                setup_flash_materials,
+                setup_destruction_assets,
+                setup_impact_flash_assets,
+            ),
         );
-        // Render visuals after core systems spawn entities
-        app.add_systems(Update, (render_laser_pulses, render_spread_projectiles));
+        
+        // Update systems: visual effects
+        app.add_systems(
+            Update,
+            (
+                render_laser_pulses,
+                render_spread_projectiles,
+                trigger_damage_flash,
+                remove_just_damaged_without_material,
+                update_damage_flash,
+                trigger_screen_shake.before(spawn_destruction_effects),
+                spawn_destruction_effects,
+                update_destruction_effects,
+                spawn_laser_impact_flash,
+                update_impact_flashes,
+            ),
+        );
+        
+        // PostUpdate systems: camera effects (after camera_follow_player)
+        app.add_systems(PostUpdate, apply_screen_shake.after(camera_follow_player));
     }
 }
 

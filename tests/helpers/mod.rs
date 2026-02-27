@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use void_drifter::core::collision::{
     apply_damage, check_laser_collisions, check_projectile_collisions, despawn_destroyed,
-    Collider, DamageQueue, Health,
+    Collider, DamageQueue, DestroyedPositions, Health, LaserHitPositions,
 };
 use void_drifter::core::flight::{
     apply_drag, apply_rotation, apply_thrust, apply_velocity, FlightConfig, Player,
@@ -27,6 +27,8 @@ pub fn test_app() -> App {
     app.insert_resource(FlightConfig::default());
     app.insert_resource(WeaponConfig::default());
     app.init_resource::<DamageQueue>();
+    app.init_resource::<DestroyedPositions>();
+    app.init_resource::<LaserHitPositions>();
     app.add_message::<LaserFired>();
     app.add_message::<SpreadFired>();
     // Match production: flight systems in FixedUpdate

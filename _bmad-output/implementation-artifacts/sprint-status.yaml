@@ -46,8 +46,8 @@ development_status:
   0-2-fire-laser: done
   0-3-fire-spread-projectiles: done
   0-4-switch-weapons: done
-  0-5-destroy-asteroids-and-drones: review
-  0-6-visual-feedback: backlog
+  0-5-destroy-asteroids-and-drones: done
+  0-6-visual-feedback: done
   0-7-instant-respawn: backlog
   epic-0-retrospective: optional
 

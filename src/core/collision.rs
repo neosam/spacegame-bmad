@@ -1,6 +1,7 @@
 use bevy::ecs::message::MessageReader;
 use bevy::prelude::*;
 
+use crate::shared::components::JustDamaged;
 use super::weapons::{LaserFired, SpreadProjectile, WeaponConfig};
 
 /// Radius used for spread projectile collision checks.
@@ -82,19 +83,33 @@ pub struct DamageQueue {
     pub entries: Vec<(Entity, f32)>,
 }
 
+/// Positions of entities destroyed this frame. Cleared after rendering consumes them.
+#[derive(Resource, Default)]
+pub struct DestroyedPositions {
+    pub positions: Vec<Vec2>,
+}
+
+/// Positions of laser hits this frame. Cleared after rendering consumes them.
+#[derive(Resource, Default)]
+pub struct LaserHitPositions {
+    pub positions: Vec<Vec2>,
+}
+
 // ── Systems ─────────────────────────────────────────────────────────────
 
 /// Reads `LaserFired` messages and checks ray-circle intersection against
 /// all entities with `Collider` and `Health`. Finds the closest hit and
-/// stores its damage in the `DamageQueue`.
+/// stores its damage in the `DamageQueue` and hit position in `LaserHitPositions`.
 pub fn check_laser_collisions(
     mut laser_reader: MessageReader<LaserFired>,
     config: Res<WeaponConfig>,
     colliders: Query<(Entity, &Transform, &Collider), With<Health>>,
     mut damage_queue: ResMut<DamageQueue>,
+    mut laser_hit_positions: ResMut<LaserHitPositions>,
 ) {
     for laser in laser_reader.read() {
         let mut closest_hit: Option<Entity> = None;
+        let mut closest_hit_point: Option<Vec2> = None;
         let mut closest_distance = laser.range;
 
         for (entity, transform, collider) in colliders.iter() {
@@ -111,13 +126,17 @@ pub fn check_laser_collisions(
                 if distance < closest_distance {
                     closest_distance = distance;
                     closest_hit = Some(entity);
+                    closest_hit_point = Some(hit_point);
                 }
             }
         }
 
-        // Apply damage to closest hit
+        // Apply damage to closest hit and record hit position
         if let Some(entity) = closest_hit {
             damage_queue.entries.push((entity, config.laser_damage));
+            if let Some(hit_point) = closest_hit_point {
+                laser_hit_positions.positions.push(hit_point);
+            }
         }
     }
 }
@@ -159,24 +178,31 @@ pub fn check_projectile_collisions(
 
 /// Applies accumulated damage from `DamageQueue` to `Health` components.
 /// Allows multiple hits to the same entity in one frame (no invincibility).
+/// Inserts `JustDamaged` component on entities that receive damage for visual feedback.
 pub fn apply_damage(
+    mut commands: Commands,
     mut query: Query<&mut Health>,
     mut damage_queue: ResMut<DamageQueue>,
 ) {
     for (entity, amount) in damage_queue.entries.drain(..) {
         if let Ok(mut health) = query.get_mut(entity) {
             health.current = (health.current - amount).max(0.0);
+            commands.entity(entity).insert(JustDamaged { amount });
         }
     }
 }
 
 /// Despawns entities whose health has reached zero or below.
+/// Records positions of destroyed entities in `DestroyedPositions` for visual effects.
 pub fn despawn_destroyed(
     mut commands: Commands,
-    query: Query<(Entity, &Health)>,
+    query: Query<(Entity, &Health, &Transform)>,
+    mut destroyed_positions: ResMut<DestroyedPositions>,
 ) {
-    for (entity, health) in query.iter() {
+    for (entity, health, transform) in query.iter() {
         if health.current <= 0.0 {
+            let position = Vec2::new(transform.translation.x, transform.translation.y);
+            destroyed_positions.positions.push(position);
             commands.entity(entity).despawn();
         }
     }

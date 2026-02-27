@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use self::camera::camera_follow_player;
 use self::collision::{
     apply_damage, check_laser_collisions, check_projectile_collisions, despawn_destroyed,
-    DamageQueue,
+    DamageQueue, DestroyedPositions, LaserHitPositions,
 };
 use self::flight::{apply_drag, apply_rotation, apply_thrust, apply_velocity, FlightConfig};
 use self::input::{read_input, ActionState};
@@ -123,6 +123,8 @@ impl Plugin for CorePlugin {
 
         // Collision detection in Collision set
         app.init_resource::<DamageQueue>();
+        app.init_resource::<DestroyedPositions>();
+        app.init_resource::<LaserHitPositions>();
         app.add_systems(
             FixedUpdate,
             (check_laser_collisions, check_projectile_collisions).in_set(CoreSet::Collision),
