@@ -10,3 +10,17 @@ pub struct Velocity(pub Vec2);
 pub struct JustDamaged {
     pub amount: f32,
 }
+
+/// Cooldown on contact damage to prevent instant death from continuous overlap.
+/// While active, player does not take body-collision damage.
+#[derive(Component, Debug)]
+pub struct ContactDamageCooldown {
+    pub timer: f32,
+}
+
+/// Player is immune to damage. Removed when timer expires.
+/// Written/removed by core/collision.rs, read by rendering/effects.rs for blink visual.
+#[derive(Component, Debug)]
+pub struct Invincible {
+    pub timer: f32,
+}

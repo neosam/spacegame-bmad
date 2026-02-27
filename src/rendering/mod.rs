@@ -5,6 +5,7 @@ pub mod vector_art;
 use bevy::prelude::*;
 
 use crate::core::camera::camera_follow_player;
+use crate::core::collision::{Collider, Health};
 use crate::core::flight::Player;
 use crate::core::weapons::{
     ActiveWeapon, Energy, FireCooldown, NeedsLaserVisual, NeedsProjectileVisual, WeaponConfig,
@@ -12,10 +13,11 @@ use crate::core::weapons::{
 use crate::shared::components::Velocity;
 
 use self::effects::{
-    apply_screen_shake, remove_just_damaged_without_material, setup_destruction_assets,
-    setup_flash_materials, setup_impact_flash_assets, spawn_destruction_effects,
-    spawn_laser_impact_flash, trigger_damage_flash, trigger_screen_shake, update_damage_flash,
-    update_destruction_effects, update_impact_flashes, ScreenShake,
+    apply_screen_shake, blink_invincible, remove_just_damaged_without_material,
+    setup_destruction_assets, setup_flash_materials, setup_impact_flash_assets,
+    spawn_destruction_effects, spawn_laser_impact_flash, trigger_damage_flash,
+    trigger_screen_shake, update_damage_flash, update_destruction_effects, update_impact_flashes,
+    ScreenShake,
 };
 use self::background::{setup_starfield, update_starfield, StarfieldConfig};
 use self::vector_art::{generate_laser_mesh, generate_player_mesh, generate_projectile_mesh};
@@ -57,6 +59,7 @@ impl Plugin for RenderingPlugin {
                 spawn_laser_impact_flash,
                 update_impact_flashes,
                 update_starfield,
+                blink_invincible,
             ),
         );
         
@@ -150,6 +153,11 @@ fn setup_player(
     commands.spawn((
         Player,
         Velocity::default(),
+        Health {
+            current: 100.0,
+            max: 100.0,
+        },
+        Collider { radius: 12.0 },
         FireCooldown::default(),
         Energy {
             current: config.energy_max,

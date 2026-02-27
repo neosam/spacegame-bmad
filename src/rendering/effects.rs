@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use crate::core::collision::{DestroyedPositions, LaserHitPositions};
 use crate::core::flight::Player;
-use crate::shared::components::JustDamaged;
+use crate::shared::components::{Invincible, JustDamaged};
 
 /// Camera shake using trauma model.
 /// Offset = max_offset * trauma² * oscillation_direction.
@@ -294,6 +294,23 @@ pub fn update_impact_flashes(
     }
 }
 
+// ── Invincibility Blink ─────────────────────────────────────────────────────
+
+/// Toggles player visibility at 10 Hz while Invincible component is present.
+pub fn blink_invincible(
+    time: Res<Time>,
+    mut query: Query<&mut Visibility, With<Invincible>>,
+) {
+    let visible = (time.elapsed_secs() * 10.0 * std::f32::consts::PI).sin() > 0.0;
+    for mut visibility in query.iter_mut() {
+        *visibility = if visible {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+    }
+}
+
 // ── Unit tests ──────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -518,6 +535,47 @@ mod tests {
         assert!(
             app.world().get_entity(entity).is_err(),
             "Impact flash entity should be despawned after timer expires"
+        );
+    }
+
+    #[test]
+    fn blink_invincible_toggles_visibility() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
+            1.0 / 60.0,
+        )));
+        app.insert_resource(Time::<Update>::default());
+
+        let entity = app
+            .world_mut()
+            .spawn((Invincible { timer: 2.0 }, Visibility::Inherited))
+            .id();
+
+        app.add_systems(Update, blink_invincible);
+        app.update(); // Prime
+
+        // Run several frames and track visibility changes
+        let mut saw_hidden = false;
+        let mut saw_inherited = false;
+        for _ in 0..20 {
+            app.update();
+            let vis = app
+                .world()
+                .entity(entity)
+                .get::<Visibility>()
+                .expect("Entity should have Visibility");
+            match *vis {
+                Visibility::Hidden => saw_hidden = true,
+                Visibility::Inherited => saw_inherited = true,
+                _ => {}
+            }
+        }
+
+        assert!(saw_hidden, "Should have toggled to Hidden at least once");
+        assert!(
+            saw_inherited,
+            "Should have toggled to Inherited at least once"
         );
     }
 }

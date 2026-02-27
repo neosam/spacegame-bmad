@@ -8,8 +8,9 @@ use bevy::prelude::*;
 
 use self::camera::camera_follow_player;
 use self::collision::{
-    apply_damage, check_laser_collisions, check_projectile_collisions, despawn_destroyed,
-    DamageQueue, DestroyedPositions, LaserHitPositions,
+    apply_damage, check_contact_collisions, check_laser_collisions, check_projectile_collisions,
+    despawn_destroyed, handle_player_death, tick_contact_cooldown, tick_invincibility, DamageQueue,
+    DestroyedPositions, LaserHitPositions,
 };
 use self::flight::{apply_drag, apply_rotation, apply_thrust, apply_velocity, FlightConfig};
 use self::input::{read_input, ActionState};
@@ -126,15 +127,26 @@ impl Plugin for CorePlugin {
         app.init_resource::<LaserHitPositions>();
         app.add_systems(
             FixedUpdate,
-            (check_laser_collisions, check_projectile_collisions).in_set(CoreSet::Collision),
+            (
+                check_laser_collisions,
+                check_projectile_collisions,
+                check_contact_collisions,
+            )
+                .in_set(CoreSet::Collision),
         );
 
-        // Damage application in Damage set
+        // Damage application in Damage set (3-way chain: apply → player death → despawn)
         app.add_systems(
             FixedUpdate,
-            (apply_damage, despawn_destroyed)
+            (apply_damage, handle_player_death, despawn_destroyed)
                 .chain()
                 .in_set(CoreSet::Damage),
+        );
+
+        // Post-damage systems: cooldown tick, invincibility tick
+        app.add_systems(
+            FixedUpdate,
+            (tick_contact_cooldown, tick_invincibility).after(CoreSet::Damage),
         );
 
         // Camera follow in PostUpdate

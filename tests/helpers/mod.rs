@@ -3,8 +3,9 @@ use std::time::Duration;
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use void_drifter::core::collision::{
-    apply_damage, check_laser_collisions, check_projectile_collisions, despawn_destroyed,
-    Collider, DamageQueue, DestroyedPositions, Health, LaserHitPositions,
+    apply_damage, check_contact_collisions, check_laser_collisions, check_projectile_collisions,
+    despawn_destroyed, handle_player_death, tick_contact_cooldown, tick_invincibility, Collider,
+    DamageQueue, DestroyedPositions, Health, LaserHitPositions,
 };
 use void_drifter::core::flight::{
     apply_drag, apply_rotation, apply_thrust, apply_velocity, FlightConfig, Player,
@@ -50,8 +51,12 @@ pub fn test_app() -> App {
             tick_spread_projectiles,
             check_laser_collisions,
             check_projectile_collisions,
+            check_contact_collisions,
             apply_damage,
+            handle_player_death,
             despawn_destroyed,
+            tick_contact_cooldown,
+            tick_invincibility,
         )
             .chain(),
     );
@@ -95,12 +100,17 @@ pub fn spawn_drone(app: &mut App, position: Vec2, radius: f32, health: f32) -> E
         .id()
 }
 
-/// Spawn a player entity at the origin facing +Y with FireCooldown, Energy, and ActiveWeapon.
+/// Spawn a player entity at the origin facing +Y with FireCooldown, Energy, ActiveWeapon, Health, and Collider.
 pub fn spawn_player(app: &mut App) -> Entity {
     app.world_mut()
         .spawn((
             Player,
             Velocity::default(),
+            Health {
+                current: 100.0,
+                max: 100.0,
+            },
+            Collider { radius: 12.0 },
             FireCooldown::default(),
             Energy::default(),
             ActiveWeapon::default(),
@@ -116,6 +126,11 @@ pub fn spawn_player_with_velocity(app: &mut App, velocity: Vec2) -> Entity {
         .spawn((
             Player,
             Velocity(velocity),
+            Health {
+                current: 100.0,
+                max: 100.0,
+            },
+            Collider { radius: 12.0 },
             FireCooldown::default(),
             Energy::default(),
             ActiveWeapon::default(),

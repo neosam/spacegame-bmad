@@ -48,7 +48,7 @@ development_status:
   0-4-switch-weapons: done
   0-5-destroy-asteroids-and-drones: done
   0-6-visual-feedback: done
-  0-7-instant-respawn: backlog
+  0-7-instant-respawn: done
   epic-0-retrospective: optional
 
   # ── Epic 1: Open World Foundation (Must | Dependencies: Epic 0) ──
