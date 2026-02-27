@@ -20,7 +20,7 @@ use void_drifter::core::weapons::{
     SpreadFired, WeaponConfig,
 };
 use void_drifter::shared::components::Velocity;
-use void_drifter::world::{update_chunks, ActiveChunks, WorldConfig};
+use void_drifter::world::{update_chunks, ActiveChunks, BiomeConfig, WorldConfig};
 
 /// Create a minimal test App with flight, weapon, collision, and damage systems.
 /// Systems run in FixedUpdate to match production scheduling.
@@ -36,6 +36,7 @@ pub fn test_app() -> App {
     app.init_resource::<LaserHitPositions>();
     app.insert_resource(SpawningConfig::default());
     app.insert_resource(WorldConfig::default());
+    app.insert_resource(BiomeConfig::default());
     app.init_resource::<ActiveChunks>();
     app.add_message::<LaserFired>();
     app.add_message::<SpreadFired>();

@@ -5,11 +5,11 @@ mod helpers;
 use bevy::prelude::*;
 use helpers::{spawn_player, test_app};
 use void_drifter::core::collision::{Collider, Health};
-use void_drifter::core::spawning::{Asteroid, ScoutDrone};
+use void_drifter::core::spawning::Asteroid;
 use void_drifter::shared::components::Velocity;
-use void_drifter::world::{ActiveChunks, ChunkEntity, WorldConfig};
+use void_drifter::world::{ActiveChunks, BiomeConfig, BiomeType, ChunkEntity, WorldConfig};
 
-/// Player at origin → chunks within load_radius are populated with entities (AC: #1, #2)
+/// Player at origin -> chunks within load_radius are populated with entities (AC: #1, #2)
 #[test]
 fn player_at_origin_loads_chunks_with_entities() {
     let mut app = test_app();
@@ -40,7 +40,7 @@ fn player_at_origin_loads_chunks_with_entities() {
     );
 }
 
-/// Player moves to new chunk → new chunk loads, distant chunk unloads (AC: #2, #4)
+/// Player moves to new chunk -> new chunk loads, distant chunk unloads (AC: #2, #4)
 #[test]
 fn player_movement_triggers_chunk_load_unload() {
     let mut app = test_app();
@@ -49,7 +49,8 @@ fn player_movement_triggers_chunk_load_unload() {
     // Initial load at origin
     app.update();
 
-    let initial_chunks = app.world().resource::<ActiveChunks>().chunks.clone();
+    let initial_chunks: std::collections::HashSet<_> =
+        app.world().resource::<ActiveChunks>().chunks.keys().copied().collect();
 
     // Move player far enough to change chunk (chunk_size = 1000, move 3000 units)
     app.world_mut()
@@ -60,14 +61,14 @@ fn player_movement_triggers_chunk_load_unload() {
 
     app.update();
 
-    let new_chunks = app.world().resource::<ActiveChunks>().chunks.clone();
+    let new_chunks: std::collections::HashSet<_> =
+        app.world().resource::<ActiveChunks>().chunks.keys().copied().collect();
     assert_ne!(
         initial_chunks, new_chunks,
         "Chunks should change when player moves to a different chunk"
     );
 
     // Old chunks far from new position should be unloaded
-    // Player is now at chunk (3, 0), old chunks at e.g. (-2, -2) should be gone
     let chunk_coord = void_drifter::world::chunk::ChunkCoord { x: -2, y: -2 };
     assert!(
         !new_chunks.contains(&chunk_coord),
@@ -120,49 +121,38 @@ fn chunk_unload_despawns_entities() {
     );
 }
 
-/// Entities have correct components (AC: #3, #5)
+/// Entities have correct components including BiomeType (AC: #3, #4, #5)
 #[test]
 fn chunk_entities_have_correct_components() {
     let mut app = test_app();
     spawn_player(&mut app);
     app.update();
 
-    // Check asteroids
-    let mut asteroid_query = app
+    let biome_config = BiomeConfig::default();
+
+    // Check that all chunk entities have BiomeType component
+    let mut biome_query = app
         .world_mut()
-        .query_filtered::<(&Health, &Collider, &Velocity, &ChunkEntity), With<Asteroid>>();
-    let asteroid_count = asteroid_query.iter(app.world()).count();
+        .query_filtered::<(&Health, &Collider, &Velocity, &ChunkEntity, &BiomeType), With<Asteroid>>();
+    let asteroid_count = biome_query.iter(app.world()).count();
     assert!(asteroid_count > 0, "Should have spawned asteroids");
 
-    let config = WorldConfig::default();
-    for (health, collider, _velocity, _chunk) in asteroid_query.iter(app.world()) {
+    for (health, collider, _velocity, _chunk, biome) in biome_query.iter(app.world()) {
+        let params = biome_config.params_for(*biome);
         assert!(
-            (health.max - config.asteroid_health).abs() < f32::EPSILON,
-            "Asteroid health should match config"
+            (health.max - params.asteroid_health).abs() < f32::EPSILON,
+            "Asteroid health {} should match biome {:?} config {}",
+            health.max, biome, params.asteroid_health
         );
         assert!(
-            (collider.radius - config.asteroid_radius).abs() < f32::EPSILON,
-            "Asteroid radius should match config"
-        );
-    }
-
-    // Check drones (may or may not exist depending on RNG, just verify components if present)
-    let mut drone_query = app
-        .world_mut()
-        .query_filtered::<(&Health, &Collider, &Velocity, &ChunkEntity), With<ScoutDrone>>();
-    for (health, collider, _velocity, _chunk) in drone_query.iter(app.world()) {
-        assert!(
-            (health.max - config.drone_health).abs() < f32::EPSILON,
-            "Drone health should match config"
-        );
-        assert!(
-            (collider.radius - config.drone_radius).abs() < f32::EPSILON,
-            "Drone radius should match config"
+            (collider.radius - params.asteroid_radius).abs() < f32::EPSILON,
+            "Asteroid radius {} should match biome {:?} config {}",
+            collider.radius, biome, params.asteroid_radius
         );
     }
 }
 
-/// Chunk determinism: reload same chunk → same entities at same positions (AC: #3)
+/// Chunk determinism: reload same chunk -> same entities at same positions (AC: #3, #8)
 #[test]
 fn chunk_reload_produces_same_entities() {
     let mut app = test_app();
@@ -193,7 +183,7 @@ fn chunk_reload_produces_same_entities() {
     // Verify chunk (0,0) is unloaded
     let active = app.world().resource::<ActiveChunks>();
     assert!(
-        !active.chunks.contains(&target_chunk),
+        !active.chunks.contains_key(&target_chunk),
         "Chunk (0,0) should be unloaded"
     );
 
@@ -231,7 +221,7 @@ fn chunk_reload_produces_same_entities() {
     }
 }
 
-/// Total entity count stays within budget (AC: #6)
+/// Total entity count stays within budget (AC: #7)
 #[test]
 fn entity_count_within_budget() {
     let mut app = test_app();
@@ -251,7 +241,7 @@ fn entity_count_within_budget() {
     );
 }
 
-/// Entity budget is enforced even when many chunks load at once (AC: #6)
+/// Entity budget is enforced even when many chunks load at once (AC: #7)
 #[test]
 fn entity_budget_enforced_across_multi_chunk_load() {
     use std::time::Duration;
@@ -260,10 +250,9 @@ fn entity_budget_enforced_across_multi_chunk_load() {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
     // Use a very small budget to prove enforcement works
-    let mut config = WorldConfig::default();
-    config.entity_budget = 20;
-    config.load_radius = 2; // 5x5 = 25 chunks, each with 3-10 entities → would be 75-250 without budget
-    app.insert_resource(config.clone());
+    let config = WorldConfig { entity_budget: 20, load_radius: 2, ..Default::default() };
+    app.insert_resource(config);
+    app.insert_resource(BiomeConfig::default());
     app.init_resource::<ActiveChunks>();
     app.add_systems(FixedUpdate, void_drifter::world::update_chunks);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)));
@@ -290,7 +279,7 @@ fn entity_budget_enforced_across_multi_chunk_load() {
     );
 }
 
-/// Entity budget accounts for non-chunk collidable entities like player and manual spawns (AC: #6)
+/// Entity budget accounts for non-chunk collidable entities (AC: #7)
 #[test]
 fn entity_budget_accounts_for_non_chunk_collidable_entities() {
     use std::time::Duration;
@@ -299,11 +288,9 @@ fn entity_budget_accounts_for_non_chunk_collidable_entities() {
 
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
-    // Small budget to prove non-chunk entities are counted
-    let mut config = WorldConfig::default();
-    config.entity_budget = 20;
-    config.load_radius = 2; // 25 chunks, would produce 75-250 entities without budget
+    let config = WorldConfig { entity_budget: 20, load_radius: 2, ..Default::default() };
     app.insert_resource(config);
+    app.insert_resource(BiomeConfig::default());
     app.init_resource::<ActiveChunks>();
     app.add_systems(FixedUpdate, void_drifter::world::update_chunks);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)));
@@ -326,7 +313,7 @@ fn entity_budget_accounts_for_non_chunk_collidable_entities() {
         ));
     }
 
-    // 11 pre-existing collidable entities → only 9 more chunk entities allowed
+    // 11 pre-existing collidable entities -> only 9 more chunk entities allowed
     app.update();
 
     let chunk_count = app
@@ -353,11 +340,10 @@ fn entity_budget_accounts_for_non_chunk_collidable_entities() {
     );
 }
 
-/// Chunk system does not panic when no player exists (AC: #8 — robustness)
+/// Chunk system does not panic when no player exists (robustness)
 #[test]
 fn update_chunks_without_player_does_not_panic() {
     let mut app = test_app();
-    // No player spawned — update_chunks should early-return gracefully
 
     app.update();
 
@@ -441,7 +427,235 @@ fn laser_hits_chunk_spawned_asteroid() {
             );
         }
         Err(_) => {
-            // Entity was destroyed — also valid, means damage was applied
+            // Entity was destroyed -- also valid, means damage was applied
+        }
+    }
+}
+
+// ── Biome-specific integration tests (Story 1.2) ────────────────────────
+
+/// Chunk spawned entities have BiomeType component matching chunk's biome (AC: #4, #5)
+#[test]
+fn chunk_entities_have_biome_component() {
+    let mut app = test_app();
+    spawn_player(&mut app);
+    app.update();
+
+    // All chunk entities should have a BiomeType component
+    let mut query = app
+        .world_mut()
+        .query_filtered::<(&ChunkEntity, &BiomeType), With<Collider>>();
+    let count = query.iter(app.world()).count();
+    assert!(
+        count > 0,
+        "Should have chunk entities with BiomeType component"
+    );
+
+    // The BiomeType on each entity should match the chunk's biome in ActiveChunks
+    let active = app.world().resource::<ActiveChunks>();
+    for (chunk_ent, biome) in query.iter(app.world()) {
+        let expected_biome = active
+            .chunks
+            .get(&chunk_ent.coord)
+            .expect("Chunk should be tracked in ActiveChunks");
+        assert_eq!(
+            biome, expected_biome,
+            "Entity biome {:?} should match chunk ({},{}) biome {:?}",
+            biome, chunk_ent.coord.x, chunk_ent.coord.y, expected_biome
+        );
+    }
+}
+
+/// Chunk reload produces same biome type (AC: #2, #8)
+#[test]
+fn chunk_reload_produces_same_biome() {
+    let mut app = test_app();
+    let player = spawn_player(&mut app);
+    app.update();
+
+    let target_chunk = void_drifter::world::chunk::ChunkCoord { x: 0, y: 0 };
+
+    // Record initial biome for chunk (0,0)
+    let initial_biome = *app
+        .world()
+        .resource::<ActiveChunks>()
+        .chunks
+        .get(&target_chunk)
+        .expect("Chunk (0,0) should be loaded");
+
+    // Move player far away to unload
+    app.world_mut()
+        .entity_mut(player)
+        .get_mut::<Transform>()
+        .expect("Player should have Transform")
+        .translation = Vec3::new(10000.0, 10000.0, 0.0);
+    app.update();
+
+    // Move back to reload
+    app.world_mut()
+        .entity_mut(player)
+        .get_mut::<Transform>()
+        .expect("Player should have Transform")
+        .translation = Vec3::ZERO;
+    app.update();
+
+    let reloaded_biome = *app
+        .world()
+        .resource::<ActiveChunks>()
+        .chunks
+        .get(&target_chunk)
+        .expect("Chunk (0,0) should be reloaded");
+
+    assert_eq!(
+        initial_biome, reloaded_biome,
+        "Chunk (0,0) biome should be the same after reload"
+    );
+}
+
+/// Multiple biome types appear across loaded chunks (AC: #6)
+#[test]
+fn multiple_biomes_appear_across_chunks() {
+    use std::time::Duration;
+    use bevy::time::TimeUpdateStrategy;
+
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    // Use large load_radius to get many chunks (11x11 = 121 chunks)
+    let config = WorldConfig { load_radius: 5, ..Default::default() };
+    app.insert_resource(config);
+    app.insert_resource(BiomeConfig::default());
+    app.init_resource::<ActiveChunks>();
+    app.add_systems(FixedUpdate, void_drifter::world::update_chunks);
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)));
+    app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
+    app.update(); // prime
+
+    app.world_mut().spawn((
+        void_drifter::core::flight::Player,
+        Transform::default(),
+    ));
+    app.update();
+
+    let active = app.world().resource::<ActiveChunks>();
+    let biome_types: std::collections::HashSet<BiomeType> =
+        active.chunks.values().copied().collect();
+    let total = active.chunks.len() as f32;
+
+    assert!(
+        biome_types.len() >= 3,
+        "Should have all 3 biome types across 121 chunks, got {biome_types:?}"
+    );
+
+    // AC6: No single biome dominates >60%
+    let mut counts = std::collections::HashMap::<BiomeType, usize>::new();
+    for biome in active.chunks.values() {
+        *counts.entry(*biome).or_insert(0) += 1;
+    }
+    for (biome, count) in &counts {
+        let pct = (*count as f32 / total) * 100.0;
+        assert!(
+            pct <= 60.0,
+            "Biome {biome:?} dominates {pct:.1}% ({count}/{}), exceeds 60% limit",
+            active.chunks.len()
+        );
+    }
+}
+
+/// Entity budget still enforced with high-density biome chunks (AC: #7)
+#[test]
+fn entity_budget_with_high_density_biome() {
+    use std::time::Duration;
+    use bevy::time::TimeUpdateStrategy;
+
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    let config = WorldConfig { entity_budget: 30, load_radius: 2, ..Default::default() };
+    app.insert_resource(config);
+    // Force all chunks to be AsteroidField (high density) by setting threshold to 0.0
+    let biome_config = BiomeConfig { deep_space_threshold: 0.0, asteroid_field_threshold: 1.0, ..Default::default() };
+    app.insert_resource(biome_config);
+    app.init_resource::<ActiveChunks>();
+    app.add_systems(FixedUpdate, void_drifter::world::update_chunks);
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)));
+    app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
+    app.update(); // prime
+
+    app.world_mut().spawn((
+        void_drifter::core::flight::Player,
+        Transform::default(),
+    ));
+    app.update();
+
+    let count = app
+        .world_mut()
+        .query_filtered::<Entity, With<ChunkEntity>>()
+        .iter(app.world())
+        .count();
+    assert!(
+        count <= 30,
+        "Entity budget of 30 should be enforced with all AsteroidField biomes, but got {count} entities"
+    );
+}
+
+/// Gameplay still works with biome-tagged asteroid (AC: #4)
+#[test]
+fn laser_hits_biome_tagged_asteroid() {
+    use void_drifter::core::input::ActionState;
+
+    let mut app = test_app();
+    let player = spawn_player(&mut app);
+    app.update();
+
+    // Find first chunk-spawned asteroid WITH BiomeType and record it
+    let (asteroid_entity, initial_health, asteroid_pos) = {
+        let mut query = app.world_mut().query_filtered::<(
+            Entity,
+            &Health,
+            &Transform,
+            &BiomeType,
+        ), (With<Asteroid>, With<ChunkEntity>)>();
+        let (entity, health, transform, _biome) = query
+            .iter(app.world())
+            .next()
+            .expect("Should have a biome-tagged asteroid");
+        (entity, health.current, Vec2::new(transform.translation.x, transform.translation.y))
+    };
+
+    // Position player close and fire
+    let direction = (asteroid_pos - Vec2::ZERO).normalize_or_zero();
+    let player_pos = asteroid_pos - direction * 30.0;
+    let angle = direction.y.atan2(direction.x) - std::f32::consts::FRAC_PI_2;
+    {
+        let mut entity_mut = app.world_mut().entity_mut(player);
+        let mut transform = entity_mut
+            .get_mut::<Transform>()
+            .expect("Player should have Transform");
+        transform.translation = player_pos.extend(0.0);
+        transform.rotation = Quat::from_rotation_z(angle);
+    }
+
+    app.world_mut().resource_mut::<ActionState>().fire = true;
+    app.update();
+    app.world_mut().resource_mut::<ActionState>().fire = false;
+
+    for _ in 0..5 {
+        app.update();
+    }
+
+    match app.world().get_entity(asteroid_entity) {
+        Ok(entity_ref) => {
+            let health = entity_ref
+                .get::<Health>()
+                .expect("Asteroid should have Health");
+            assert!(
+                health.current < initial_health,
+                "Biome-tagged asteroid should take damage: {} should be < {}",
+                health.current,
+                initial_health
+            );
+        }
+        Err(_) => {
+            // Destroyed = valid
         }
     }
 }
