@@ -1,0 +1,7 @@
+(
+    laser_fire_rate: 4.0,
+    laser_range: 500.0,
+    laser_damage: 10.0,
+    laser_pulse_duration: 0.08,
+    laser_width: 2.0,
+)

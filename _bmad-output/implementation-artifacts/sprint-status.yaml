@@ -1,0 +1,180 @@
+# generated: 2026-02-25
+# project: spacegame-bmad
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+#
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-02-25
+project: spacegame-bmad
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  # ── Epic 0: Arcade Prototype (Must | Dependencies: None) ──
+  epic-0: in-progress
+  0-1-thrust-and-rotate-ship: done
+  0-2-fire-laser: done
+  0-3-fire-spread-projectiles: backlog
+  0-4-switch-weapons: backlog
+  0-5-destroy-asteroids-and-drones: backlog
+  0-6-visual-feedback: backlog
+  0-7-instant-respawn: backlog
+  epic-0-retrospective: optional
+
+  # ── Epic 1: Open World Foundation (Must | Dependencies: Epic 0) ──
+  epic-1: backlog
+  1-1-seamless-world-generation: backlog
+  1-2-biome-types: backlog
+  1-3-minimap-blips: backlog
+  1-4-world-map: backlog
+  1-5-chunk-loading: backlog
+  1-6-noise-biome-distribution: backlog
+  1-7-event-system: backlog
+  1-8-save-system: backlog
+  1-9-delta-save: backlog
+  1-10-wasm-build: backlog
+  1-11-soft-speed-cap: backlog
+  epic-1-retrospective: optional
+
+  # ── Epic 2: Tutorial Zone (Must | Dependencies: Epic 1) ──
+  epic-2: backlog
+  2-1-tutorial-spawn: backlog
+  2-2-gravity-well: backlog
+  2-3-laser-at-wreck: backlog
+  2-4-enemies-after-laser: backlog
+  2-5-station-spread-weapon: backlog
+  2-6-destroy-generator: backlog
+  2-7-destruction-cascade: backlog
+  2-8-constraint-validation: backlog
+  epic-2-retrospective: optional
+
+  # ── Epic 3: Stations & Economy (Must | Dependencies: Epic 1) ──
+  epic-3: backlog
+  3-1-station-docking: backlog
+  3-2-station-shop-ui: backlog
+  3-3-earn-credits: backlog
+  3-4-material-drops: backlog
+  3-5-death-credit-loss: backlog
+  3-6-station-types: backlog
+  3-7-economy-scaling: backlog
+  epic-3-retrospective: optional
+
+  # ── Epic 4: Combat Depth (Must | Dependencies: Epic 1) ──
+  epic-4: backlog
+  4-1-scout-drones: backlog
+  4-2-fighters: backlog
+  4-3-heavy-cruisers: backlog
+  4-4-snipers: backlog
+  4-5-swarms: backlog
+  4-6-faction-behaviors: backlog
+  4-7-faction-territories: backlog
+  4-8-attack-telegraphing: backlog
+  4-9-damage-feedback: backlog
+  4-10-trader-ships: backlog
+  4-11-distance-difficulty-scaling: backlog
+  4-12-enemy-respawn: backlog
+  epic-4-retrospective: optional
+
+  # ── Epic 5: Progression & Upgrades (Should | Dependencies: Epic 3) ──
+  epic-5: backlog
+  5-1-craft-upgrades: backlog
+  5-2-upgrade-tiers: backlog
+  5-3-weapon-upgrades: backlog
+  5-4-recipe-discovery: backlog
+  5-5-visual-ship-changes: backlog
+  5-6-craft-buy-distinction: backlog
+  epic-5-retrospective: optional
+
+  # ── Epic 6a: Companion Core (Should | Dependencies: Epic 3, 4) ──
+  epic-6a: backlog
+  6a-1-recruit-companion: backlog
+  6a-2-companion-follow: backlog
+  6a-3-wingman-commands: backlog
+  6a-4-companion-visuals: backlog
+  6a-5-companion-survival: backlog
+  6a-6-companion-save: backlog
+  epic-6a-retrospective: optional
+
+  # ── Epic 6b: Companion Personality (Should | Dependencies: Epic 6a) ──
+  epic-6b: backlog
+  6b-1-contextual-barks: backlog
+  6b-2-opinion-system: backlog
+  6b-3-inter-companion-opinions: backlog
+  6b-4-personality-combat: backlog
+  epic-6b-retrospective: optional
+
+  # ── Epic 7: Boss Encounters (Should | Dependencies: Epic 4, 5) ──
+  epic-7: backlog
+  7-1-boss-encounters: backlog
+  7-2-boss-telegraphing: backlog
+  7-3-faction-bosses: backlog
+  7-4-boss-loot: backlog
+  7-5-boss-flee: backlog
+  epic-7-retrospective: optional
+
+  # ── Epic 8: Logbook UI (Should | Dependencies: Epic 6a) ──
+  epic-8: backlog
+  8-1-logbook-ui: backlog
+  8-2-severity-filtering: backlog
+  8-3-milestone-chapters: backlog
+  8-4-logbook-save: backlog
+  epic-8-retrospective: optional
+
+  # ── Epic 9: Wormhole Mini-Levels (Could | Dependencies: Epic 4, 5) ──
+  epic-9: backlog
+  9-1-wormhole-visuals: backlog
+  9-2-enter-wormhole: backlog
+  9-3-arena-combat: backlog
+  9-4-arena-rewards: backlog
+  9-5-isolated-scenes: backlog
+  epic-9-retrospective: optional
+
+  # ── Epic 10: Art & Audio Polish (Could | Dependencies: Core epics stable) ──
+  epic-10: backlog
+  10-1-vector-art: backlog
+  10-2-visual-audio-juice: backlog
+  10-3-juice-settings: backlog
+  10-4-atmospheric-background: backlog
+  10-5-music-crossfade: backlog
+  10-6-ambient-audio: backlog
+  epic-10-retrospective: optional
+
+  # ── Epic 11: Platform & Release (Could | Dependencies: All MVP epics) ──
+  epic-11: backlog
+  11-1-wasm-optimization: backlog
+  11-2-wasm-size: backlog
+  11-3-steam-deck: backlog
+  11-4-cloud-saves: backlog
+  11-5-performance-optimization: backlog
+  11-6-build-pipeline: backlog
+  epic-11-retrospective: optional
