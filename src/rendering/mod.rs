@@ -1,5 +1,6 @@
 pub mod background;
 pub mod effects;
+pub mod minimap;
 pub mod vector_art;
 
 use bevy::prelude::*;
@@ -21,6 +22,7 @@ use self::effects::{
     ScreenShake,
 };
 use self::background::{setup_starfield, update_starfield, StarfieldConfig};
+use self::minimap::{setup_minimap, update_minimap_blips, MinimapConfig, MinimapState};
 use self::vector_art::{
     generate_asteroid_mesh, generate_drone_mesh, generate_laser_mesh, generate_player_mesh,
     generate_projectile_mesh,
@@ -33,7 +35,25 @@ impl Plugin for RenderingPlugin {
         // Initialize resources
         app.init_resource::<ScreenShake>();
         app.init_resource::<StarfieldConfig>();
-        
+        app.init_resource::<MinimapState>();
+
+        // Load MinimapConfig from RON file with graceful fallback to defaults
+        let minimap_config_path = "assets/config/minimap.ron";
+        let minimap_config = match std::fs::read_to_string(minimap_config_path) {
+            Ok(contents) => match MinimapConfig::from_ron(&contents) {
+                Ok(config) => config,
+                Err(e) => {
+                    warn!("Failed to parse {minimap_config_path}: {e}. Using defaults.");
+                    MinimapConfig::default()
+                }
+            },
+            Err(e) => {
+                warn!("Failed to read {minimap_config_path}: {e}. Using defaults.");
+                MinimapConfig::default()
+            }
+        };
+        app.insert_resource(minimap_config);
+
         // Startup systems
         app.add_systems(
             Startup,
@@ -47,10 +67,11 @@ impl Plugin for RenderingPlugin {
                 setup_destruction_assets,
                 setup_impact_flash_assets,
                 setup_starfield,
+                setup_minimap,
             ),
         );
 
-        // Update systems: visual effects
+        // Update systems: visual effects + minimap
         app.add_systems(
             Update,
             (
@@ -68,9 +89,10 @@ impl Plugin for RenderingPlugin {
                 update_impact_flashes,
                 update_starfield,
                 blink_invincible,
+                update_minimap_blips,
             ),
         );
-        
+
         // PostUpdate systems: camera effects (after camera_follow_player)
         app.add_systems(PostUpdate, apply_screen_shake.after(camera_follow_player));
     }

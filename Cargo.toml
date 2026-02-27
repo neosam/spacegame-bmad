@@ -12,6 +12,7 @@ dev = ["bevy-inspector-egui", "bevy_egui"]
 [dependencies]
 bevy = { version = "0.18.0", default-features = false, features = [
     "2d",
+    "bevy_ui",
     "x11",
     "wayland",
 ] }

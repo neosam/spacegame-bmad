@@ -20,6 +20,7 @@ use void_drifter::core::weapons::{
     SpreadFired, WeaponConfig,
 };
 use void_drifter::shared::components::Velocity;
+use void_drifter::rendering::minimap::{MinimapConfig, MinimapState};
 use void_drifter::world::{update_chunks, ActiveChunks, BiomeConfig, WorldConfig};
 
 /// Create a minimal test App with flight, weapon, collision, and damage systems.
@@ -37,6 +38,8 @@ pub fn test_app() -> App {
     app.insert_resource(SpawningConfig::default());
     app.insert_resource(WorldConfig::default());
     app.insert_resource(BiomeConfig::default());
+    app.insert_resource(MinimapConfig::default());
+    app.init_resource::<MinimapState>();
     app.init_resource::<ActiveChunks>();
     app.add_message::<LaserFired>();
     app.add_message::<SpreadFired>();
