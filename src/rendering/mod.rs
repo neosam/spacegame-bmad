@@ -2,6 +2,7 @@ pub mod background;
 pub mod effects;
 pub mod minimap;
 pub mod vector_art;
+pub mod world_map;
 
 use bevy::prelude::*;
 
@@ -23,6 +24,7 @@ use self::effects::{
 };
 use self::background::{setup_starfield, update_starfield, StarfieldConfig};
 use self::minimap::{setup_minimap, update_minimap_blips, MinimapConfig, MinimapState};
+use self::world_map::{toggle_world_map, update_world_map, WorldMapConfig, WorldMapOpen, WorldMapState};
 use self::vector_art::{
     generate_asteroid_mesh, generate_drone_mesh, generate_laser_mesh, generate_player_mesh,
     generate_projectile_mesh,
@@ -53,6 +55,25 @@ impl Plugin for RenderingPlugin {
             }
         };
         app.insert_resource(minimap_config);
+
+        // Load WorldMapConfig from RON file with graceful fallback to defaults
+        let world_map_config_path = "assets/config/world_map.ron";
+        let world_map_config = match std::fs::read_to_string(world_map_config_path) {
+            Ok(contents) => match WorldMapConfig::from_ron(&contents) {
+                Ok(config) => config,
+                Err(e) => {
+                    warn!("Failed to parse {world_map_config_path}: {e}. Using defaults.");
+                    WorldMapConfig::default()
+                }
+            },
+            Err(e) => {
+                warn!("Failed to read {world_map_config_path}: {e}. Using defaults.");
+                WorldMapConfig::default()
+            }
+        };
+        app.insert_resource(world_map_config);
+        app.init_resource::<WorldMapOpen>();
+        app.init_resource::<WorldMapState>();
 
         // Startup systems
         app.add_systems(
@@ -90,6 +111,7 @@ impl Plugin for RenderingPlugin {
                 update_starfield,
                 blink_invincible,
                 update_minimap_blips,
+                (toggle_world_map, update_world_map).chain(),
             ),
         );
 

@@ -7,7 +7,7 @@ use helpers::{spawn_player, test_app};
 use void_drifter::core::collision::{Collider, Health};
 use void_drifter::core::spawning::Asteroid;
 use void_drifter::shared::components::Velocity;
-use void_drifter::world::{ActiveChunks, BiomeConfig, BiomeType, ChunkEntity, WorldConfig};
+use void_drifter::world::{ActiveChunks, BiomeConfig, BiomeType, ChunkEntity, ExploredChunks, WorldConfig};
 
 /// Player at origin -> chunks within load_radius are populated with entities (AC: #1, #2)
 #[test]
@@ -254,6 +254,7 @@ fn entity_budget_enforced_across_multi_chunk_load() {
     app.insert_resource(config);
     app.insert_resource(BiomeConfig::default());
     app.init_resource::<ActiveChunks>();
+    app.init_resource::<ExploredChunks>();
     app.add_systems(FixedUpdate, void_drifter::world::update_chunks);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)));
     app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
@@ -292,6 +293,7 @@ fn entity_budget_accounts_for_non_chunk_collidable_entities() {
     app.insert_resource(config);
     app.insert_resource(BiomeConfig::default());
     app.init_resource::<ActiveChunks>();
+    app.init_resource::<ExploredChunks>();
     app.add_systems(FixedUpdate, void_drifter::world::update_chunks);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)));
     app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
@@ -525,6 +527,7 @@ fn multiple_biomes_appear_across_chunks() {
     app.insert_resource(config);
     app.insert_resource(BiomeConfig::default());
     app.init_resource::<ActiveChunks>();
+    app.init_resource::<ExploredChunks>();
     app.add_systems(FixedUpdate, void_drifter::world::update_chunks);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)));
     app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
@@ -575,6 +578,7 @@ fn entity_budget_with_high_density_biome() {
     let biome_config = BiomeConfig { deep_space_threshold: 0.0, asteroid_field_threshold: 1.0, ..Default::default() };
     app.insert_resource(biome_config);
     app.init_resource::<ActiveChunks>();
+    app.init_resource::<ExploredChunks>();
     app.add_systems(FixedUpdate, void_drifter::world::update_chunks);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)));
     app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));

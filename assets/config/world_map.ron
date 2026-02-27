@@ -1,0 +1,11 @@
+(
+    tile_size: 12.0,
+    player_marker_size: 8.0,
+    map_width: 800.0,
+    map_height: 600.0,
+    color_deep_space: (0.08, 0.08, 0.2, 0.9),
+    color_asteroid_field: (0.45, 0.45, 0.45, 0.9),
+    color_wreck_field: (0.6, 0.4, 0.15, 0.9),
+    color_player: (1.0, 1.0, 1.0, 1.0),
+    color_background: (0.0, 0.0, 0.0, 0.75),
+)

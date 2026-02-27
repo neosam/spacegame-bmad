@@ -178,16 +178,25 @@ pub struct ActiveChunks {
     pub chunks: std::collections::HashMap<ChunkCoord, BiomeType>,
 }
 
+/// Tracks all chunks the player has ever visited (permanent discovery).
+/// Used by the world map to show explored areas.
+#[derive(Resource, Default, Debug)]
+pub struct ExploredChunks {
+    pub chunks: std::collections::HashMap<ChunkCoord, BiomeType>,
+}
+
 // ── Systems ─────────────────────────────────────────────────────────────
 
 /// Computes the desired set of chunks from the player's position,
 /// spawns entities for new chunks, and despawns entities for removed chunks.
+#[allow(clippy::too_many_arguments)]
 pub fn update_chunks(
     mut commands: Commands,
     player_query: Query<&Transform, With<Player>>,
     config: Res<WorldConfig>,
     biome_config: Res<BiomeConfig>,
     mut active_chunks: ResMut<ActiveChunks>,
+    mut explored_chunks: ResMut<ExploredChunks>,
     chunk_entities: Query<(Entity, &ChunkEntity)>,
     all_collidable: Query<Entity, With<Collider>>,
 ) {
@@ -282,6 +291,7 @@ pub fn update_chunks(
 
         total_entity_count += spawn_count;
         active_chunks.chunks.insert(coord, biome);
+        explored_chunks.chunks.entry(coord).or_insert(biome);
     }
 }
 
@@ -327,6 +337,7 @@ impl Plugin for WorldPlugin {
         app.insert_resource(world_config);
         app.insert_resource(biome_config);
         app.init_resource::<ActiveChunks>();
+        app.init_resource::<ExploredChunks>();
         app.add_systems(
             FixedUpdate,
             update_chunks.before(crate::core::CoreSet::Collision),
