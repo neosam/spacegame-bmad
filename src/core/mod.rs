@@ -16,7 +16,7 @@ use self::collision::{
 use self::flight::{apply_drag, apply_rotation, apply_thrust, apply_velocity, FlightConfig};
 use self::input::{read_input, ActionState};
 use self::spawning::{
-    drift_entities, spawn_initial_entities, spawn_respawn_timers, tick_respawn_timers,
+    drift_entities, spawn_respawn_timers, tick_respawn_timers,
     SpawningConfig,
 };
 use self::weapons::{
@@ -112,8 +112,7 @@ impl Plugin for CorePlugin {
                 .chain(),
         );
 
-        // Startup: spawn initial entities
-        app.add_systems(Startup, spawn_initial_entities);
+        // Note: spawn_initial_entities removed — chunk-based spawning via WorldPlugin replaces it
 
         // Input reading in PreUpdate
         app.add_systems(PreUpdate, read_input);

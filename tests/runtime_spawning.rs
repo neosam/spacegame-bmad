@@ -5,6 +5,7 @@ use void_drifter::core::collision::Health;
 use void_drifter::core::input::ActionState;
 use void_drifter::core::spawning::{Asteroid, RespawnTimer, ScoutDrone, SpawningConfig};
 use void_drifter::core::weapons::ActiveWeapon;
+use void_drifter::world::ChunkEntity;
 
 use helpers::{spawn_asteroid, spawn_drone, spawn_player, test_app};
 
@@ -114,16 +115,16 @@ fn destroyed_asteroid_respawns_after_delay() {
     // Use very short respawn delay for test
     app.world_mut().resource_mut::<SpawningConfig>().respawn_delay = 0.2;
 
-    // Spawn asteroid with 10 HP right in front of player
-    spawn_asteroid(&mut app, Vec2::new(0.0, 50.0), 20.0, 10.0);
+    // Spawn asteroid with 10 HP right in front of player (no ChunkEntity → manual spawn)
+    let asteroid = spawn_asteroid(&mut app, Vec2::new(0.0, 50.0), 20.0, 10.0);
 
-    // Count initial asteroids
+    // Count initial non-chunk asteroids
     let initial_count = app
         .world_mut()
-        .query_filtered::<Entity, With<Asteroid>>()
+        .query_filtered::<Entity, (With<Asteroid>, Without<ChunkEntity>)>()
         .iter(app.world())
         .count();
-    assert_eq!(initial_count, 1, "Should start with 1 asteroid");
+    assert_eq!(initial_count, 1, "Should start with 1 non-chunk asteroid");
 
     // Fire laser to destroy it
     app.world_mut().resource_mut::<ActionState>().fire = true;
@@ -135,23 +136,22 @@ fn destroyed_asteroid_respawns_after_delay() {
         app.update();
     }
 
-    // Asteroid should be gone now
-    let mid_count = app
-        .world_mut()
-        .query_filtered::<Entity, With<Asteroid>>()
-        .iter(app.world())
-        .count();
-    assert_eq!(mid_count, 0, "Asteroid should be destroyed");
+    // Manually spawned asteroid should be gone
+    let entity_ref = app.world().get_entity(asteroid);
+    assert!(
+        entity_ref.is_err(),
+        "Manually spawned asteroid should be destroyed"
+    );
 
     // Wait for respawn (0.2s = ~12 frames at 60fps, add margin)
     for _ in 0..30 {
         app.update();
     }
 
-    // New asteroid should have spawned from respawn timer
+    // New non-chunk asteroid should have spawned from respawn timer
     let final_count = app
         .world_mut()
-        .query_filtered::<Entity, With<Asteroid>>()
+        .query_filtered::<Entity, (With<Asteroid>, Without<ChunkEntity>)>()
         .iter(app.world())
         .count();
     assert_eq!(

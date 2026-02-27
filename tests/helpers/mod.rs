@@ -20,6 +20,7 @@ use void_drifter::core::weapons::{
     SpreadFired, WeaponConfig,
 };
 use void_drifter::shared::components::Velocity;
+use void_drifter::world::{update_chunks, ActiveChunks, WorldConfig};
 
 /// Create a minimal test App with flight, weapon, collision, and damage systems.
 /// Systems run in FixedUpdate to match production scheduling.
@@ -34,12 +35,15 @@ pub fn test_app() -> App {
     app.init_resource::<DestroyedPositions>();
     app.init_resource::<LaserHitPositions>();
     app.insert_resource(SpawningConfig::default());
+    app.insert_resource(WorldConfig::default());
+    app.init_resource::<ActiveChunks>();
     app.add_message::<LaserFired>();
     app.add_message::<SpreadFired>();
-    // Match production: flight systems in FixedUpdate
+    // Match production ordering: update_chunks runs before collision/damage chain
+    app.add_systems(FixedUpdate, update_chunks);
     app.add_systems(
         FixedUpdate,
-        (apply_thrust, apply_rotation, apply_drag, apply_velocity).chain(),
+        (apply_thrust, apply_rotation, apply_drag, apply_velocity).chain().after(update_chunks),
     );
     // Weapon systems: cooldown tick, energy regen, switch, fire, pulse/projectile tick
     // Then collision detection, then damage application (with respawn timer creation)
@@ -65,7 +69,8 @@ pub fn test_app() -> App {
             tick_respawn_timers,
             drift_entities,
         )
-            .chain(),
+            .chain()
+            .after(update_chunks),
     );
     // Fixed 1/60s time step for deterministic tests
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(

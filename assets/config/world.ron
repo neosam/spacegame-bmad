@@ -1,0 +1,18 @@
+(
+    seed: 42,
+    chunk_size: 1000.0,
+    load_radius: 2,
+    asteroid_count_min: 3,
+    asteroid_count_max: 8,
+    drone_count_min: 0,
+    drone_count_max: 2,
+    asteroid_health: 50.0,
+    asteroid_radius: 20.0,
+    drone_health: 30.0,
+    drone_radius: 10.0,
+    asteroid_velocity_min: 5.0,
+    asteroid_velocity_max: 15.0,
+    drone_velocity_min: 10.0,
+    drone_velocity_max: 25.0,
+    entity_budget: 200,
+)
