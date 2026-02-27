@@ -2,6 +2,10 @@ use std::time::Duration;
 
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
+use void_drifter::core::collision::{
+    apply_damage, check_laser_collisions, check_projectile_collisions, despawn_destroyed,
+    Collider, DamageQueue, Health,
+};
 use void_drifter::core::flight::{
     apply_drag, apply_rotation, apply_thrust, apply_velocity, FlightConfig, Player,
 };
@@ -13,7 +17,7 @@ use void_drifter::core::weapons::{
 };
 use void_drifter::shared::components::Velocity;
 
-/// Create a minimal test App with flight and weapon systems but no windowing/rendering.
+/// Create a minimal test App with flight, weapon, collision, and damage systems.
 /// Systems run in FixedUpdate to match production scheduling.
 /// Uses fixed 1/60s time step for deterministic tests.
 pub fn test_app() -> App {
@@ -22,6 +26,7 @@ pub fn test_app() -> App {
     app.init_resource::<ActionState>();
     app.insert_resource(FlightConfig::default());
     app.insert_resource(WeaponConfig::default());
+    app.init_resource::<DamageQueue>();
     app.add_message::<LaserFired>();
     app.add_message::<SpreadFired>();
     // Match production: flight systems in FixedUpdate
@@ -30,6 +35,7 @@ pub fn test_app() -> App {
         (apply_thrust, apply_rotation, apply_drag, apply_velocity).chain(),
     );
     // Weapon systems: cooldown tick, energy regen, switch, fire, pulse/projectile tick
+    // Then collision detection, then damage application
     app.add_systems(
         FixedUpdate,
         (
@@ -40,6 +46,10 @@ pub fn test_app() -> App {
             tick_laser_pulses,
             move_spread_projectiles,
             tick_spread_projectiles,
+            check_laser_collisions,
+            check_projectile_collisions,
+            apply_damage,
+            despawn_destroyed,
         )
             .chain(),
     );
@@ -51,6 +61,36 @@ pub fn test_app() -> App {
     // Prime time — first frame always has dt=0
     app.update();
     app
+}
+
+/// Spawn an asteroid entity at the given position with a collider and health.
+#[allow(dead_code)]
+pub fn spawn_asteroid(app: &mut App, position: Vec2, radius: f32, health: f32) -> Entity {
+    app.world_mut()
+        .spawn((
+            Collider { radius },
+            Health {
+                current: health,
+                max: health,
+            },
+            Transform::from_translation(position.extend(0.0)),
+        ))
+        .id()
+}
+
+/// Spawn a Scout Drone entity at the given position with a collider and health.
+#[allow(dead_code)]
+pub fn spawn_drone(app: &mut App, position: Vec2, radius: f32, health: f32) -> Entity {
+    app.world_mut()
+        .spawn((
+            Collider { radius },
+            Health {
+                current: health,
+                max: health,
+            },
+            Transform::from_translation(position.extend(0.0)),
+        ))
+        .id()
 }
 
 /// Spawn a player entity at the origin facing +Y with FireCooldown, Energy, and ActiveWeapon.

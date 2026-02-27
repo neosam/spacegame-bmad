@@ -1,4 +1,5 @@
 pub mod camera;
+pub mod collision;
 pub mod flight;
 pub mod input;
 pub mod weapons;
@@ -6,6 +7,10 @@ pub mod weapons;
 use bevy::prelude::*;
 
 use self::camera::camera_follow_player;
+use self::collision::{
+    apply_damage, check_laser_collisions, check_projectile_collisions, despawn_destroyed,
+    DamageQueue,
+};
 use self::flight::{apply_drag, apply_rotation, apply_thrust, apply_velocity, FlightConfig};
 use self::input::{read_input, ActionState};
 use self::weapons::{
@@ -114,6 +119,21 @@ impl Plugin for CorePlugin {
                 .chain()
                 .after(CoreSet::Physics)
                 .before(CoreSet::Collision),
+        );
+
+        // Collision detection in Collision set
+        app.init_resource::<DamageQueue>();
+        app.add_systems(
+            FixedUpdate,
+            (check_laser_collisions, check_projectile_collisions).in_set(CoreSet::Collision),
+        );
+
+        // Damage application in Damage set
+        app.add_systems(
+            FixedUpdate,
+            (apply_damage, despawn_destroyed)
+                .chain()
+                .in_set(CoreSet::Damage),
         );
 
         // Camera follow in PostUpdate
