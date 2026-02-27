@@ -1,6 +1,6 @@
 (
-    thrust_power: 300.0,
-    max_speed: 400.0,
-    drag_coefficient: 1.5,
+    thrust_power: 450.0,
+    max_speed: 800.0,
+    drag_coefficient: 1.2,
     rotation_speed: 5.0,
 )

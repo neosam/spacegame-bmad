@@ -68,21 +68,29 @@ fn laser_spawns_at_correct_position() {
     app.world_mut().resource_mut::<ActionState>().fire = true;
     app.update();
 
-    let pulse = app
+    let config = app.world().resource::<WeaponConfig>().clone();
+    let expected_local_y = 20.0 + config.laser_range / 2.0;
+
+    let transform = app
         .world_mut()
-        .query::<&LaserPulse>()
+        .query::<(&LaserPulse, &Transform)>()
         .iter(app.world())
         .next()
-        .expect("Should have a laser pulse");
+        .expect("Should have a laser pulse")
+        .1
+        .clone();
 
-    // Player at origin facing +Y, nose offset is 20 units in facing direction
+    // LaserPulse is a child of the player — Transform is local-space
     assert!(
-        (pulse.origin.x).abs() < 0.01,
-        "Laser origin X should be near 0 (player at origin)"
+        transform.translation.x.abs() < 0.01,
+        "Laser local X should be near 0, got {}",
+        transform.translation.x
     );
     assert!(
-        (pulse.origin.y - 20.0).abs() < 0.01,
-        "Laser origin Y should be at nose offset (~20.0)"
+        (transform.translation.y - expected_local_y).abs() < 0.01,
+        "Laser local Y should be nose_offset + range/2 (~{}), got {}",
+        expected_local_y,
+        transform.translation.y
     );
 }
 
@@ -109,11 +117,28 @@ fn laser_has_correct_direction_matching_player_rotation() {
         .next()
         .expect("Should have a laser pulse");
 
+    // LaserPulse.direction stores world-space firing direction
     // After 90-degree rotation from +Y, facing should be approximately -X
     assert!(
         pulse.direction.x < -0.5,
         "Laser direction X should be negative after 90-degree rotation, got {}",
         pulse.direction.x
+    );
+
+    // Child entity should have identity rotation (parent propagates rotation)
+    let transform = app
+        .world_mut()
+        .query::<(&LaserPulse, &Transform)>()
+        .iter(app.world())
+        .next()
+        .expect("Should have a laser pulse")
+        .1
+        .clone();
+    let angle_diff = transform.rotation.angle_between(Quat::IDENTITY);
+    assert!(
+        angle_diff < 0.01,
+        "Child laser Transform should have identity rotation, got angle diff {}",
+        angle_diff
     );
 }
 
@@ -236,6 +261,47 @@ fn laser_fired_message_emitted_on_fire() {
     assert_eq!(
         count, 1,
         "LaserFired message should be emitted exactly once when firing"
+    );
+}
+
+#[test]
+fn laser_pulse_is_child_of_player() {
+    let mut app = test_app();
+    let player = spawn_player(&mut app);
+
+    app.world_mut().resource_mut::<ActionState>().fire = true;
+    app.update();
+
+    // Find the LaserPulse entity
+    let laser_entity = app
+        .world_mut()
+        .query::<(Entity, &LaserPulse)>()
+        .iter(app.world())
+        .next()
+        .expect("Should have a laser pulse entity")
+        .0;
+
+    // Verify ChildOf relationship points to the player
+    let child_of = app
+        .world()
+        .entity(laser_entity)
+        .get::<ChildOf>()
+        .expect("LaserPulse should have ChildOf component (must be child of player)");
+    assert_eq!(
+        child_of.parent(),
+        player,
+        "LaserPulse parent should be the player entity"
+    );
+
+    // Verify player's Children contains the laser
+    let children = app
+        .world()
+        .entity(player)
+        .get::<Children>()
+        .expect("Player should have Children component after spawning laser");
+    assert!(
+        children.iter().any(|c| c == laser_entity),
+        "Player's Children should contain the laser pulse entity"
     );
 }
 

@@ -172,6 +172,7 @@ pub fn fire_weapon(
     config: Res<WeaponConfig>,
     mut player_query: Query<
         (
+            Entity,
             &Transform,
             &mut FireCooldown,
             &mut Energy,
@@ -187,7 +188,7 @@ pub fn fire_weapon(
         return;
     }
 
-    for (transform, mut cooldown, mut energy, active_weapon) in player_query.iter_mut() {
+    for (player_entity, transform, mut cooldown, mut energy, active_weapon) in player_query.iter_mut() {
         if cooldown.timer > 0.0 {
             continue;
         }
@@ -200,11 +201,9 @@ pub fn fire_weapon(
 
         match active_weapon {
             ActiveWeapon::Laser => {
-                let midpoint = origin + direction * (config.laser_range / 2.0);
-                let angle =
-                    direction.y.atan2(direction.x) - std::f32::consts::FRAC_PI_2;
+                let local_y = 20.0 + config.laser_range / 2.0;
 
-                commands.spawn((
+                commands.entity(player_entity).with_child((
                     LaserPulse {
                         origin,
                         direction,
@@ -212,8 +211,7 @@ pub fn fire_weapon(
                         timer: config.laser_pulse_duration,
                     },
                     NeedsLaserVisual,
-                    Transform::from_translation(midpoint.extend(0.0))
-                        .with_rotation(Quat::from_rotation_z(angle)),
+                    Transform::from_translation(Vec3::new(0.0, local_y, 0.0)),
                 ));
 
                 laser_events.write(LaserFired {
