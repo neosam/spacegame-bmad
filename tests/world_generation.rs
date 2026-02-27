@@ -3,11 +3,14 @@
 mod helpers;
 
 use bevy::prelude::*;
-use helpers::{spawn_player, test_app};
+use helpers::{run_until_loaded, spawn_player, test_app};
 use void_drifter::core::collision::{Collider, Health};
 use void_drifter::core::spawning::Asteroid;
 use void_drifter::shared::components::Velocity;
-use void_drifter::world::{ActiveChunks, BiomeConfig, BiomeType, ChunkEntity, ExploredChunks, WorldConfig};
+use void_drifter::world::{
+    ActiveChunks, BiomeConfig, BiomeType, ChunkEntity, ChunkEntityIndex, ChunkLoadState,
+    ExploredChunks, PendingChunks, WorldConfig,
+};
 
 /// Player at origin -> chunks within load_radius are populated with entities (AC: #1, #2)
 #[test]
@@ -15,8 +18,8 @@ fn player_at_origin_loads_chunks_with_entities() {
     let mut app = test_app();
     spawn_player(&mut app);
 
-    // Run a frame to trigger chunk loading
-    app.update();
+    // Run enough frames for staggered loading to complete
+    run_until_loaded(&mut app);
 
     let config = WorldConfig::default();
     let active = app.world().resource::<ActiveChunks>();
@@ -47,7 +50,7 @@ fn player_movement_triggers_chunk_load_unload() {
     let player = spawn_player(&mut app);
 
     // Initial load at origin
-    app.update();
+    run_until_loaded(&mut app);
 
     let initial_chunks: std::collections::HashSet<_> =
         app.world().resource::<ActiveChunks>().chunks.keys().copied().collect();
@@ -59,7 +62,7 @@ fn player_movement_triggers_chunk_load_unload() {
         .expect("Player should have Transform")
         .translation = Vec3::new(3000.0, 0.0, 0.0);
 
-    app.update();
+    run_until_loaded(&mut app);
 
     let new_chunks: std::collections::HashSet<_> =
         app.world().resource::<ActiveChunks>().chunks.keys().copied().collect();
@@ -83,7 +86,7 @@ fn chunk_unload_despawns_entities() {
     let player = spawn_player(&mut app);
 
     // Initial load at origin
-    app.update();
+    run_until_loaded(&mut app);
 
     // Record entities belonging to chunk (-2, -2)
     let distant_chunk = void_drifter::world::chunk::ChunkCoord { x: -2, y: -2 };
@@ -105,6 +108,7 @@ fn chunk_unload_despawns_entities() {
         .expect("Player should have Transform")
         .translation = Vec3::new(5000.0, 5000.0, 0.0);
 
+    // Unloading is immediate (one frame), loading is staggered
     app.update();
 
     // Verify entities with ChunkEntity { coord: (-2,-2) } are actually gone
@@ -126,7 +130,7 @@ fn chunk_unload_despawns_entities() {
 fn chunk_entities_have_correct_components() {
     let mut app = test_app();
     spawn_player(&mut app);
-    app.update();
+    run_until_loaded(&mut app);
 
     let biome_config = BiomeConfig::default();
 
@@ -157,7 +161,7 @@ fn chunk_entities_have_correct_components() {
 fn chunk_reload_produces_same_entities() {
     let mut app = test_app();
     let player = spawn_player(&mut app);
-    app.update();
+    run_until_loaded(&mut app);
 
     // Record initial entity positions in chunk (0,0)
     let target_chunk = void_drifter::world::chunk::ChunkCoord { x: 0, y: 0 };
@@ -178,7 +182,7 @@ fn chunk_reload_produces_same_entities() {
         .get_mut::<Transform>()
         .expect("Player should have Transform")
         .translation = Vec3::new(10000.0, 10000.0, 0.0);
-    app.update();
+    run_until_loaded(&mut app);
 
     // Verify chunk (0,0) is unloaded
     let active = app.world().resource::<ActiveChunks>();
@@ -193,7 +197,7 @@ fn chunk_reload_produces_same_entities() {
         .get_mut::<Transform>()
         .expect("Player should have Transform")
         .translation = Vec3::ZERO;
-    app.update();
+    run_until_loaded(&mut app);
 
     // Record reloaded positions
     let mut reloaded_positions: Vec<(f32, f32)> = Vec::new();
@@ -226,7 +230,7 @@ fn chunk_reload_produces_same_entities() {
 fn entity_count_within_budget() {
     let mut app = test_app();
     spawn_player(&mut app);
-    app.update();
+    run_until_loaded(&mut app);
 
     let config = WorldConfig::default();
     let count = app
@@ -255,6 +259,9 @@ fn entity_budget_enforced_across_multi_chunk_load() {
     app.insert_resource(BiomeConfig::default());
     app.init_resource::<ActiveChunks>();
     app.init_resource::<ExploredChunks>();
+    app.init_resource::<ChunkEntityIndex>();
+    app.init_resource::<PendingChunks>();
+    app.init_resource::<ChunkLoadState>();
     app.add_systems(FixedUpdate, void_drifter::world::update_chunks);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)));
     app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
@@ -266,8 +273,10 @@ fn entity_budget_enforced_across_multi_chunk_load() {
         Transform::default(),
     ));
 
-    // Load all 25 chunks in one frame
-    app.update();
+    // Run enough frames for staggered loading to complete (25 chunks / 4 per frame = 7 frames)
+    for _ in 0..7 {
+        app.update();
+    }
 
     let count = app
         .world_mut()
@@ -294,6 +303,9 @@ fn entity_budget_accounts_for_non_chunk_collidable_entities() {
     app.insert_resource(BiomeConfig::default());
     app.init_resource::<ActiveChunks>();
     app.init_resource::<ExploredChunks>();
+    app.init_resource::<ChunkEntityIndex>();
+    app.init_resource::<PendingChunks>();
+    app.init_resource::<ChunkLoadState>();
     app.add_systems(FixedUpdate, void_drifter::world::update_chunks);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)));
     app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
@@ -316,7 +328,10 @@ fn entity_budget_accounts_for_non_chunk_collidable_entities() {
     }
 
     // 11 pre-existing collidable entities -> only 9 more chunk entities allowed
-    app.update();
+    // Run enough frames for staggered loading to complete
+    for _ in 0..7 {
+        app.update();
+    }
 
     let chunk_count = app
         .world_mut()
@@ -376,7 +391,7 @@ fn laser_hits_chunk_spawned_asteroid() {
     let player = spawn_player(&mut app);
 
     // Run to get chunks loaded
-    app.update();
+    run_until_loaded(&mut app);
 
     // Find first chunk-spawned asteroid and record its entity + health
     let (asteroid_entity, initial_health, asteroid_pos) = {
@@ -441,7 +456,7 @@ fn laser_hits_chunk_spawned_asteroid() {
 fn chunk_entities_have_biome_component() {
     let mut app = test_app();
     spawn_player(&mut app);
-    app.update();
+    run_until_loaded(&mut app);
 
     // All chunk entities should have a BiomeType component
     let mut query = app
@@ -473,7 +488,7 @@ fn chunk_entities_have_biome_component() {
 fn chunk_reload_produces_same_biome() {
     let mut app = test_app();
     let player = spawn_player(&mut app);
-    app.update();
+    run_until_loaded(&mut app);
 
     let target_chunk = void_drifter::world::chunk::ChunkCoord { x: 0, y: 0 };
 
@@ -491,7 +506,7 @@ fn chunk_reload_produces_same_biome() {
         .get_mut::<Transform>()
         .expect("Player should have Transform")
         .translation = Vec3::new(10000.0, 10000.0, 0.0);
-    app.update();
+    run_until_loaded(&mut app);
 
     // Move back to reload
     app.world_mut()
@@ -499,7 +514,7 @@ fn chunk_reload_produces_same_biome() {
         .get_mut::<Transform>()
         .expect("Player should have Transform")
         .translation = Vec3::ZERO;
-    app.update();
+    run_until_loaded(&mut app);
 
     let reloaded_biome = *app
         .world()
@@ -528,6 +543,9 @@ fn multiple_biomes_appear_across_chunks() {
     app.insert_resource(BiomeConfig::default());
     app.init_resource::<ActiveChunks>();
     app.init_resource::<ExploredChunks>();
+    app.init_resource::<ChunkEntityIndex>();
+    app.init_resource::<PendingChunks>();
+    app.init_resource::<ChunkLoadState>();
     app.add_systems(FixedUpdate, void_drifter::world::update_chunks);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)));
     app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
@@ -537,7 +555,14 @@ fn multiple_biomes_appear_across_chunks() {
         void_drifter::core::flight::Player,
         Transform::default(),
     ));
-    app.update();
+
+    // 121 chunks / 4 per frame = 31 frames
+    let config = app.world().resource::<WorldConfig>().clone();
+    let total = (2 * config.load_radius + 1).pow(2) as usize;
+    let frames = total.div_ceil(config.max_chunks_per_frame);
+    for _ in 0..frames {
+        app.update();
+    }
 
     let active = app.world().resource::<ActiveChunks>();
     let biome_types: std::collections::HashSet<BiomeType> =
@@ -579,6 +604,9 @@ fn entity_budget_with_high_density_biome() {
     app.insert_resource(biome_config);
     app.init_resource::<ActiveChunks>();
     app.init_resource::<ExploredChunks>();
+    app.init_resource::<ChunkEntityIndex>();
+    app.init_resource::<PendingChunks>();
+    app.init_resource::<ChunkLoadState>();
     app.add_systems(FixedUpdate, void_drifter::world::update_chunks);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)));
     app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
@@ -588,7 +616,11 @@ fn entity_budget_with_high_density_biome() {
         void_drifter::core::flight::Player,
         Transform::default(),
     ));
-    app.update();
+
+    // 25 chunks / 4 per frame = 7 frames
+    for _ in 0..7 {
+        app.update();
+    }
 
     let count = app
         .world_mut()
@@ -608,7 +640,7 @@ fn laser_hits_biome_tagged_asteroid() {
 
     let mut app = test_app();
     let player = spawn_player(&mut app);
-    app.update();
+    run_until_loaded(&mut app);
 
     // Find first chunk-spawned asteroid WITH BiomeType and record it
     let (asteroid_entity, initial_health, asteroid_pos) = {

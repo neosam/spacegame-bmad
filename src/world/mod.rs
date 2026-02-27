@@ -6,8 +6,9 @@ use serde::Deserialize;
 
 pub use self::chunk::ChunkCoord;
 pub use self::generation::BiomeType;
-use self::chunk::{chunks_in_radius, world_to_chunk};
+use self::chunk::{chunks_in_radius, manhattan_distance, world_to_chunk};
 use self::generation::{determine_biome, generate_chunk_content};
+use std::collections::VecDeque;
 
 use crate::core::collision::{Collider, Health};
 use crate::core::flight::Player;
@@ -23,6 +24,12 @@ pub struct WorldConfig {
     pub chunk_size: f32,
     pub load_radius: u32,
     pub entity_budget: usize,
+    #[serde(default = "default_max_chunks_per_frame")]
+    pub max_chunks_per_frame: usize,
+}
+
+fn default_max_chunks_per_frame() -> usize {
+    4
 }
 
 impl Default for WorldConfig {
@@ -32,6 +39,7 @@ impl Default for WorldConfig {
             chunk_size: 1000.0,
             load_radius: 2,
             entity_budget: 200,
+            max_chunks_per_frame: 4,
         }
     }
 }
@@ -185,10 +193,37 @@ pub struct ExploredChunks {
     pub chunks: std::collections::HashMap<ChunkCoord, BiomeType>,
 }
 
+/// Tracks entities per chunk for O(1) despawn lookup.
+#[derive(Resource, Default, Debug)]
+pub struct ChunkEntityIndex {
+    pub chunks: std::collections::HashMap<ChunkCoord, Vec<Entity>>,
+}
+
+impl ChunkEntityIndex {
+    /// Total entity count across all chunks.
+    pub fn entity_count(&self) -> usize {
+        self.chunks.values().map(|v| v.len()).sum()
+    }
+}
+
+/// Queue of chunks waiting to be loaded, sorted by distance (nearest first).
+#[derive(Resource, Default, Debug)]
+pub struct PendingChunks {
+    pub chunks: std::collections::VecDeque<ChunkCoord>,
+}
+
+/// Tracks player's last known chunk for change detection.
+#[derive(Resource, Default, Debug)]
+pub struct ChunkLoadState {
+    pub last_player_chunk: Option<ChunkCoord>,
+}
+
 // ── Systems ─────────────────────────────────────────────────────────────
 
 /// Computes the desired set of chunks from the player's position,
 /// spawns entities for new chunks, and despawns entities for removed chunks.
+/// Uses `ChunkEntityIndex` for O(1) despawn, `PendingChunks` for staggered loading,
+/// and `ChunkLoadState` for chunk-change detection.
 #[allow(clippy::too_many_arguments)]
 pub fn update_chunks(
     mut commands: Commands,
@@ -197,7 +232,9 @@ pub fn update_chunks(
     biome_config: Res<BiomeConfig>,
     mut active_chunks: ResMut<ActiveChunks>,
     mut explored_chunks: ResMut<ExploredChunks>,
-    chunk_entities: Query<(Entity, &ChunkEntity)>,
+    mut chunk_entity_index: ResMut<ChunkEntityIndex>,
+    mut pending_chunks: ResMut<PendingChunks>,
+    mut chunk_load_state: ResMut<ChunkLoadState>,
     all_collidable: Query<Entity, With<Collider>>,
 ) {
     let Ok(player_transform) = player_query.single() else {
@@ -211,7 +248,7 @@ pub fn update_chunks(
     let player_chunk = world_to_chunk(player_pos, config.chunk_size);
     let desired = chunks_in_radius(player_chunk, config.load_radius);
 
-    // Unload chunks no longer in range (sorted for deterministic order)
+    // Phase 1: UNLOAD (immediate — all at once, not deferred)
     let mut to_unload: Vec<ChunkCoord> = active_chunks
         .chunks
         .keys()
@@ -221,39 +258,58 @@ pub fn update_chunks(
     to_unload.sort();
     let mut despawned_count = 0usize;
     for coord in &to_unload {
-        for (entity, chunk_ent) in chunk_entities.iter() {
-            if chunk_ent.coord == *coord {
-                commands.entity(entity).despawn();
-                despawned_count += 1;
+        if let Some(entities) = chunk_entity_index.chunks.remove(coord) {
+            for entity in &entities {
+                if let Ok(mut entity_cmds) = commands.get_entity(*entity) {
+                    entity_cmds.despawn();
+                }
             }
+            despawned_count += entities.len();
         }
         active_chunks.chunks.remove(coord);
     }
 
-    // Load new chunks (sorted for deterministic budget distribution)
-    let mut to_load: Vec<ChunkCoord> = desired
-        .iter()
-        .filter(|k| !active_chunks.chunks.contains_key(k))
-        .copied()
-        .collect();
-    to_load.sort();
+    // Phase 2: QUEUE (only on chunk change or first frame)
+    let chunk_changed = chunk_load_state.last_player_chunk != Some(player_chunk);
+    if chunk_changed {
+        let active_set = &active_chunks.chunks;
+        let mut new_pending: Vec<ChunkCoord> = desired
+            .iter()
+            .filter(|c| !active_set.contains_key(c))
+            .copied()
+            .collect();
+        new_pending.sort_by_key(|c| (manhattan_distance(*c, player_chunk), *c));
+        pending_chunks.chunks = VecDeque::from(new_pending);
+        chunk_load_state.last_player_chunk = Some(player_chunk);
+    }
 
-    // Count ALL game entities (not just chunk entities) for accurate budget enforcement.
-    // Subtract despawned entities (still in query due to deferred commands).
-    let mut total_entity_count = all_collidable.iter().count() - despawned_count;
+    // Phase 3: LOAD (staggered — up to max_chunks_per_frame)
+    let mut total_entity_count = all_collidable.iter().count().saturating_sub(despawned_count);
+    let mut loaded = 0usize;
 
-    for coord in to_load {
+    while loaded < config.max_chunks_per_frame {
+        let Some(coord) = pending_chunks.chunks.pop_front() else {
+            break;
+        };
+        if active_chunks.chunks.contains_key(&coord) {
+            continue; // already loaded
+        }
+        if !desired.contains(&coord) {
+            continue; // no longer desired
+        }
+
         let biome = determine_biome(config.seed, coord, &biome_config);
         let blueprints =
             generate_chunk_content(config.seed, coord, config.chunk_size, biome, &biome_config);
         let remaining_budget = config.entity_budget.saturating_sub(total_entity_count);
         let spawn_count = blueprints.len().min(remaining_budget);
 
+        let mut chunk_entities = Vec::with_capacity(spawn_count);
         for blueprint in blueprints.into_iter().take(spawn_count) {
             let chunk_marker = ChunkEntity { coord };
-            match blueprint.entity_type {
-                generation::BlueprintType::Asteroid => {
-                    commands.spawn((
+            let entity = match blueprint.entity_type {
+                generation::BlueprintType::Asteroid => commands
+                    .spawn((
                         Asteroid,
                         NeedsAsteroidVisual,
                         Collider {
@@ -267,10 +323,10 @@ pub fn update_chunks(
                         Transform::from_translation(blueprint.position.extend(0.0)),
                         chunk_marker,
                         biome,
-                    ));
-                }
-                generation::BlueprintType::ScoutDrone => {
-                    commands.spawn((
+                    ))
+                    .id(),
+                generation::BlueprintType::ScoutDrone => commands
+                    .spawn((
                         ScoutDrone,
                         NeedsDroneVisual,
                         Collider {
@@ -284,14 +340,17 @@ pub fn update_chunks(
                         Transform::from_translation(blueprint.position.extend(0.0)),
                         chunk_marker,
                         biome,
-                    ));
-                }
-            }
+                    ))
+                    .id(),
+            };
+            chunk_entities.push(entity);
         }
 
         total_entity_count += spawn_count;
+        chunk_entity_index.chunks.insert(coord, chunk_entities);
         active_chunks.chunks.insert(coord, biome);
         explored_chunks.chunks.entry(coord).or_insert(biome);
+        loaded += 1;
     }
 }
 
@@ -334,10 +393,16 @@ impl Plugin for WorldPlugin {
         };
 
         biome_config.validate_thresholds();
+        if world_config.max_chunks_per_frame == 0 {
+            warn!("WorldConfig: max_chunks_per_frame is 0. No chunks will ever load.");
+        }
         app.insert_resource(world_config);
         app.insert_resource(biome_config);
         app.init_resource::<ActiveChunks>();
         app.init_resource::<ExploredChunks>();
+        app.init_resource::<ChunkEntityIndex>();
+        app.init_resource::<PendingChunks>();
+        app.init_resource::<ChunkLoadState>();
         app.add_systems(
             FixedUpdate,
             update_chunks.before(crate::core::CoreSet::Collision),
@@ -373,6 +438,10 @@ mod tests {
         assert!((config.chunk_size - 500.0).abs() < f32::EPSILON);
         assert_eq!(config.load_radius, 3);
         assert_eq!(config.entity_budget, 150);
+        assert_eq!(
+            config.max_chunks_per_frame, 4,
+            "Omitted max_chunks_per_frame should default to 4 via serde"
+        );
     }
 
     #[test]
@@ -482,5 +551,64 @@ mod tests {
         );
         assert!(config.deep_space_threshold >= 0.0 && config.deep_space_threshold <= 1.0);
         assert!(config.asteroid_field_threshold >= 0.0 && config.asteroid_field_threshold <= 1.0);
+    }
+
+    // ── ChunkLoadState ──
+
+    #[test]
+    fn chunk_load_state_default_is_none() {
+        let state = ChunkLoadState::default();
+        assert!(state.last_player_chunk.is_none());
+    }
+
+    // ── ChunkEntityIndex ──
+
+    #[test]
+    fn chunk_entity_index_empty_count_is_zero() {
+        let index = ChunkEntityIndex::default();
+        assert_eq!(index.entity_count(), 0);
+    }
+
+    // ── WorldConfig max_chunks_per_frame ──
+
+    #[test]
+    fn world_config_ron_with_max_chunks_per_frame() {
+        let ron_str = r#"(
+            seed: 42,
+            chunk_size: 1000.0,
+            load_radius: 2,
+            entity_budget: 200,
+            max_chunks_per_frame: 8,
+        )"#;
+        let config = WorldConfig::from_ron(ron_str).expect("Should parse RON with max_chunks_per_frame");
+        assert_eq!(config.max_chunks_per_frame, 8);
+    }
+
+    #[test]
+    fn world_config_default_includes_max_chunks_per_frame() {
+        let config = WorldConfig::default();
+        assert_eq!(config.max_chunks_per_frame, 4);
+    }
+
+    // ── PendingChunks ──
+
+    #[test]
+    fn pending_chunks_default_is_empty() {
+        let pending = PendingChunks::default();
+        assert!(pending.chunks.is_empty());
+    }
+
+    // ── ChunkEntityIndex ──
+
+    #[test]
+    fn chunk_entity_index_multiple_chunks_summed() {
+        let mut index = ChunkEntityIndex::default();
+        index
+            .chunks
+            .insert(ChunkCoord { x: 0, y: 0 }, vec![Entity::from_bits(1), Entity::from_bits(2)]);
+        index
+            .chunks
+            .insert(ChunkCoord { x: 1, y: 0 }, vec![Entity::from_bits(3)]);
+        assert_eq!(index.entity_count(), 3);
     }
 }

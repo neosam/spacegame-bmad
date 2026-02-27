@@ -3,4 +3,5 @@
     chunk_size: 1000.0,
     load_radius: 2,
     entity_budget: 200,
+    max_chunks_per_frame: 4,
 )

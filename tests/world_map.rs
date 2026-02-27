@@ -5,7 +5,7 @@ mod helpers;
 
 use bevy::prelude::*;
 use bevy::input::ButtonInput;
-use helpers::{spawn_player, test_app};
+use helpers::{run_until_loaded, spawn_player, test_app};
 use void_drifter::rendering::world_map::{
     toggle_world_map, update_world_map, WorldMapOpen, WorldMapPlayerMarker,
     WorldMapRoot, WorldMapState, WorldMapTile,
@@ -130,10 +130,8 @@ fn tile_count_matches_visible_explored_chunks_when_map_opened() {
     let mut app = world_map_test_app();
     let _player = spawn_player(&mut app);
 
-    // Let chunks load
-    for _ in 0..3 {
-        app.update();
-    }
+    // Run enough frames for all chunks to load (staggered loading)
+    run_until_loaded(&mut app);
 
     let explored_count = app.world().resource::<ExploredChunks>().chunks.len();
     assert!(explored_count > 0, "Should have explored chunks");

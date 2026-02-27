@@ -22,7 +22,10 @@ use void_drifter::core::weapons::{
 use void_drifter::shared::components::Velocity;
 use void_drifter::rendering::minimap::{MinimapConfig, MinimapState};
 use void_drifter::rendering::world_map::{WorldMapConfig, WorldMapOpen, WorldMapState};
-use void_drifter::world::{update_chunks, ActiveChunks, BiomeConfig, ExploredChunks, WorldConfig};
+use void_drifter::world::{
+    update_chunks, ActiveChunks, BiomeConfig, ChunkEntityIndex, ChunkLoadState, ExploredChunks,
+    PendingChunks, WorldConfig,
+};
 
 /// Create a minimal test App with flight, weapon, collision, and damage systems.
 /// Systems run in FixedUpdate to match production scheduling.
@@ -45,6 +48,9 @@ pub fn test_app() -> App {
     app.init_resource::<WorldMapOpen>();
     app.init_resource::<WorldMapState>();
     app.init_resource::<ExploredChunks>();
+    app.init_resource::<ChunkEntityIndex>();
+    app.init_resource::<PendingChunks>();
+    app.init_resource::<ChunkLoadState>();
     app.init_resource::<ButtonInput<KeyCode>>();
     app.init_resource::<ActiveChunks>();
     app.add_message::<LaserFired>();
@@ -124,6 +130,17 @@ pub fn spawn_drone(app: &mut App, position: Vec2, radius: f32, health: f32) -> E
             Transform::from_translation(position.extend(0.0)),
         ))
         .id()
+}
+
+/// Run enough frames to fully load all chunks for a given config (staggered loading).
+#[allow(dead_code)]
+pub fn run_until_loaded(app: &mut App) {
+    let config = app.world().resource::<WorldConfig>().clone();
+    let total_chunks = (2 * config.load_radius + 1).pow(2) as usize;
+    let frames = total_chunks.div_ceil(config.max_chunks_per_frame);
+    for _ in 0..frames {
+        app.update();
+    }
 }
 
 /// Spawn a player entity at the origin facing +Y with FireCooldown, Energy, ActiveWeapon, Health, and Collider.

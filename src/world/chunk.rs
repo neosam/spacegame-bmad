@@ -25,6 +25,11 @@ pub fn chunk_to_world_center(coord: ChunkCoord, chunk_size: f32) -> Vec2 {
     )
 }
 
+/// Returns the Manhattan distance between two chunk coordinates.
+pub fn manhattan_distance(a: ChunkCoord, b: ChunkCoord) -> u32 {
+    (a.x - b.x).unsigned_abs() + (a.y - b.y).unsigned_abs()
+}
+
 /// Returns the set of all chunk coordinates within `radius` of `center` (square neighborhood).
 pub fn chunks_in_radius(center: ChunkCoord, radius: u32) -> HashSet<ChunkCoord> {
     let r = radius as i32;
@@ -150,5 +155,34 @@ mod tests {
         assert_eq!(chunks.len(), 9);
         assert!(chunks.contains(&ChunkCoord { x: -4, y: -4 }));
         assert!(chunks.contains(&ChunkCoord { x: -2, y: -2 }));
+    }
+
+    // ── manhattan_distance ──
+
+    #[test]
+    fn manhattan_distance_same_chunk() {
+        let a = ChunkCoord { x: 3, y: 5 };
+        assert_eq!(manhattan_distance(a, a), 0);
+    }
+
+    #[test]
+    fn manhattan_distance_adjacent() {
+        let a = ChunkCoord { x: 0, y: 0 };
+        let b = ChunkCoord { x: 1, y: 0 };
+        assert_eq!(manhattan_distance(a, b), 1);
+    }
+
+    #[test]
+    fn manhattan_distance_diagonal() {
+        let a = ChunkCoord { x: 0, y: 0 };
+        let b = ChunkCoord { x: 1, y: 1 };
+        assert_eq!(manhattan_distance(a, b), 2);
+    }
+
+    #[test]
+    fn manhattan_distance_negative_coords() {
+        let a = ChunkCoord { x: -3, y: -5 };
+        let b = ChunkCoord { x: 2, y: 4 };
+        assert_eq!(manhattan_distance(a, b), 14); // |(-3)-2| + |(-5)-4| = 5 + 9 = 14
     }
 }
