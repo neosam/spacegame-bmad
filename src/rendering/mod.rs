@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use crate::core::camera::camera_follow_player;
 use crate::core::collision::{Collider, Health};
 use crate::core::flight::Player;
+use crate::core::spawning::{NeedsAsteroidVisual, NeedsDroneVisual, SpawningConfig};
 use crate::core::weapons::{
     ActiveWeapon, Energy, FireCooldown, NeedsLaserVisual, NeedsProjectileVisual, WeaponConfig,
 };
@@ -20,7 +21,10 @@ use self::effects::{
     ScreenShake,
 };
 use self::background::{setup_starfield, update_starfield, StarfieldConfig};
-use self::vector_art::{generate_laser_mesh, generate_player_mesh, generate_projectile_mesh};
+use self::vector_art::{
+    generate_asteroid_mesh, generate_drone_mesh, generate_laser_mesh, generate_player_mesh,
+    generate_projectile_mesh,
+};
 
 pub struct RenderingPlugin;
 
@@ -37,19 +41,23 @@ impl Plugin for RenderingPlugin {
                 setup_player,
                 setup_laser_assets,
                 setup_projectile_assets,
+                setup_asteroid_assets,
+                setup_drone_assets,
                 setup_flash_materials,
                 setup_destruction_assets,
                 setup_impact_flash_assets,
                 setup_starfield,
             ),
         );
-        
+
         // Update systems: visual effects
         app.add_systems(
             Update,
             (
                 render_laser_pulses,
                 render_spread_projectiles,
+                render_asteroids,
+                render_drones,
                 trigger_damage_flash,
                 remove_just_damaged_without_material,
                 update_damage_flash,
@@ -136,6 +144,78 @@ fn render_spread_projectiles(
                 MeshMaterial2d(projectile_assets.material.clone()),
             ))
             .remove::<NeedsProjectileVisual>();
+    }
+}
+
+/// Cached mesh and material handles for asteroids.
+#[derive(Resource)]
+struct AsteroidAssets {
+    mesh: Handle<Mesh>,
+    material: Handle<ColorMaterial>,
+}
+
+/// Initialize asteroid visual assets once at startup.
+fn setup_asteroid_assets(
+    mut commands: Commands,
+    config: Res<SpawningConfig>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let mesh = meshes.add(generate_asteroid_mesh(config.asteroid_radius));
+    let material = materials.add(ColorMaterial::from(Color::srgb(0.6, 0.5, 0.4)));
+    commands.insert_resource(AsteroidAssets { mesh, material });
+}
+
+/// Cached mesh and material handles for Scout Drones.
+#[derive(Resource)]
+struct DroneAssets {
+    mesh: Handle<Mesh>,
+    material: Handle<ColorMaterial>,
+}
+
+/// Initialize drone visual assets once at startup.
+fn setup_drone_assets(
+    mut commands: Commands,
+    config: Res<SpawningConfig>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let mesh = meshes.add(generate_drone_mesh(config.drone_radius));
+    let material = materials.add(ColorMaterial::from(Color::srgb(0.9, 0.2, 0.2)));
+    commands.insert_resource(DroneAssets { mesh, material });
+}
+
+/// Attaches cached mesh and material to newly spawned asteroid entities.
+fn render_asteroids(
+    mut commands: Commands,
+    asteroid_assets: Res<AsteroidAssets>,
+    query: Query<Entity, With<NeedsAsteroidVisual>>,
+) {
+    for entity in query.iter() {
+        commands
+            .entity(entity)
+            .insert((
+                Mesh2d(asteroid_assets.mesh.clone()),
+                MeshMaterial2d(asteroid_assets.material.clone()),
+            ))
+            .remove::<NeedsAsteroidVisual>();
+    }
+}
+
+/// Attaches cached mesh and material to newly spawned drone entities.
+fn render_drones(
+    mut commands: Commands,
+    drone_assets: Res<DroneAssets>,
+    query: Query<Entity, With<NeedsDroneVisual>>,
+) {
+    for entity in query.iter() {
+        commands
+            .entity(entity)
+            .insert((
+                Mesh2d(drone_assets.mesh.clone()),
+                MeshMaterial2d(drone_assets.material.clone()),
+            ))
+            .remove::<NeedsDroneVisual>();
     }
 }
 

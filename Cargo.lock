@@ -5348,6 +5348,7 @@ dependencies = [
  "bevy_egui",
  "bevy_kira_audio",
  "lyon_tessellation",
+ "rand",
  "ron 0.10.1",
  "serde",
 ]

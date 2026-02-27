@@ -2,6 +2,7 @@ pub mod camera;
 pub mod collision;
 pub mod flight;
 pub mod input;
+pub mod spawning;
 pub mod weapons;
 
 use bevy::prelude::*;
@@ -14,6 +15,10 @@ use self::collision::{
 };
 use self::flight::{apply_drag, apply_rotation, apply_thrust, apply_velocity, FlightConfig};
 use self::input::{read_input, ActionState};
+use self::spawning::{
+    drift_entities, spawn_initial_entities, spawn_respawn_timers, tick_respawn_timers,
+    SpawningConfig,
+};
 use self::weapons::{
     fire_weapon, move_spread_projectiles, regenerate_energy, switch_weapon, tick_fire_cooldown,
     tick_laser_pulses, tick_spread_projectiles, LaserFired, SpreadFired, WeaponConfig,
@@ -77,6 +82,23 @@ impl Plugin for CorePlugin {
         app.add_message::<LaserFired>();
         app.add_message::<SpreadFired>();
 
+        // Load SpawningConfig from RON file with graceful fallback to defaults
+        let spawning_config_path = "assets/config/spawning.ron";
+        let spawning_config = match std::fs::read_to_string(spawning_config_path) {
+            Ok(contents) => match SpawningConfig::from_ron(&contents) {
+                Ok(cfg) => cfg,
+                Err(e) => {
+                    warn!("Failed to parse {spawning_config_path}: {e}. Using defaults.");
+                    SpawningConfig::default()
+                }
+            },
+            Err(e) => {
+                warn!("Failed to read {spawning_config_path}: {e}. Using defaults.");
+                SpawningConfig::default()
+            }
+        };
+        app.insert_resource(spawning_config);
+
         // Configure system ordering in FixedUpdate
         app.configure_sets(
             FixedUpdate,
@@ -89,6 +111,9 @@ impl Plugin for CorePlugin {
             )
                 .chain(),
         );
+
+        // Startup: spawn initial entities
+        app.add_systems(Startup, spawn_initial_entities);
 
         // Input reading in PreUpdate
         app.add_systems(PreUpdate, read_input);
@@ -135,18 +160,29 @@ impl Plugin for CorePlugin {
                 .in_set(CoreSet::Collision),
         );
 
-        // Damage application in Damage set (3-way chain: apply → player death → despawn)
+        // Damage application in Damage set (4-way chain: apply → player death → respawn timers → despawn)
         app.add_systems(
             FixedUpdate,
-            (apply_damage, handle_player_death, despawn_destroyed)
+            (
+                apply_damage,
+                handle_player_death,
+                spawn_respawn_timers,
+                despawn_destroyed,
+            )
                 .chain()
                 .in_set(CoreSet::Damage),
         );
 
-        // Post-damage systems: cooldown tick, invincibility tick
+        // Post-damage systems: cooldown tick, invincibility tick, respawn tick, drift
         app.add_systems(
             FixedUpdate,
-            (tick_contact_cooldown, tick_invincibility).after(CoreSet::Damage),
+            (
+                tick_contact_cooldown,
+                tick_invincibility,
+                tick_respawn_timers,
+                drift_entities,
+            )
+                .after(CoreSet::Damage),
         );
 
         // Camera follow in PostUpdate

@@ -49,6 +49,7 @@ development_status:
   0-5-destroy-asteroids-and-drones: done
   0-6-visual-feedback: done
   0-7-instant-respawn: done
+  0-8-runtime-spawning: done
   epic-0-retrospective: optional
 
   # ── Epic 1: Open World Foundation (Must | Dependencies: Epic 0) ──

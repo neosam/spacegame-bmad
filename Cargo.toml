@@ -19,6 +19,7 @@ lyon_tessellation = "1.0"
 bevy_kira_audio = "0.25.0"
 serde = { version = "1", features = ["derive"] }
 ron = "0.10"
+rand = "0.9"
 
 [dependencies.bevy-inspector-egui]
 version = "0.36.0"

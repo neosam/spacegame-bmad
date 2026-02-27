@@ -7,6 +7,9 @@ use void_drifter::core::collision::{
     despawn_destroyed, handle_player_death, tick_contact_cooldown, tick_invincibility, Collider,
     DamageQueue, DestroyedPositions, Health, LaserHitPositions,
 };
+use void_drifter::core::spawning::{
+    drift_entities, spawn_respawn_timers, tick_respawn_timers, Asteroid, ScoutDrone, SpawningConfig,
+};
 use void_drifter::core::flight::{
     apply_drag, apply_rotation, apply_thrust, apply_velocity, FlightConfig, Player,
 };
@@ -30,6 +33,7 @@ pub fn test_app() -> App {
     app.init_resource::<DamageQueue>();
     app.init_resource::<DestroyedPositions>();
     app.init_resource::<LaserHitPositions>();
+    app.insert_resource(SpawningConfig::default());
     app.add_message::<LaserFired>();
     app.add_message::<SpreadFired>();
     // Match production: flight systems in FixedUpdate
@@ -38,7 +42,7 @@ pub fn test_app() -> App {
         (apply_thrust, apply_rotation, apply_drag, apply_velocity).chain(),
     );
     // Weapon systems: cooldown tick, energy regen, switch, fire, pulse/projectile tick
-    // Then collision detection, then damage application
+    // Then collision detection, then damage application (with respawn timer creation)
     app.add_systems(
         FixedUpdate,
         (
@@ -54,9 +58,12 @@ pub fn test_app() -> App {
             check_contact_collisions,
             apply_damage,
             handle_player_death,
+            spawn_respawn_timers,
             despawn_destroyed,
             tick_contact_cooldown,
             tick_invincibility,
+            tick_respawn_timers,
+            drift_entities,
         )
             .chain(),
     );
@@ -75,11 +82,13 @@ pub fn test_app() -> App {
 pub fn spawn_asteroid(app: &mut App, position: Vec2, radius: f32, health: f32) -> Entity {
     app.world_mut()
         .spawn((
+            Asteroid,
             Collider { radius },
             Health {
                 current: health,
                 max: health,
             },
+            Velocity::default(),
             Transform::from_translation(position.extend(0.0)),
         ))
         .id()
@@ -90,11 +99,13 @@ pub fn spawn_asteroid(app: &mut App, position: Vec2, radius: f32, health: f32) -
 pub fn spawn_drone(app: &mut App, position: Vec2, radius: f32, health: f32) -> Entity {
     app.world_mut()
         .spawn((
+            ScoutDrone,
             Collider { radius },
             Health {
                 current: health,
                 max: health,
             },
+            Velocity::default(),
             Transform::from_translation(position.extend(0.0)),
         ))
         .id()
