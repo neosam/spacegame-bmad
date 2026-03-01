@@ -1,102 +1,109 @@
-# Sprint Report — Epic 2: Tutorial Zone
+# Sprint Report — Epic 4: Combat Depth
 
 **Datum:** 2026-02-28
-**Epic:** 2 — Tutorial Zone
+**Epic:** 4 — Combat Depth
 **Status:** ✅ Abgeschlossen
 
 ---
 
 ## Zusammenfassung
 
-Epic 2 "Tutorial Zone" wurde vollständig implementiert. Alle 8 Stories wurden in einem Sprint abgearbeitet. Die Testsuite wuchs von **354 Tests** (Ende Epic 1) auf **430 Tests**.
+Epic 4 "Combat Depth" wurde vollständig implementiert. Alle 12 Stories wurden in einem Sprint abgearbeitet. Die Testsuite wuchs von **537 Tests** (Ende Epic 3 + epic4-prep) auf **601 Tests**.
 
 ---
 
 ## Stories
 
-| Story | Titel | Tests hinzugefügt | Gesamt | Status |
-|-------|-------|:-----------------:|:------:|:------:|
-| 2.1 | Tutorial Spawn | +10 | 354 | ✅ done |
-| 2.2 | Gravity Well | +12 | 354→? | ✅ done |
-| 2.3 | Laser at Wreck | +12 | 366 | ✅ done |
-| 2.4 | Enemies After Laser | +10 | 376 | ✅ done |
-| 2.5 | Station Spread Weapon | +11 | 387 | ✅ done |
-| 2.6 | Destroy Generator | +10 | 397 | ✅ done |
-| 2.7 | Destruction Cascade | +12 | 409 | ✅ done |
-| 2.8 | Constraint Validation | +21 | 430 | ✅ done |
+| Story | Titel | Tests gesamt | Commit | Status |
+|-------|-------|:------------:|--------|:------:|
+| 4-1 | Scout Drone AI | 547 | `fb449c8a` | ✅ done |
+| 4-7+4-9 | Faction Territories + Damage Feedback | 552 | `e8b96409` | ✅ done |
+| 4-2+4-3+4-4 | Fighter / Heavy Cruiser / Sniper | 567 | `ba7e4d70` | ✅ done |
+| 4-5 | Swarms | 573 | `5b4b7cf3` | ✅ done |
+| 4-6 | Faction Behaviors | 581 | `50c1206f` | ✅ done |
+| 4-8 | Attack Telegraphing | 584 | `f92ab102` | ✅ done |
+| 4-10 | Trader Ships | 589 | `d20a15e3` | ✅ done |
+| 4-11 | Distance Difficulty Scaling | 596 | `fd8c5644` | ✅ done |
+| 4-12 | Enemy Respawn | 601 | `cf1a2249` | ✅ done |
 
 ---
 
 ## Implementierte Features
 
-### TutorialPhase State Machine (8 Phasen)
-```
-Inactive → Exploring → Shooting → SpreadUnlocked → Complete → StationVisited → GeneratorDestroyed → TutorialComplete
-```
+### Enemy-Typen
+| Typ | Marker | Besonderheit |
+|-----|--------|--------------|
+| Scout Drone | `ScoutDrone` | AI-FSM + ErraticOffset (Zufallsbewegung) |
+| Fighter | `Fighter` | Aggressiv, große AggroRange(400), FleeThreshold(0.1) |
+| Heavy Cruiser | `HeavyCruiser` | Langsam, HP(200), großer Collider |
+| Sniper | `Sniper` | `PreferredRange { min, max }`, hält Distanz |
+| Swarm | `Swarm / SwarmLeader / SwarmFollower` | 3-5 koordiniert, Leader + Follower AI |
+| Trader Ship | `TraderShip` | `TraderRoute`, `FactionId::Neutral`, fliegt zwischen Punkten |
 
-### Neue Systeme
-| System | Phase | Aufgabe |
-|--------|-------|---------|
-| `spawn_tutorial_zone` | Startup/Inactive | Spawnt alle Tutorial-Entities |
-| `apply_gravity_well` | FixedUpdate/Physics | Lineare Pull-Kraft außerhalb safe_radius |
-| `advance_phase_on_wreck_shot` | Damage | Shooting → SpreadUnlocked |
-| `spawn_tutorial_enemies` | OnEnter(SpreadUnlocked) | Wave aus Scout-Dronen spawnen |
-| `check_tutorial_wave_complete` | Damage | SpreadUnlocked → Complete |
-| `dock_at_station` | Events | Complete → StationVisited, SpreadUnlocked-Komponente |
-| `check_generator_destroyed` | Events | StationVisited → GeneratorDestroyed |
-| `start_destruction_cascade` | OnEnter(GeneratorDestroyed) | CascadeTimer setzen |
-| `tick_cascade_timer` | Events | GeneratorDestroyed → TutorialComplete |
-| `validate_tutorial_config` | Startup | 9 Constraint-Checks, nur warn! |
+### AI-Systeme (src/social/enemy_ai.rs)
+- `update_scout_drone_ai` — FSM + erratischer Offset
+- `update_fighter_ai` — Aggressives Verfolgen
+- `update_heavy_cruiser_ai` — Langsam aber mächtig
+- `update_sniper_ai` — Distanzhalten via PreferredRange
+- `update_swarm_ai` — Leader-Follower-Koordination
+- `update_enemy_facing` — Transform-Rotation folgt Blickrichtung
+- `update_trader_ships` — Lineare Route mit Richtungsumkehr
 
-### Neue Komponenten
-- `TutorialWreck` — Marker für das Tutorial-Wrack
-- `WreckShotState { has_been_shot }` — Treffertracking
-- `TutorialEnemy` — Marker für Tutorial-Welle
-- `TutorialStation` — Marker für Tutorial-Station
-- `SpreadUnlocked` — Freigeschaltete Spread-Waffe
-- `GravityWellGenerator` erhält jetzt `Health + Collider`
+### Fraktions-System (src/social/faction.rs)
+- `faction_at_position(x, y, seed) -> FactionId` — Noise-basierte Territorien
+- `FactionBehaviorProfile { aggro_multiplier, flee_multiplier, preferred_attack_style }`
+- `AttackStyle`: `Aggressive`, `Defensive`, `Erratic`
+- `apply_faction_modifiers()` — Pure Function, wendet Profil auf AI-Parameter an
 
-### Neue Ressourcen
-- `TutorialEnemyWave { remaining }` — Wellenstatus
-- `CascadeTimer { remaining }` — Countdown vor TutorialComplete
+### Damage Feedback (src/shared/components.rs)
+- `DamageFlash { timer: f32, color: FlashColor }` Komponente
+- `FlashColor` Enum: `Red` (Spieler getroffen), `White` (Enemy getroffen)
 
-### Config-Felder (assets/config/tutorial.ron)
-- `wreck_offset_min/max`, `dock_radius`, `tutorial_enemy_count`, `tutorial_enemy_spawn_radius`, `cascade_delay_secs`
+### Distance Difficulty Scaling (src/world/mod.rs)
+- `enemy_stats_for_distance(distance, base_health, base_damage) -> (f32, f32)`
+- `WorldConfig` Felder: `difficulty_health_scale_per_100u`, `difficulty_count_scale_per_100u`
+- ScoutDrone HP skaliert mit Distanz beim Spawn
+
+### Enemy Respawn (src/core/spawning.rs)
+- `SpawnType::Swarm` neue Variante
+- `swarm_respawn_delay` in SpawningConfig
+- SwarmFollower von Respawn ausgeschlossen
+- SwarmLeader-Respawn triggert ganzen neuen Schwarm
 
 ---
 
 ## Architektur-Muster (bestätigt)
 
-- **Phase Guards:** Alle Systeme prüfen die aktuelle `TutorialPhase` vor Aktionen
-- **Idempotenz:** Alle Übergangssysteme sind idempotent durch Flags (`has_been_shot`, Ressourcen-Existenz)
-- **Cascade via Timer:** `CascadeTimer`-Ressource für zeitverzögerte Aktionen
-- **Velocity-basierte Physik:** Gravity Well modifiziert `Velocity`, nicht `Transform`
-- **Warn-only Validation:** `validate_tutorial_config` wie `validate_speed_cap` — kein panic
+- **Pure FSM**: `next_state(&AiState, &AiContext) -> AiState` — vollständig testbar ohne App
+- **Pure Functions für Skalierung**: `enemy_stats_for_distance`, `apply_faction_modifiers` — keine Rand-Calls direkt in Systemen
+- **Core/Rendering-Trennung**: `NeedsFighterVisual`, `NeedsHeavyCruiserVisual`, `NeedsSniperVisual`, `NeedsTraderVisual` — Rendering hängt Mesh an
+- **B0002 Buffer Pattern**: `PendingEnemyShotQueue` für Enemy-Schuss-Events
 
 ---
 
 ## Commit-Historie
 
 ```
-feat(2.8): constraint validation — 430 tests
-feat(2.7): destruction cascade — 409 tests
-feat(2.6): destroy generator — 397 tests
-feat(2.5): station spread weapon — 387 tests
-feat(2.4): enemies after laser — 376 tests
-feat(2.3): laser at wreck — 366 tests
-feat(2.2): gravity well — 354 tests
-feat(2.1): tutorial spawn — 344 tests
+feat(4-12): Enemy Respawn — SpawnType::Swarm, swarm_respawn_delay config. 601 tests.
+feat(4-11): Distance Difficulty Scaling — enemy_stats_for_distance pure fn. 596 tests.
+feat(4-10): Trader Ships — TraderShip marker, TraderRoute component. 589 tests.
+feat(4-8): Attack Telegraphing — FacingDirection/TurnRate, update_enemy_facing. 584 tests.
+feat(4-6): Faction Behaviors — FactionBehaviorProfile, AttackStyle enum. 581 tests.
+feat(4-5): Swarm — Swarm/SwarmLeader/SwarmFollower, spawn_swarm, update_swarm_ai. 573 tests.
+feat(4-2+4-3+4-4): Fighter/HeavyCruiser/Sniper — markers, AI systems, respawn timers. 567 tests.
+feat(4-7+4-9): faction_at_position noise-based territories + DamageFlash. 552 tests.
+feat(4-1): Scout Drone AI — AiState FSM, ErraticOffset, EnemyFireCooldown. 547 tests.
+feat(epic4-prep): SocialPlugin skeleton — FactionId, PatrolRadius, AggroRange, AiState FSM. 537 tests.
 ```
 
 ---
 
 ## Nächster Sprint
 
-**Epic 3: Stations & Economy** (Dependencies: Epic 1 ✅)
-- 3.1 Station Docking
-- 3.2 Station Shop UI
-- 3.3 Earn Credits
-- 3.4 Material Drops
-- 3.5 Death Credit Loss
-- 3.6 Station Types
-- 3.7 Economy Scaling
+**Epic 5: Progression & Upgrades** (Dependencies: Epic 3 ✅)
+- 5.1 Craft Upgrades
+- 5.2 Upgrade Tiers
+- 5.3 Weapon Upgrades
+- 5.4 Recipe Discovery
+- 5.5 Visual Ship Changes
+- 5.6 Craft-Buy Distinction

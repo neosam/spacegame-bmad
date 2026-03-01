@@ -95,19 +95,19 @@ development_status:
   epic-3-retrospective: done
 
   # ── Epic 4: Combat Depth (Must | Dependencies: Epic 1) ──
-  epic-4: backlog
-  4-1-scout-drones: backlog
-  4-2-fighters: backlog
-  4-3-heavy-cruisers: backlog
-  4-4-snipers: backlog
-  4-5-swarms: backlog
-  4-6-faction-behaviors: backlog
-  4-7-faction-territories: backlog
-  4-8-attack-telegraphing: backlog
-  4-9-damage-feedback: backlog
-  4-10-trader-ships: backlog
-  4-11-distance-difficulty-scaling: backlog
-  4-12-enemy-respawn: backlog
+  epic-4: done
+  4-1-scout-drones: done
+  4-2-fighters: done
+  4-3-heavy-cruisers: done
+  4-4-snipers: done
+  4-5-swarms: done
+  4-6-faction-behaviors: done
+  4-7-faction-territories: done
+  4-8-attack-telegraphing: done
+  4-9-damage-feedback: done
+  4-10-trader-ships: done
+  4-11-distance-difficulty-scaling: done
+  4-12-enemy-respawn: done
   epic-4-retrospective: optional
 
   # ── Epic 5: Progression & Upgrades (Should | Dependencies: Epic 3) ──
