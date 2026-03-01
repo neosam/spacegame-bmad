@@ -20,9 +20,9 @@ use crate::infrastructure::events::EventSeverityConfig;
 use crate::infrastructure::save::delta::{SeedIndex, WorldDeltas};
 use crate::shared::components::Velocity;
 use crate::shared::events::{GameEvent, GameEventKind};
-use crate::social::enemy_ai::{AiState, ErraticOffset, EnemyFireCooldown};
+use crate::social::enemy_ai::{AiState, BossVariant, ErraticOffset, EnemyFireCooldown};
 use crate::social::faction::{
-    faction_at_position, AggroRange, AttackRange, FacingDirection, FleeThreshold,
+    faction_at_position, AggroRange, AttackRange, FacingDirection, FactionId, FleeThreshold,
     PatrolRadius, TurnRate,
 };
 
@@ -503,6 +503,14 @@ pub fn update_chunks(
                         blueprint.position.y,
                         config.seed as u32,
                     );
+                    // Story 7-3: Derive BossVariant from faction
+                    let boss_variant = match &boss_faction {
+                        FactionId::Pirates     => BossVariant::PirateWarlord,
+                        FactionId::Military    => BossVariant::Admiral,
+                        FactionId::Aliens      => BossVariant::HiveMind,
+                        FactionId::RogueDrones => BossVariant::AlphaDrone,
+                        FactionId::Neutral     => BossVariant::Admiral, // fallback
+                    };
                     // Scale boss health with distance
                     let distance = blueprint.position.length();
                     let (scaled_health, _) = enemy_stats_for_distance(
@@ -525,6 +533,7 @@ pub fn update_chunks(
                         ))
                         .insert((
                             boss_faction.clone(),
+                            boss_variant,
                             AiState::Idle,
                             AggroRange(350.0),
                             AttackRange(150.0),

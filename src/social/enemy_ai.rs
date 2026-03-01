@@ -13,6 +13,62 @@
 /// ```
 use bevy::prelude::*;
 
+/// Which boss variant this boss is, determining its stats and behavior.
+#[derive(Component, Debug, Clone, PartialEq, Eq)]
+pub enum BossVariant {
+    /// Pirates — schnell (100), wenig HP (300), aggressiv
+    PirateWarlord,
+    /// Military — ausgewogen (60), viel HP (500), defensiv
+    Admiral,
+    /// Aliens — langsam (40), sehr viel HP (700), erratisch
+    HiveMind,
+    /// RogueDrones — mittel (75), mittel HP (400), aggressiv
+    AlphaDrone,
+}
+
+/// Stat block for a boss variant.
+pub struct BossStats {
+    pub speed: f32,
+    pub health: f32,
+    pub collider_radius: f32,
+    pub damage: f32,
+    pub fire_cooldown: f32,
+}
+
+/// Pure function: returns the canonical stats for a given boss variant.
+pub fn boss_variant_stats(variant: &BossVariant) -> BossStats {
+    match variant {
+        BossVariant::PirateWarlord => BossStats {
+            speed: 100.0,
+            health: 300.0,
+            collider_radius: 22.0,
+            damage: 18.0,
+            fire_cooldown: 0.8,
+        },
+        BossVariant::Admiral => BossStats {
+            speed: 60.0,
+            health: 500.0,
+            collider_radius: 28.0,
+            damage: 25.0,
+            fire_cooldown: 1.5,
+        },
+        BossVariant::HiveMind => BossStats {
+            speed: 40.0,
+            health: 700.0,
+            collider_radius: 35.0,
+            damage: 30.0,
+            fire_cooldown: 2.0,
+        },
+        BossVariant::AlphaDrone => BossStats {
+            speed: 75.0,
+            health: 400.0,
+            collider_radius: 24.0,
+            damage: 20.0,
+            fire_cooldown: 1.0,
+        },
+    }
+}
+
 /// Current AI state for an enemy entity.
 #[derive(Component, Debug, Clone, PartialEq)]
 pub enum AiState {
@@ -591,6 +647,8 @@ pub fn update_swarm_ai(
 
 /// Updates Boss AI: slow but relentless, never flees, high damage.
 /// Bosses use the same FSM transitions but with wider aggro, never flee, and fire heavy shots.
+/// Stats (speed, damage, fire_cooldown) are determined by `BossVariant`.
+/// Falls back to Admiral stats if no variant is present.
 #[allow(clippy::type_complexity)]
 pub fn update_boss_ai(
     time: Res<Time>,
@@ -605,6 +663,7 @@ pub fn update_boss_ai(
             &crate::social::faction::AttackRange,
             &crate::social::faction::FleeThreshold,
             &mut EnemyFireCooldown,
+            Option<&BossVariant>,
         ),
         With<crate::core::spawning::BossEnemy>,
     >,
@@ -619,7 +678,7 @@ pub fn update_boss_ai(
         player_transform.translation.y,
     );
 
-    for (transform, health, mut velocity, mut ai_state, aggro, attack, flee, mut cooldown) in
+    for (transform, health, mut velocity, mut ai_state, aggro, attack, flee, mut cooldown, variant_opt) in
         boss_query.iter_mut()
     {
         let pos = Vec2::new(transform.translation.x, transform.translation.y);
@@ -636,22 +695,27 @@ pub fn update_boss_ai(
         };
         *ai_state = next_state(&ai_state, &ctx);
 
-        const BOSS_SPEED: f32 = 60.0;
+        // Use variant-specific stats; fall back to Admiral if no variant present.
+        let stats = match variant_opt {
+            Some(variant) => boss_variant_stats(variant),
+            None => boss_variant_stats(&BossVariant::Admiral),
+        };
+
         match *ai_state {
             AiState::Chase => {
                 let dir = if distance > 0.0 { to_player.normalize() } else { Vec2::X };
-                velocity.0 = dir * BOSS_SPEED;
+                velocity.0 = dir * stats.speed;
             }
             AiState::Attack => {
                 // Slow down while firing
                 velocity.0 = velocity.0 * 0.9;
                 cooldown.timer -= dt;
                 if cooldown.timer <= 0.0 {
-                    cooldown.timer = 1.5; // Boss fire rate: 1.5s cooldown
+                    cooldown.timer = stats.fire_cooldown;
                     pending_shots.shots.push(PendingEnemyShot {
                         origin: pos,
                         target: player_pos,
-                        damage: 25.0, // High damage per shot
+                        damage: stats.damage,
                     });
                 }
             }
@@ -1548,6 +1612,128 @@ mod tests {
             .iter(app.world())
             .count();
         assert_eq!(boss_count, 0, "Dead boss should be despawned after taking fatal damage");
+    }
+
+    // ── BossVariant / boss_variant_stats tests (Story 7-3) ──
+
+    #[test]
+    fn boss_variant_stats_pirate_warlord() {
+        let stats = boss_variant_stats(&BossVariant::PirateWarlord);
+        assert!(
+            (stats.speed - 100.0).abs() < f32::EPSILON,
+            "PirateWarlord speed should be 100.0, got {}",
+            stats.speed
+        );
+        assert!(
+            (stats.health - 300.0).abs() < f32::EPSILON,
+            "PirateWarlord health should be 300.0, got {}",
+            stats.health
+        );
+        assert!(
+            (stats.collider_radius - 22.0).abs() < f32::EPSILON,
+            "PirateWarlord collider_radius should be 22.0, got {}",
+            stats.collider_radius
+        );
+        assert!(
+            (stats.damage - 18.0).abs() < f32::EPSILON,
+            "PirateWarlord damage should be 18.0, got {}",
+            stats.damage
+        );
+        assert!(
+            (stats.fire_cooldown - 0.8).abs() < f32::EPSILON,
+            "PirateWarlord fire_cooldown should be 0.8, got {}",
+            stats.fire_cooldown
+        );
+    }
+
+    #[test]
+    fn boss_variant_stats_admiral() {
+        let stats = boss_variant_stats(&BossVariant::Admiral);
+        assert!(
+            (stats.speed - 60.0).abs() < f32::EPSILON,
+            "Admiral speed should be 60.0, got {}",
+            stats.speed
+        );
+        assert!(
+            (stats.health - 500.0).abs() < f32::EPSILON,
+            "Admiral health should be 500.0, got {}",
+            stats.health
+        );
+        assert!(
+            (stats.collider_radius - 28.0).abs() < f32::EPSILON,
+            "Admiral collider_radius should be 28.0, got {}",
+            stats.collider_radius
+        );
+        assert!(
+            (stats.damage - 25.0).abs() < f32::EPSILON,
+            "Admiral damage should be 25.0, got {}",
+            stats.damage
+        );
+        assert!(
+            (stats.fire_cooldown - 1.5).abs() < f32::EPSILON,
+            "Admiral fire_cooldown should be 1.5, got {}",
+            stats.fire_cooldown
+        );
+    }
+
+    #[test]
+    fn boss_variant_stats_hive_mind() {
+        let stats = boss_variant_stats(&BossVariant::HiveMind);
+        assert!(
+            (stats.speed - 40.0).abs() < f32::EPSILON,
+            "HiveMind speed should be 40.0, got {}",
+            stats.speed
+        );
+        assert!(
+            (stats.health - 700.0).abs() < f32::EPSILON,
+            "HiveMind health should be 700.0, got {}",
+            stats.health
+        );
+        assert!(
+            (stats.collider_radius - 35.0).abs() < f32::EPSILON,
+            "HiveMind collider_radius should be 35.0, got {}",
+            stats.collider_radius
+        );
+        assert!(
+            (stats.damage - 30.0).abs() < f32::EPSILON,
+            "HiveMind damage should be 30.0, got {}",
+            stats.damage
+        );
+        assert!(
+            (stats.fire_cooldown - 2.0).abs() < f32::EPSILON,
+            "HiveMind fire_cooldown should be 2.0, got {}",
+            stats.fire_cooldown
+        );
+    }
+
+    #[test]
+    fn boss_variant_stats_alpha_drone() {
+        let stats = boss_variant_stats(&BossVariant::AlphaDrone);
+        assert!(
+            (stats.speed - 75.0).abs() < f32::EPSILON,
+            "AlphaDrone speed should be 75.0, got {}",
+            stats.speed
+        );
+        assert!(
+            (stats.health - 400.0).abs() < f32::EPSILON,
+            "AlphaDrone health should be 400.0, got {}",
+            stats.health
+        );
+        assert!(
+            (stats.collider_radius - 24.0).abs() < f32::EPSILON,
+            "AlphaDrone collider_radius should be 24.0, got {}",
+            stats.collider_radius
+        );
+        assert!(
+            (stats.damage - 20.0).abs() < f32::EPSILON,
+            "AlphaDrone damage should be 20.0, got {}",
+            stats.damage
+        );
+        assert!(
+            (stats.fire_cooldown - 1.0).abs() < f32::EPSILON,
+            "AlphaDrone fire_cooldown should be 1.0, got {}",
+            stats.fire_cooldown
+        );
     }
 
     #[test]

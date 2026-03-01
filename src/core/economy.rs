@@ -203,6 +203,42 @@ pub fn spawn_material_drops(
     }
 }
 
+/// Reads BossDestroyed events and queues 3–5 material drops in PendingDropSpawns.
+/// Also awards +500 Credits to the player directly.
+/// Uses rand::random for material type selection and position offset.
+pub fn spawn_boss_loot(
+    mut reader: MessageReader<GameEvent>,
+    mut pending: ResMut<PendingDropSpawns>,
+    mut credits: ResMut<Credits>,
+) {
+    for event in reader.read() {
+        if let GameEventKind::BossDestroyed { position, .. } = &event.kind {
+            let boss_pos = *position;
+            // +500 credits bonus
+            credits.balance += 500;
+
+            // Determine drop count: 3–5 via rand
+            let count = 3 + (rand::random::<u8>() % 3); // 0..=2 → 3..=5
+            let material_variants = [
+                MaterialType::CommonScrap,
+                MaterialType::RareAlloy,
+                MaterialType::EnergyCore,
+            ];
+            for _ in 0..count {
+                // Random offset ±30.0 for x and y
+                let offset_x = (rand::random::<f32>() * 2.0 - 1.0) * 30.0;
+                let offset_y = (rand::random::<f32>() * 2.0 - 1.0) * 30.0;
+                let drop_pos = boss_pos + Vec2::new(offset_x, offset_y);
+
+                // Pick a random material type from the 3 variants
+                let idx = (rand::random::<u8>() % 3) as usize;
+                let material = material_variants[idx];
+                pending.drops.push((material, drop_pos));
+            }
+        }
+    }
+}
+
 /// Detects player collisions with MaterialDrop entities, updates inventory, queues pickup events.
 /// Does NOT write GameEvents directly — avoids B0002. Uses PendingPickupEvents buffer.
 pub fn collect_material_drops(

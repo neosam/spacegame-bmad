@@ -27,6 +27,7 @@ use self::economy::{
     award_credits_on_discovery, award_credits_on_kill, emit_credit_events,
     on_player_death_deduct_credits,
     collect_material_drops, emit_pickup_events, queue_material_drops, spawn_material_drops,
+    spawn_boss_loot,
     Credits, DiscoveredChunks, PendingCreditEvents,
     PlayerInventory, PendingDropSpawns, PendingPickupEvents,
 };
@@ -324,7 +325,7 @@ impl Plugin for CorePlugin {
         app.init_resource::<PendingPickupEvents>();
         app.add_systems(
             FixedUpdate,
-            (queue_material_drops, spawn_material_drops, collect_material_drops, emit_pickup_events)
+            (queue_material_drops, spawn_boss_loot, spawn_material_drops, collect_material_drops, emit_pickup_events)
                 .chain()
                 .after(CoreSet::Events),
         );
