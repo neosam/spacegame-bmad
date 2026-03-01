@@ -3,7 +3,7 @@
 **Sprint:** Epic 8
 **Datum:** 2026-03-01
 **Dependencies:** Epic 6a (Companion Core — CompanionRecruited Events)
-**Epic Status:** in-progress
+**Epic Status:** done
 
 ---
 
@@ -11,10 +11,10 @@
 
 | Story ID | Titel | Status | Abhängigkeiten |
 |----------|-------|:------:|----------------|
-| 8-1 | Logbook UI Screen | todo | keine |
-| 8-2 | Severity Filtering | todo | 8-1 |
-| 8-3 | Milestone Chapter Headings | todo | 8-1 |
-| 8-4 | Logbook Save Persistence | todo | 8-1 |
+| 8-1 | Logbook UI Screen | done | keine |
+| 8-2 | Severity Filtering | done | 8-1 |
+| 8-3 | Milestone Chapter Headings | done | 8-1 |
+| 8-4 | Logbook Save Persistence | done | 8-1 |
 
 ---
 

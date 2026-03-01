@@ -1,7 +1,7 @@
-# Sprint Report — Epic 7: Boss Encounters
+# Sprint Report — Epic 8: Logbook UI
 
-**Sprint:** Epic 7
-**Datum:** 2026-02-28
+**Sprint:** Epic 8
+**Datum:** 2026-03-01
 **Status:** ✅ Abgeschlossen
 **Tests:** 703 → 717 (+14 neue Tests)
 
