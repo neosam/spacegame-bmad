@@ -14,7 +14,7 @@ use std::collections::{HashSet, VecDeque};
 
 use crate::core::collision::{Collider, Health};
 use crate::core::flight::Player;
-use crate::core::spawning::{Asteroid, NeedsAsteroidVisual, NeedsDroneVisual, ScoutDrone};
+use crate::core::spawning::{Asteroid, BossEnemy, NeedsAsteroidVisual, NeedsBossVisual, NeedsDroneVisual, ScoutDrone};
 use crate::core::station::{NeedsStationVisual, Station, StationType};
 use crate::infrastructure::events::EventSeverityConfig;
 use crate::infrastructure::save::delta::{SeedIndex, WorldDeltas};
@@ -22,7 +22,7 @@ use crate::shared::components::Velocity;
 use crate::shared::events::{GameEvent, GameEventKind};
 use crate::social::enemy_ai::{AiState, ErraticOffset, EnemyFireCooldown};
 use crate::social::faction::{
-    faction_at_position, AggroRange, AttackRange, FacingDirection, FactionId, FleeThreshold,
+    faction_at_position, AggroRange, AttackRange, FacingDirection, FleeThreshold,
     PatrolRadius, TurnRate,
 };
 
@@ -495,6 +495,54 @@ pub fn update_chunks(
                             seed_index,
                         ))
                         .id()
+                },
+                generation::BlueprintType::Boss => {
+                    // Story 7-1: Boss enemy with full AI components
+                    let boss_faction = faction_at_position(
+                        blueprint.position.x,
+                        blueprint.position.y,
+                        config.seed as u32,
+                    );
+                    // Scale boss health with distance
+                    let distance = blueprint.position.length();
+                    let (scaled_health, _) = enemy_stats_for_distance(
+                        distance,
+                        blueprint.health,
+                        40.0, // boss contact damage base
+                        config.difficulty_health_scale_per_100u,
+                    );
+                    let entity = commands
+                        .spawn((
+                            BossEnemy,
+                            NeedsBossVisual,
+                            Collider { radius: blueprint.radius },
+                            Health { current: scaled_health, max: scaled_health },
+                            Velocity(Vec2::ZERO),
+                            Transform::from_translation(blueprint.position.extend(0.0)),
+                            chunk_marker,
+                            biome,
+                            seed_index,
+                        ))
+                        .insert((
+                            boss_faction.clone(),
+                            AiState::Idle,
+                            AggroRange(350.0),
+                            AttackRange(150.0),
+                            FleeThreshold(0.0), // Bosses never flee
+                            EnemyFireCooldown::default(),
+                            FacingDirection::default(),
+                            TurnRate(1.5), // Slow, deliberate turning
+                        ))
+                        .id();
+                    // Emit BossSpawned event
+                    let kind = GameEventKind::BossSpawned { faction: boss_faction };
+                    game_events.write(GameEvent {
+                        severity: severity_config.severity_for(&kind),
+                        kind,
+                        position: blueprint.position,
+                        game_time: time.elapsed_secs_f64(),
+                    });
+                    entity
                 },
             };
             chunk_entities.push(entity);

@@ -5,7 +5,7 @@ use crate::infrastructure::events::EventSeverityConfig;
 use crate::shared::components::{ContactDamageCooldown, Invincible, JustDamaged, Velocity};
 use crate::shared::events::{GameEvent, GameEventKind};
 use super::flight::Player;
-use super::spawning::{Asteroid, Fighter, HeavyCruiser, ScoutDrone, Sniper};
+use super::spawning::{Asteroid, BossEnemy, Fighter, HeavyCruiser, ScoutDrone, Sniper};
 use super::weapons::{LaserFired, SpreadProjectile, WeaponConfig};
 use crate::core::tutorial::GravityWellGenerator;
 
@@ -354,6 +354,7 @@ pub fn tick_invincibility(
 /// Despawns non-Player entities whose health has reached zero or below.
 /// Records positions of destroyed entities in `DestroyedPositions` for visual effects.
 /// Emits `GameEvent::EnemyDestroyed` for each despawned entity.
+/// Emits `GameEvent::BossDestroyed` for Boss entities (Story 7-1).
 /// Player entity is NEVER despawned — handled by `handle_player_death` instead.
 #[allow(clippy::type_complexity)]
 pub fn despawn_destroyed(
@@ -368,6 +369,7 @@ pub fn despawn_destroyed(
             Option<&Fighter>,
             Option<&HeavyCruiser>,
             Option<&Sniper>,
+            Option<&BossEnemy>,
         ),
         Without<Player>,
     >,
@@ -376,32 +378,47 @@ pub fn despawn_destroyed(
     time: Res<Time>,
     severity_config: Res<EventSeverityConfig>,
 ) {
-    for (entity, health, transform, asteroid, drone, fighter, heavy, sniper) in query.iter() {
+    for (entity, health, transform, asteroid, drone, fighter, heavy, sniper, boss) in query.iter() {
         if health.current <= 0.0 {
             let position = Vec2::new(transform.translation.x, transform.translation.y);
             destroyed_positions.positions.push(position);
             commands.entity(entity).despawn();
 
-            let entity_type = if asteroid.is_some() {
-                "asteroid"
-            } else if drone.is_some() {
-                "drone"
-            } else if fighter.is_some() {
-                "fighter"
-            } else if heavy.is_some() {
-                "heavy_cruiser"
-            } else if sniper.is_some() {
-                "sniper"
+            // Boss entities get a BossDestroyed event; others get EnemyDestroyed
+            if boss.is_some() {
+                use crate::social::faction::FactionId;
+                let kind = GameEventKind::BossDestroyed {
+                    faction: FactionId::RogueDrones, // Default faction for bosses
+                    position,
+                };
+                game_events.write(GameEvent {
+                    severity: severity_config.severity_for(&kind),
+                    kind,
+                    position,
+                    game_time: time.elapsed_secs_f64(),
+                });
             } else {
-                "unknown"
-            };
-            let kind = GameEventKind::EnemyDestroyed { entity_type };
-            game_events.write(GameEvent {
-                severity: severity_config.severity_for(&kind),
-                kind,
-                position,
-                game_time: time.elapsed_secs_f64(),
-            });
+                let entity_type = if asteroid.is_some() {
+                    "asteroid"
+                } else if drone.is_some() {
+                    "drone"
+                } else if fighter.is_some() {
+                    "fighter"
+                } else if heavy.is_some() {
+                    "heavy_cruiser"
+                } else if sniper.is_some() {
+                    "sniper"
+                } else {
+                    "unknown"
+                };
+                let kind = GameEventKind::EnemyDestroyed { entity_type };
+                game_events.write(GameEvent {
+                    severity: severity_config.severity_for(&kind),
+                    kind,
+                    position,
+                    game_time: time.elapsed_secs_f64(),
+                });
+            }
         }
     }
 }

@@ -59,6 +59,10 @@ pub enum GameEventKind {
     UpgradeCrafted { system_name: String, tier: u8 },
     /// Player recruited a companion at a station.
     CompanionRecruited { name: String },
+    /// A Boss enemy was spawned (Story 7-1).
+    BossSpawned { faction: crate::social::faction::FactionId },
+    /// A Boss enemy was destroyed (Story 7-1).
+    BossDestroyed { faction: crate::social::faction::FactionId, position: Vec2 },
 }
 
 /// A game event emitted as a Bevy message by gameplay systems.

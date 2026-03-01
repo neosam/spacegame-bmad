@@ -33,6 +33,8 @@ impl Default for EventSeverityConfig {
         mappings.insert("MaterialCollected".to_string(), EventSeverity::Tier3);
         mappings.insert("UpgradeCrafted".to_string(), EventSeverity::Tier2);
         mappings.insert("CompanionRecruited".to_string(), EventSeverity::Tier1);
+        mappings.insert("BossSpawned".to_string(), EventSeverity::Tier1);
+        mappings.insert("BossDestroyed".to_string(), EventSeverity::Tier1);
         Self { mappings }
     }
 }
@@ -62,6 +64,8 @@ impl EventSeverityConfig {
             "MaterialCollected",
             "UpgradeCrafted",
             "CompanionRecruited",
+            "BossSpawned",
+            "BossDestroyed",
         ];
 
         for key in self.mappings.keys() {
@@ -103,6 +107,8 @@ impl EventSeverityConfig {
             GameEventKind::MaterialCollected { .. } => "MaterialCollected",
             GameEventKind::UpgradeCrafted { .. } => "UpgradeCrafted",
             GameEventKind::CompanionRecruited { .. } => "CompanionRecruited",
+            GameEventKind::BossSpawned { .. } => "BossSpawned",
+            GameEventKind::BossDestroyed { .. } => "BossDestroyed",
         };
         self.mappings
             .get(key)
@@ -171,7 +177,7 @@ mod tests {
     #[test]
     fn severity_config_default_has_all_mappings() {
         let config = EventSeverityConfig::default();
-        assert_eq!(config.mappings.len(), 16, "Should have 16 default mappings");
+        assert_eq!(config.mappings.len(), 18, "Should have 18 default mappings");
         assert_eq!(
             config.severity_for(&GameEventKind::PlayerRespawned),
             EventSeverity::Tier2
@@ -224,7 +230,7 @@ mod tests {
         // Default config should have all known keys — validate should not panic
         let config = EventSeverityConfig::default();
         config.validate(); // should produce no warnings
-        assert_eq!(config.mappings.len(), 16);
+        assert_eq!(config.mappings.len(), 18);
     }
 
     #[test]

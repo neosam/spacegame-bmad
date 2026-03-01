@@ -61,6 +61,8 @@ pub enum BlueprintType {
     ScoutDrone,
     /// Open-world trading station (rare spawn, ~5% per WreckField chunk)
     Station,
+    /// Boss enemy (Story 7-1): spawns 1 per 5×5 chunk block, only at chunk distance ≥ 3
+    Boss,
 }
 
 /// Describes a single entity to spawn within a chunk.
@@ -148,6 +150,24 @@ pub fn generate_chunk_content(
                 biome,
             });
         }
+    }
+
+    // Story 7-1: Spawn one Boss per 5×5 chunk block, only outside tutorial zone (chunk distance ≥ 3).
+    // Boss spawns in the "anchor" chunk of each 5×5 block: when (coord.x % 5 == 0) && (coord.y % 5 == 0).
+    // Chebyshev distance: max(|x|, |y|) >= 3
+    let chebyshev_dist = coord.x.unsigned_abs().max(coord.y.unsigned_abs());
+    let is_block_anchor = (coord.x.rem_euclid(5) == 0) && (coord.y.rem_euclid(5) == 0);
+    if is_block_anchor && chebyshev_dist >= 3 {
+        let x = chunk_origin.x + chunk_size * 0.5; // center of chunk
+        let y = chunk_origin.y + chunk_size * 0.5;
+        blueprints.push(EntityBlueprint {
+            entity_type: BlueprintType::Boss,
+            position: Vec2::new(x, y),
+            velocity: Vec2::ZERO,
+            health: 500.0, // boss_health default
+            radius: 28.0,  // boss_collider_radius default
+            biome,
+        });
     }
 
     blueprints
@@ -282,6 +302,17 @@ mod tests {
                         "Station should have zero velocity, got {speed}"
                     );
                 }
+                BlueprintType::Boss => {
+                    // Boss is static (velocity = 0), health = 500
+                    assert!(
+                        speed < f32::EPSILON,
+                        "Boss should have zero initial velocity, got {speed}"
+                    );
+                    assert!(
+                        (bp.health - 500.0).abs() < f32::EPSILON,
+                        "Boss health should be 500.0, got {}", bp.health
+                    );
+                }
             }
         }
     }
@@ -353,6 +384,10 @@ mod tests {
                 BlueprintType::Station => {
                     // Stations have zero velocity
                     assert!(speed < f32::EPSILON, "Station speed should be 0, got {speed}");
+                }
+                BlueprintType::Boss => {
+                    // Bosses have zero velocity
+                    assert!(speed < f32::EPSILON, "Boss speed should be 0, got {speed}");
                 }
             }
         }

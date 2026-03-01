@@ -793,6 +793,59 @@ pub fn generate_companion_mesh() -> Mesh {
     mesh
 }
 
+/// Generate a hexagonal mesh for Boss enemy rendering (Story 7-1).
+/// Large and imposing — 6-sided silhouette communicates special threat status.
+pub fn generate_boss_mesh(radius: f32) -> Mesh {
+    let vertex_count = 6u32;
+    let angle_step = std::f32::consts::TAU / vertex_count as f32;
+    // Rotate so flat side faces up (more imposing silhouette)
+    let offset = std::f32::consts::PI / 6.0;
+
+    let mut buffers: VertexBuffers<[f32; 3], u32> = VertexBuffers::new();
+    let mut tessellator = FillTessellator::new();
+    let mut builder = Path::builder();
+
+    for i in 0..vertex_count {
+        let angle = angle_step * i as f32 + offset;
+        let x = angle.cos() * radius;
+        let y = angle.sin() * radius;
+        if i == 0 {
+            builder.begin(point(x, y));
+        } else {
+            builder.line_to(point(x, y));
+        }
+    }
+    builder.close();
+    let path = builder.build();
+
+    let result = tessellator.tessellate_path(
+        &path,
+        &FillOptions::default(),
+        &mut BuffersBuilder::new(&mut buffers, |vertex: FillVertex| {
+            [vertex.position().x, vertex.position().y, 0.0]
+        }),
+    );
+
+    if let Err(e) = result {
+        warn!("Boss tessellation failed: {e:?}, using circle fallback");
+        return Mesh::from(Circle::new(radius));
+    }
+
+    let positions: Vec<[f32; 3]> = buffers.vertices.clone();
+    let normals: Vec<[f32; 3]> = vec![[0.0, 0.0, 1.0]; positions.len()];
+    let uvs: Vec<[f32; 2]> = positions
+        .iter()
+        .map(|p| [(p[0] / radius + 1.0) / 2.0, (p[1] / radius + 1.0) / 2.0])
+        .collect();
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Indices::U32(buffers.indices));
+    mesh
+}
+
 /// Fallback mesh if lyon tessellation fails (graceful degradation).
 fn generate_fallback_mesh() -> Mesh {
     let positions = vec![

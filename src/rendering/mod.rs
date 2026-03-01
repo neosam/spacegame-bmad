@@ -13,8 +13,8 @@ use crate::core::flight::Player;
 use crate::core::upgrades::InstalledUpgrades;
 use crate::shared::components::{MaterialType, NeedsMaterialDropVisual, NeedsShipUpgradeVisual};
 use crate::core::spawning::{
-    NeedsAsteroidVisual, NeedsDroneVisual, NeedsFighterVisual, NeedsHeavyCruiserVisual,
-    NeedsSniperVisual, NeedsTraderVisual, SpawningConfig,
+    NeedsAsteroidVisual, NeedsBossVisual, NeedsDroneVisual, NeedsFighterVisual,
+    NeedsHeavyCruiserVisual, NeedsSniperVisual, NeedsTraderVisual, SpawningConfig,
 };
 use crate::core::station::{Docked, NeedsStationVisual, Station, StationType};
 use crate::core::tutorial::{generate_tutorial_zone, GravityWellBoundary, GravityWellGenerator, TutorialConfig, TutorialStation, TutorialWreck};
@@ -38,11 +38,11 @@ use self::background::{setup_starfield, update_starfield, StarfieldConfig};
 use self::minimap::{setup_minimap, update_minimap_blips, MinimapConfig, MinimapState};
 use self::world_map::{toggle_world_map, update_world_map, WorldMapConfig, WorldMapOpen, WorldMapState};
 use self::vector_art::{
-    generate_asteroid_mesh, generate_circle_outline_mesh, generate_companion_mesh,
-    generate_drone_mesh, generate_fighter_mesh, generate_heavy_cruiser_mesh, generate_laser_mesh,
-    generate_material_drop_mesh, generate_player_mesh, generate_projectile_mesh,
-    generate_sniper_mesh, generate_trader_mesh, generate_tutorial_generator_mesh,
-    generate_tutorial_station_mesh, generate_tutorial_wreck_mesh,
+    generate_asteroid_mesh, generate_boss_mesh, generate_circle_outline_mesh,
+    generate_companion_mesh, generate_drone_mesh, generate_fighter_mesh,
+    generate_heavy_cruiser_mesh, generate_laser_mesh, generate_material_drop_mesh,
+    generate_player_mesh, generate_projectile_mesh, generate_sniper_mesh, generate_trader_mesh,
+    generate_tutorial_generator_mesh, generate_tutorial_station_mesh, generate_tutorial_wreck_mesh,
 };
 
 pub struct RenderingPlugin;
@@ -119,6 +119,7 @@ impl Plugin for RenderingPlugin {
                 setup_fighter_assets,
                 setup_heavy_cruiser_assets,
                 setup_sniper_assets,
+                setup_boss_assets,
                 setup_trader_assets,
                 setup_station_assets,
                 setup_tutorial_station_assets,
@@ -143,6 +144,7 @@ impl Plugin for RenderingPlugin {
                 render_fighters,
                 render_heavy_cruisers,
                 render_snipers,
+                render_bosses,
                 render_traders,
                 render_stations,
                 render_tutorial_stations,
@@ -686,6 +688,43 @@ fn render_snipers(
                 MeshMaterial2d(assets.material.clone()),
             ))
             .remove::<NeedsSniperVisual>();
+    }
+}
+
+// ── Story 7-1: Boss Visual ───────────────────────────────────────────────
+
+/// Cached mesh and material handles for Boss enemy entities.
+#[derive(Resource)]
+struct BossAssets {
+    mesh: Handle<Mesh>,
+    material: Handle<ColorMaterial>,
+}
+
+fn setup_boss_assets(
+    mut commands: Commands,
+    config: Res<SpawningConfig>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let mesh = meshes.add(generate_boss_mesh(config.boss_collider_radius));
+    // Dark red — dangerous, imposing threat
+    let material = materials.add(ColorMaterial::from(Color::srgb(0.8, 0.1, 0.1)));
+    commands.insert_resource(BossAssets { mesh, material });
+}
+
+fn render_bosses(
+    mut commands: Commands,
+    assets: Res<BossAssets>,
+    query: Query<Entity, With<NeedsBossVisual>>,
+) {
+    for entity in query.iter() {
+        commands
+            .entity(entity)
+            .insert((
+                Mesh2d(assets.mesh.clone()),
+                MeshMaterial2d(assets.material.clone()),
+            ))
+            .remove::<NeedsBossVisual>();
     }
 }
 

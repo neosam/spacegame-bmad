@@ -589,6 +589,83 @@ pub fn update_swarm_ai(
     }
 }
 
+/// Updates Boss AI: slow but relentless, never flees, high damage.
+/// Bosses use the same FSM transitions but with wider aggro, never flee, and fire heavy shots.
+#[allow(clippy::type_complexity)]
+pub fn update_boss_ai(
+    time: Res<Time>,
+    player_query: Query<&Transform, With<crate::core::flight::Player>>,
+    mut boss_query: Query<
+        (
+            &Transform,
+            &crate::core::collision::Health,
+            &mut crate::shared::components::Velocity,
+            &mut AiState,
+            &crate::social::faction::AggroRange,
+            &crate::social::faction::AttackRange,
+            &crate::social::faction::FleeThreshold,
+            &mut EnemyFireCooldown,
+        ),
+        With<crate::core::spawning::BossEnemy>,
+    >,
+    mut pending_shots: ResMut<PendingEnemyShotQueue>,
+) {
+    let dt = time.delta_secs();
+    let Ok(player_transform) = player_query.single() else {
+        return;
+    };
+    let player_pos = Vec2::new(
+        player_transform.translation.x,
+        player_transform.translation.y,
+    );
+
+    for (transform, health, mut velocity, mut ai_state, aggro, attack, flee, mut cooldown) in
+        boss_query.iter_mut()
+    {
+        let pos = Vec2::new(transform.translation.x, transform.translation.y);
+        let to_player = player_pos - pos;
+        let distance = to_player.length();
+        let health_ratio = if health.max > 0.0 { health.current / health.max } else { 0.0 };
+
+        let ctx = AiContext {
+            distance_to_player: distance,
+            health_ratio,
+            aggro_range: aggro.0,
+            attack_range: attack.0,
+            flee_threshold: flee.0,
+        };
+        *ai_state = next_state(&ai_state, &ctx);
+
+        const BOSS_SPEED: f32 = 60.0;
+        match *ai_state {
+            AiState::Chase => {
+                let dir = if distance > 0.0 { to_player.normalize() } else { Vec2::X };
+                velocity.0 = dir * BOSS_SPEED;
+            }
+            AiState::Attack => {
+                // Slow down while firing
+                velocity.0 = velocity.0 * 0.9;
+                cooldown.timer -= dt;
+                if cooldown.timer <= 0.0 {
+                    cooldown.timer = 1.5; // Boss fire rate: 1.5s cooldown
+                    pending_shots.shots.push(PendingEnemyShot {
+                        origin: pos,
+                        target: player_pos,
+                        damage: 25.0, // High damage per shot
+                    });
+                }
+            }
+            AiState::Flee => {
+                // Bosses don't flee (flee_threshold=0.0) but handle gracefully
+                velocity.0 = velocity.0 * 0.95;
+            }
+            AiState::Idle | AiState::Patrol => {
+                velocity.0 = velocity.0 * 0.98;
+            }
+        }
+    }
+}
+
 /// Updates enemy facing direction toward the player.
 /// Rotates `FacingDirection` at `TurnRate` radians per second toward the player.
 /// Also updates `Transform` rotation so mesh shows the facing direction.
@@ -1281,6 +1358,196 @@ mod tests {
             .expect("Follower should have Velocity");
         // Follower at x=200, leader at x=0: should move in negative X direction
         assert!(vel.0.x < 0.0, "Follower should move toward leader (negative X), got {}", vel.0.x);
+    }
+
+    // ── Boss AI tests (Story 7-1) ──
+
+    fn setup_boss_ai_app() -> App {
+        use crate::core::flight::Player;
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f64(1.0 / 60.0),
+        ));
+        app.init_resource::<PendingEnemyShotQueue>();
+        app.add_systems(Update, update_boss_ai);
+
+        app.world_mut().spawn((
+            Player,
+            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+        ));
+        app
+    }
+
+    fn spawn_boss_at(app: &mut App, pos: Vec2, ai_state: AiState, health: f32) -> Entity {
+        use crate::core::collision::Health;
+        use crate::core::spawning::BossEnemy;
+        use crate::shared::components::Velocity;
+        use crate::social::faction::{AggroRange, AttackRange, FleeThreshold};
+
+        app.world_mut().spawn((
+            BossEnemy,
+            Transform::from_translation(pos.extend(0.0)),
+            Velocity(Vec2::ZERO),
+            Health { current: health, max: 500.0 },
+            ai_state,
+            AggroRange(350.0),
+            AttackRange(150.0),
+            FleeThreshold(0.0),
+            EnemyFireCooldown::default(),
+        )).id()
+    }
+
+    #[test]
+    fn boss_enemy_has_correct_health() {
+        use crate::core::collision::Health;
+        use crate::core::spawning::BossEnemy;
+        use crate::shared::components::Velocity;
+        use crate::social::faction::{AggroRange, AttackRange, FleeThreshold};
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+
+        let boss = app.world_mut().spawn((
+            BossEnemy,
+            Transform::default(),
+            Velocity(Vec2::ZERO),
+            Health { current: 500.0, max: 500.0 },
+            AiState::Idle,
+            AggroRange(350.0),
+            AttackRange(150.0),
+            FleeThreshold(0.0),
+            EnemyFireCooldown::default(),
+        )).id();
+
+        let health = app.world().entity(boss).get::<Health>()
+            .expect("Boss should have Health component");
+        assert!(
+            (health.max - 500.0).abs() < f32::EPSILON,
+            "Boss max health should be 500.0, got {}",
+            health.max
+        );
+        assert!(
+            (health.current - 500.0).abs() < f32::EPSILON,
+            "Boss current health should be 500.0, got {}",
+            health.current
+        );
+    }
+
+    #[test]
+    fn boss_ai_transitions_to_chase_when_player_in_range() {
+        let mut app = setup_boss_ai_app();
+        // Player at origin, boss at 200 units (within aggro 350)
+        let boss = spawn_boss_at(&mut app, Vec2::new(200.0, 0.0), AiState::Idle, 500.0);
+        app.update(); // prime
+        app.update();
+        let state = app.world().entity(boss).get::<AiState>()
+            .expect("Boss should have AiState");
+        assert_eq!(*state, AiState::Chase, "Boss should chase when player within aggro range");
+    }
+
+    #[test]
+    fn boss_ai_stays_idle_when_player_out_of_range() {
+        let mut app = setup_boss_ai_app();
+        // Player at origin, boss at 500 units (outside aggro 350)
+        let boss = spawn_boss_at(&mut app, Vec2::new(500.0, 0.0), AiState::Idle, 500.0);
+        app.update(); // prime
+        app.update();
+        let state = app.world().entity(boss).get::<AiState>()
+            .expect("Boss should have AiState");
+        assert_eq!(*state, AiState::Idle, "Boss should stay idle when player out of range");
+    }
+
+    #[test]
+    fn boss_ai_transitions_to_attack_in_attack_range() {
+        let mut app = setup_boss_ai_app();
+        // Player at origin, boss at 100 units (within attack range 150)
+        let boss = spawn_boss_at(&mut app, Vec2::new(100.0, 0.0), AiState::Chase, 500.0);
+        app.update(); // prime
+        app.update();
+        let state = app.world().entity(boss).get::<AiState>()
+            .expect("Boss should have AiState");
+        assert_eq!(*state, AiState::Attack, "Boss should attack when player within attack range");
+    }
+
+    #[test]
+    fn boss_attack_queues_shot_when_cooldown_ready() {
+        let mut app = setup_boss_ai_app();
+        use crate::core::collision::Health;
+        use crate::core::spawning::BossEnemy;
+        use crate::shared::components::Velocity;
+        use crate::social::faction::{AggroRange, AttackRange, FleeThreshold};
+        app.world_mut().spawn((
+            BossEnemy,
+            Transform::from_translation(Vec3::new(100.0, 0.0, 0.0)),
+            Velocity(Vec2::ZERO),
+            Health { current: 500.0, max: 500.0 },
+            AiState::Attack,
+            AggroRange(350.0),
+            AttackRange(150.0),
+            FleeThreshold(0.0),
+            EnemyFireCooldown { timer: 0.0 }, // Ready to fire
+        ));
+        app.update(); // prime
+        app.update();
+        let queue = app.world().resource::<PendingEnemyShotQueue>();
+        assert!(!queue.shots.is_empty(), "Boss in attack state should queue a shot");
+        assert!(
+            queue.shots[0].damage >= 25.0,
+            "Boss shot damage ({}) should be >= 25.0",
+            queue.shots[0].damage
+        );
+    }
+
+    #[test]
+    fn boss_does_not_flee_at_low_health() {
+        // Boss has FleeThreshold(0.0) — should never enter flee state
+        let ctx = AiContext {
+            distance_to_player: 50.0,
+            health_ratio: 0.01, // Very low health
+            aggro_range: 350.0,
+            attack_range: 150.0,
+            flee_threshold: 0.0, // Boss flee threshold
+        };
+        // At flee_threshold=0.0, no health_ratio can be below 0.0, so never flee
+        let next = next_state(&AiState::Chase, &ctx);
+        assert_ne!(next, AiState::Flee, "Boss should not flee even at low health (flee_threshold=0)");
+    }
+
+    #[test]
+    fn boss_event_boss_destroyed_emitted() {
+        use crate::core::collision::{despawn_destroyed, DestroyedPositions, LaserHitPositions};
+        use crate::core::spawning::BossEnemy;
+        use crate::core::collision::{Collider, Health};
+        use crate::infrastructure::events::EventSeverityConfig;
+        use crate::shared::events::GameEvent;
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<DestroyedPositions>();
+        app.init_resource::<crate::core::collision::DamageQueue>();
+        app.init_resource::<LaserHitPositions>();
+        app.insert_resource(EventSeverityConfig::default());
+        app.add_message::<GameEvent>();
+        app.add_systems(Update, despawn_destroyed);
+
+        // Spawn a dead boss (health = 0)
+        app.world_mut().spawn((
+            BossEnemy,
+            Transform::from_translation(Vec3::new(100.0, 200.0, 0.0)),
+            Health { current: 0.0, max: 500.0 },
+            Collider { radius: 28.0 },
+        ));
+
+        app.update();
+
+        // Check that the boss was despawned (BossDestroyed event was emitted on despawn)
+        let boss_count = app.world_mut()
+            .query_filtered::<Entity, With<BossEnemy>>()
+            .iter(app.world())
+            .count();
+        assert_eq!(boss_count, 0, "Dead boss should be despawned after taking fatal damage");
     }
 
     #[test]

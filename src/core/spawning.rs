@@ -55,6 +55,16 @@ pub struct NeedsHeavyCruiserVisual;
 #[derive(Component)]
 pub struct NeedsSniperVisual;
 
+// ── Story 7-1: Boss Encounters ───────────────────────────────────────────
+
+/// Marker component for Boss enemy entities (Story 7-1).
+#[derive(Component, Debug, Clone)]
+pub struct BossEnemy;
+
+/// Marker for boss entities that need their visual mesh attached by RenderingPlugin.
+#[derive(Component, Debug)]
+pub struct NeedsBossVisual;
+
 // ── Story 4-10: Trader Ships ─────────────────────────────────────────────
 
 /// Marker for Trader Ship entities.
@@ -163,6 +173,8 @@ pub enum SpawnType {
     Sniper,
     /// Swarm respawn: spawns a new swarm of fighters at the position.
     Swarm,
+    /// Boss enemy respawn (Story 7-1).
+    Boss,
 }
 
 /// Timer entity that counts down and then spawns a replacement entity.
@@ -226,6 +238,15 @@ pub struct SpawningConfig {
     // Story 4-12: Swarm respawn delay
     #[serde(default = "default_swarm_respawn_delay")]
     pub swarm_respawn_delay: f32,
+    // Story 7-1: Boss config
+    #[serde(default = "default_boss_health")]
+    pub boss_health: f32,
+    #[serde(default = "default_boss_collider_radius")]
+    pub boss_collider_radius: f32,
+    #[serde(default = "default_boss_contact_damage")]
+    pub boss_contact_damage: f32,
+    #[serde(default = "default_boss_respawn_delay")]
+    pub boss_respawn_delay: f32,
 }
 
 fn default_fighter_health() -> f32 { 50.0 }
@@ -238,6 +259,10 @@ fn default_sniper_health() -> f32 { 40.0 }
 fn default_sniper_radius() -> f32 { 10.0 }
 fn default_sniper_respawn_delay() -> f32 { 10.0 }
 fn default_swarm_respawn_delay() -> f32 { 12.0 }
+fn default_boss_health() -> f32 { 500.0 }
+fn default_boss_collider_radius() -> f32 { 28.0 }
+fn default_boss_contact_damage() -> f32 { 40.0 }
+fn default_boss_respawn_delay() -> f32 { 120.0 }
 
 impl Default for SpawningConfig {
     fn default() -> Self {
@@ -274,6 +299,10 @@ impl Default for SpawningConfig {
             sniper_radius: default_sniper_radius(),
             sniper_respawn_delay: default_sniper_respawn_delay(),
             swarm_respawn_delay: default_swarm_respawn_delay(),
+            boss_health: default_boss_health(),
+            boss_collider_radius: default_boss_collider_radius(),
+            boss_contact_damage: default_boss_contact_damage(),
+            boss_respawn_delay: default_boss_respawn_delay(),
         }
     }
 }
@@ -352,6 +381,7 @@ pub fn spawn_respawn_timers(
             Option<&HeavyCruiser>,
             Option<&Sniper>,
             Option<&SwarmLeader>,
+            Option<&BossEnemy>,
         ),
         (
             Without<Player>,
@@ -364,17 +394,21 @@ pub fn spawn_respawn_timers(
                 With<Fighter>,
                 With<HeavyCruiser>,
                 With<Sniper>,
+                With<BossEnemy>,
             )>,
         ),
     >,
 ) {
-    for (health, transform, asteroid, drone, fighter, heavy, sniper, swarm_leader) in query.iter() {
+    for (health, transform, asteroid, drone, fighter, heavy, sniper, swarm_leader, boss) in query.iter() {
         if health.current <= 0.0 {
             let position = Vec2::new(transform.translation.x, transform.translation.y);
             let (spawn_type, delay) = if asteroid.is_some() {
                 (SpawnType::Asteroid, config.respawn_delay)
             } else if drone.is_some() {
                 (SpawnType::ScoutDrone, config.respawn_delay)
+            } else if boss.is_some() {
+                // Story 7-1: Boss respawns after long delay
+                (SpawnType::Boss, config.boss_respawn_delay)
             } else if swarm_leader.is_some() {
                 // Story 4-12: SwarmLeader respawns as a new swarm
                 (SpawnType::Swarm, config.swarm_respawn_delay)
@@ -489,6 +523,27 @@ pub fn tick_respawn_timers(
                     let swarm_id = (timer.position.x as u32).wrapping_add(timer.position.y as u32);
                     spawn_swarm(&mut commands, timer.position, swarm_id, 3, &config);
                 }
+                SpawnType::Boss => {
+                    // Story 7-1: Respawn a Boss enemy
+                    use crate::social::faction::{AggroRange, AttackRange, FleeThreshold};
+                    use crate::social::enemy_ai::{AiState, EnemyFireCooldown};
+                    commands.spawn((
+                        BossEnemy,
+                        NeedsBossVisual,
+                        Collider { radius: config.boss_collider_radius },
+                        Health {
+                            current: config.boss_health,
+                            max: config.boss_health,
+                        },
+                        Velocity(Vec2::ZERO),
+                        Transform::from_translation(timer.position.extend(0.0)),
+                        AiState::Idle,
+                        AggroRange(350.0),
+                        AttackRange(150.0),
+                        FleeThreshold(0.0), // Bosses never flee
+                        EnemyFireCooldown::default(),
+                    ));
+                }
             }
             commands.entity(entity).despawn();
         }
@@ -502,7 +557,7 @@ pub fn drift_entities(
     time: Res<Time>,
     mut query: Query<
         (&Velocity, &mut Transform),
-        Or<(With<Asteroid>, With<ScoutDrone>, With<Fighter>, With<HeavyCruiser>, With<Sniper>)>,
+        Or<(With<Asteroid>, With<ScoutDrone>, With<Fighter>, With<HeavyCruiser>, With<Sniper>, With<BossEnemy>)>,
     >,
 ) {
     let dt = time.delta_secs();
