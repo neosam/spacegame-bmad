@@ -15,7 +15,7 @@
 | 9-1 | Wormhole Visuals | done | 9-5 |
 | 9-2 | Enter Wormhole | done | 9-1, 9-5 |
 | 9-3 | Arena Combat | done | 9-2 |
-| 9-4 | Arena Rewards | todo | 9-3 |
+| 9-4 | Arena Rewards | done | 9-3 |
 
 ---
 

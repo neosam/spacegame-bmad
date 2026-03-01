@@ -166,12 +166,12 @@ development_status:
   epic-8-retrospective: done
 
   # ── Epic 9: Wormhole Mini-Levels (Could | Dependencies: Epic 4, 5) ──
-  epic-9: backlog
-  9-1-wormhole-visuals: backlog
-  9-2-enter-wormhole: backlog
-  9-3-arena-combat: backlog
-  9-4-arena-rewards: backlog
-  9-5-isolated-scenes: backlog
+  epic-9: done
+  9-1-wormhole-visuals: done
+  9-2-enter-wormhole: done
+  9-3-arena-combat: done
+  9-4-arena-rewards: done
+  9-5-isolated-scenes: done
   epic-9-retrospective: optional
 
   # ── Epic 10: Art & Audio Polish (Could | Dependencies: Core epics stable) ──
