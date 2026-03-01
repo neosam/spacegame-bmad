@@ -33,7 +33,10 @@ impl Plugin for InfrastructurePlugin {
         app.insert_resource(config);
         app.init_resource::<Logbook>();
         app.add_message::<GameEvent>();
-        app.add_systems(FixedUpdate, record_game_events.in_set(CoreSet::Events));
+        // Run in Update (not FixedUpdate) so all FixedUpdate event emitters have
+        // already completed before we drain the message buffer. This guarantees
+        // that Tier1/2 events emitted in CoreSet::Events or after it are captured.
+        app.add_systems(Update, record_game_events);
         app.add_plugins(save::SavePlugin);
     }
 }
