@@ -140,13 +140,13 @@ development_status:
   epic-6b-retrospective: done
 
   # ── Epic 6c: Companion Combat (Should | Dependencies: Epic 6b) ──
-  epic-6c: backlog
-  6c-1-companion-ship-flight: backlog
-  6c-2-companion-weapon: backlog
-  6c-3-target-acquisition: backlog
-  6c-4-damage-taken-bark: backlog
-  6c-5-opinion-hud: backlog
-  epic-6c-retrospective: optional
+  epic-6c: done
+  6c-1-companion-ship-flight: done
+  6c-2-companion-weapon: done
+  6c-3-target-acquisition: done
+  6c-4-damage-taken-bark: done
+  6c-5-opinion-hud: done
+  epic-6c-retrospective: done
 
   # ── Epic 7: Boss Encounters (Should | Dependencies: Epic 4, 5) ──
   epic-7: backlog
