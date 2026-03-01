@@ -11,7 +11,10 @@ use crate::core::collision::{Collider, Health};
 use crate::core::economy::Credits;
 use crate::core::flight::Player;
 use crate::shared::components::{MaterialType, NeedsMaterialDropVisual};
-use crate::core::spawning::{NeedsAsteroidVisual, NeedsDroneVisual, SpawningConfig};
+use crate::core::spawning::{
+    NeedsAsteroidVisual, NeedsDroneVisual, NeedsFighterVisual, NeedsHeavyCruiserVisual,
+    NeedsSniperVisual, NeedsTraderVisual, SpawningConfig,
+};
 use crate::core::station::{Docked, NeedsStationVisual, Station, StationType};
 use crate::core::tutorial::{generate_tutorial_zone, GravityWellBoundary, GravityWellGenerator, TutorialConfig, TutorialStation, TutorialWreck};
 use crate::core::weapons::{
@@ -31,9 +34,11 @@ use self::background::{setup_starfield, update_starfield, StarfieldConfig};
 use self::minimap::{setup_minimap, update_minimap_blips, MinimapConfig, MinimapState};
 use self::world_map::{toggle_world_map, update_world_map, WorldMapConfig, WorldMapOpen, WorldMapState};
 use self::vector_art::{
-    generate_asteroid_mesh, generate_circle_outline_mesh, generate_drone_mesh, generate_laser_mesh,
+    generate_asteroid_mesh, generate_circle_outline_mesh, generate_drone_mesh,
+    generate_fighter_mesh, generate_heavy_cruiser_mesh, generate_laser_mesh,
     generate_material_drop_mesh, generate_player_mesh, generate_projectile_mesh,
-    generate_tutorial_generator_mesh, generate_tutorial_station_mesh, generate_tutorial_wreck_mesh,
+    generate_sniper_mesh, generate_trader_mesh, generate_tutorial_generator_mesh,
+    generate_tutorial_station_mesh, generate_tutorial_wreck_mesh,
 };
 
 pub struct RenderingPlugin;
@@ -99,6 +104,10 @@ impl Plugin for RenderingPlugin {
                 setup_projectile_assets,
                 setup_asteroid_assets,
                 setup_drone_assets,
+                setup_fighter_assets,
+                setup_heavy_cruiser_assets,
+                setup_sniper_assets,
+                setup_trader_assets,
                 setup_station_assets,
                 setup_tutorial_station_assets,
                 setup_tutorial_wreck_assets,
@@ -119,6 +128,10 @@ impl Plugin for RenderingPlugin {
                 render_spread_projectiles,
                 render_asteroids,
                 render_drones,
+                render_fighters,
+                render_heavy_cruisers,
+                render_snipers,
+                render_traders,
                 render_stations,
                 render_tutorial_stations,
                 render_tutorial_wrecks,
@@ -551,6 +564,144 @@ fn setup_player(
         MeshMaterial2d(material_handle),
         Transform::from_translation(spawn_pos),
     ));
+}
+
+// ── Epic 4: Combat Enemy Rendering ──────────────────────────────────────
+
+/// Cached mesh and material handles for Fighter enemies.
+#[derive(Resource)]
+struct FighterAssets {
+    mesh: Handle<Mesh>,
+    material: Handle<ColorMaterial>,
+}
+
+fn setup_fighter_assets(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let mesh = meshes.add(generate_fighter_mesh(12.0));
+    // Orange — aggressive, fast attacker
+    let material = materials.add(ColorMaterial::from(Color::srgb(1.0, 0.4, 0.1)));
+    commands.insert_resource(FighterAssets { mesh, material });
+}
+
+fn render_fighters(
+    mut commands: Commands,
+    assets: Res<FighterAssets>,
+    query: Query<Entity, With<NeedsFighterVisual>>,
+) {
+    for entity in query.iter() {
+        commands
+            .entity(entity)
+            .insert((
+                Mesh2d(assets.mesh.clone()),
+                MeshMaterial2d(assets.material.clone()),
+            ))
+            .remove::<NeedsFighterVisual>();
+    }
+}
+
+/// Cached mesh and material handles for Heavy Cruiser enemies.
+#[derive(Resource)]
+struct HeavyCruiserAssets {
+    mesh: Handle<Mesh>,
+    material: Handle<ColorMaterial>,
+}
+
+fn setup_heavy_cruiser_assets(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let mesh = meshes.add(generate_heavy_cruiser_mesh(22.0));
+    // Steel blue-grey — heavy, imposing
+    let material = materials.add(ColorMaterial::from(Color::srgb(0.4, 0.5, 0.7)));
+    commands.insert_resource(HeavyCruiserAssets { mesh, material });
+}
+
+fn render_heavy_cruisers(
+    mut commands: Commands,
+    assets: Res<HeavyCruiserAssets>,
+    query: Query<Entity, With<NeedsHeavyCruiserVisual>>,
+) {
+    for entity in query.iter() {
+        commands
+            .entity(entity)
+            .insert((
+                Mesh2d(assets.mesh.clone()),
+                MeshMaterial2d(assets.material.clone()),
+            ))
+            .remove::<NeedsHeavyCruiserVisual>();
+    }
+}
+
+/// Cached mesh and material handles for Sniper enemies.
+#[derive(Resource)]
+struct SniperAssets {
+    mesh: Handle<Mesh>,
+    material: Handle<ColorMaterial>,
+}
+
+fn setup_sniper_assets(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let mesh = meshes.add(generate_sniper_mesh(10.0));
+    // Purple — precise, long-range
+    let material = materials.add(ColorMaterial::from(Color::srgb(0.7, 0.1, 0.9)));
+    commands.insert_resource(SniperAssets { mesh, material });
+}
+
+fn render_snipers(
+    mut commands: Commands,
+    assets: Res<SniperAssets>,
+    query: Query<Entity, With<NeedsSniperVisual>>,
+) {
+    for entity in query.iter() {
+        commands
+            .entity(entity)
+            .insert((
+                Mesh2d(assets.mesh.clone()),
+                MeshMaterial2d(assets.material.clone()),
+            ))
+            .remove::<NeedsSniperVisual>();
+    }
+}
+
+/// Cached mesh and material handles for Trader Ship entities.
+#[derive(Resource)]
+struct TraderAssets {
+    mesh: Handle<Mesh>,
+    material: Handle<ColorMaterial>,
+}
+
+fn setup_trader_assets(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let mesh = meshes.add(generate_trader_mesh(14.0));
+    // Light yellow — neutral, commercial
+    let material = materials.add(ColorMaterial::from(Color::srgb(0.9, 0.9, 0.5)));
+    commands.insert_resource(TraderAssets { mesh, material });
+}
+
+fn render_traders(
+    mut commands: Commands,
+    assets: Res<TraderAssets>,
+    query: Query<Entity, With<NeedsTraderVisual>>,
+) {
+    for entity in query.iter() {
+        commands
+            .entity(entity)
+            .insert((
+                Mesh2d(assets.mesh.clone()),
+                MeshMaterial2d(assets.material.clone()),
+            ))
+            .remove::<NeedsTraderVisual>();
+    }
 }
 
 // ── Station Shop UI ──────────────────────────────────────────────────────

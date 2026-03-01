@@ -360,6 +360,203 @@ pub fn generate_material_drop_mesh(half_size: f32) -> Mesh {
     mesh
 }
 
+/// Generate an arrowhead mesh for Fighter rendering.
+/// Wider and more aggressive than the Scout Drone diamond, facing +Y.
+pub fn generate_fighter_mesh(radius: f32) -> Mesh {
+    let mut buffers: VertexBuffers<[f32; 3], u32> = VertexBuffers::new();
+    let mut tessellator = FillTessellator::new();
+
+    let mut builder = Path::builder();
+    // Bold arrowhead: wide base, sharp nose
+    let h = radius;
+    let w = radius * 0.9;
+    builder.begin(point(0.0, h));           // Nose (top)
+    builder.line_to(point(w, -h * 0.5));    // Right base
+    builder.line_to(point(w * 0.3, -h * 0.1)); // Right notch
+    builder.line_to(point(-w * 0.3, -h * 0.1)); // Left notch
+    builder.line_to(point(-w, -h * 0.5));   // Left base
+    builder.close();
+    let path = builder.build();
+
+    let result = tessellator.tessellate_path(
+        &path,
+        &FillOptions::default(),
+        &mut BuffersBuilder::new(&mut buffers, |vertex: FillVertex| {
+            [vertex.position().x, vertex.position().y, 0.0]
+        }),
+    );
+
+    if let Err(e) = result {
+        warn!("Fighter tessellation failed: {e:?}, using circle fallback");
+        return Mesh::from(Circle::new(radius));
+    }
+
+    let positions: Vec<[f32; 3]> = buffers.vertices.clone();
+    let normals: Vec<[f32; 3]> = vec![[0.0, 0.0, 1.0]; positions.len()];
+    let uvs: Vec<[f32; 2]> = positions
+        .iter()
+        .map(|p| [(p[0] / radius + 1.0) / 2.0, (p[1] / radius + 1.0) / 2.0])
+        .collect();
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Indices::U32(buffers.indices));
+    mesh
+}
+
+/// Generate a large octagon mesh for Heavy Cruiser rendering.
+/// Large and imposing — clearly the biggest enemy type.
+pub fn generate_heavy_cruiser_mesh(radius: f32) -> Mesh {
+    let vertex_count = 8u32;
+    let angle_step = std::f32::consts::TAU / vertex_count as f32;
+    // Rotate 22.5° so flat sides face up/down (more imposing silhouette)
+    let offset = std::f32::consts::PI / 8.0;
+
+    let mut buffers: VertexBuffers<[f32; 3], u32> = VertexBuffers::new();
+    let mut tessellator = FillTessellator::new();
+    let mut builder = Path::builder();
+
+    for i in 0..vertex_count {
+        let angle = angle_step * i as f32 + offset;
+        let x = angle.cos() * radius;
+        let y = angle.sin() * radius;
+        if i == 0 {
+            builder.begin(point(x, y));
+        } else {
+            builder.line_to(point(x, y));
+        }
+    }
+    builder.close();
+    let path = builder.build();
+
+    let result = tessellator.tessellate_path(
+        &path,
+        &FillOptions::default(),
+        &mut BuffersBuilder::new(&mut buffers, |vertex: FillVertex| {
+            [vertex.position().x, vertex.position().y, 0.0]
+        }),
+    );
+
+    if let Err(e) = result {
+        warn!("HeavyCruiser tessellation failed: {e:?}, using circle fallback");
+        return Mesh::from(Circle::new(radius));
+    }
+
+    let positions: Vec<[f32; 3]> = buffers.vertices.clone();
+    let normals: Vec<[f32; 3]> = vec![[0.0, 0.0, 1.0]; positions.len()];
+    let uvs: Vec<[f32; 2]> = positions
+        .iter()
+        .map(|p| [(p[0] / radius + 1.0) / 2.0, (p[1] / radius + 1.0) / 2.0])
+        .collect();
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Indices::U32(buffers.indices));
+    mesh
+}
+
+/// Generate an elongated needle mesh for Sniper rendering.
+/// Thin and precise — visually communicates long-range accuracy.
+pub fn generate_sniper_mesh(radius: f32) -> Mesh {
+    let mut buffers: VertexBuffers<[f32; 3], u32> = VertexBuffers::new();
+    let mut tessellator = FillTessellator::new();
+
+    let mut builder = Path::builder();
+    // Long thin diamond: 4:1 aspect ratio, facing +Y
+    let half_w = radius * 0.25;
+    let half_h = radius;
+    builder.begin(point(0.0, half_h));     // Top needle tip
+    builder.line_to(point(half_w, 0.0));   // Right mid
+    builder.line_to(point(0.0, -half_h));  // Bottom tail
+    builder.line_to(point(-half_w, 0.0)); // Left mid
+    builder.close();
+    let path = builder.build();
+
+    let result = tessellator.tessellate_path(
+        &path,
+        &FillOptions::default(),
+        &mut BuffersBuilder::new(&mut buffers, |vertex: FillVertex| {
+            [vertex.position().x, vertex.position().y, 0.0]
+        }),
+    );
+
+    if let Err(e) = result {
+        warn!("Sniper tessellation failed: {e:?}, using circle fallback");
+        return Mesh::from(Circle::new(radius));
+    }
+
+    let positions: Vec<[f32; 3]> = buffers.vertices.clone();
+    let normals: Vec<[f32; 3]> = vec![[0.0, 0.0, 1.0]; positions.len()];
+    let uvs: Vec<[f32; 2]> = positions
+        .iter()
+        .map(|p| [(p[0] / radius + 1.0) / 2.0, (p[1] / radius + 1.0) / 2.0])
+        .collect();
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Indices::U32(buffers.indices));
+    mesh
+}
+
+/// Generate a rectangular mesh with small wing stubs for Trader Ship rendering.
+/// Neutral, boxy silhouette — clearly not a combat vessel.
+pub fn generate_trader_mesh(radius: f32) -> Mesh {
+    let mut buffers: VertexBuffers<[f32; 3], u32> = VertexBuffers::new();
+    let mut tessellator = FillTessellator::new();
+
+    let mut builder = Path::builder();
+    // Box hull with small side wings
+    let hw = radius * 0.5;   // half-width hull
+    let hh = radius * 0.7;   // half-height hull
+    let ww = radius * 0.85;  // wing tip x
+    let wy = radius * 0.0;   // wing tip y
+
+    builder.begin(point(0.0, hh));      // Nose tip
+    builder.line_to(point(hw, hh * 0.3));  // Right shoulder
+    builder.line_to(point(ww, wy));         // Right wing tip
+    builder.line_to(point(hw, -hh * 0.3)); // Right hip
+    builder.line_to(point(hw * 0.5, -hh)); // Right tail
+    builder.line_to(point(-hw * 0.5, -hh));// Left tail
+    builder.line_to(point(-hw, -hh * 0.3));// Left hip
+    builder.line_to(point(-ww, wy));        // Left wing tip
+    builder.line_to(point(-hw, hh * 0.3)); // Left shoulder
+    builder.close();
+    let path = builder.build();
+
+    let result = tessellator.tessellate_path(
+        &path,
+        &FillOptions::default(),
+        &mut BuffersBuilder::new(&mut buffers, |vertex: FillVertex| {
+            [vertex.position().x, vertex.position().y, 0.0]
+        }),
+    );
+
+    if let Err(e) = result {
+        warn!("TraderShip tessellation failed: {e:?}, using circle fallback");
+        return Mesh::from(Circle::new(radius));
+    }
+
+    let positions: Vec<[f32; 3]> = buffers.vertices.clone();
+    let normals: Vec<[f32; 3]> = vec![[0.0, 0.0, 1.0]; positions.len()];
+    let uvs: Vec<[f32; 2]> = positions
+        .iter()
+        .map(|p| [(p[0] / radius + 1.0) / 2.0, (p[1] / radius + 1.0) / 2.0])
+        .collect();
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Indices::U32(buffers.indices));
+    mesh
+}
+
 /// Generate an asteroid mesh and verify it produces valid geometry.
 #[cfg(test)]
 mod tests {
@@ -439,6 +636,58 @@ mod tests {
             _ => panic!("Expected U32 indices"),
         };
         assert!(index_count >= 3, "TutorialWreck mesh should have at least 3 indices, got {index_count}");
+    }
+
+    #[test]
+    fn generate_fighter_mesh_produces_vertices() {
+        let mesh = generate_fighter_mesh(12.0);
+        let positions = mesh
+            .attribute(Mesh::ATTRIBUTE_POSITION)
+            .expect("Fighter mesh should have positions");
+        let len = match positions {
+            bevy::mesh::VertexAttributeValues::Float32x3(v) => v.len(),
+            _ => panic!("Expected Float32x3 positions"),
+        };
+        assert!(len >= 3, "Fighter mesh should have at least 3 vertices, got {len}");
+    }
+
+    #[test]
+    fn generate_heavy_cruiser_mesh_produces_vertices() {
+        let mesh = generate_heavy_cruiser_mesh(22.0);
+        let positions = mesh
+            .attribute(Mesh::ATTRIBUTE_POSITION)
+            .expect("HeavyCruiser mesh should have positions");
+        let len = match positions {
+            bevy::mesh::VertexAttributeValues::Float32x3(v) => v.len(),
+            _ => panic!("Expected Float32x3 positions"),
+        };
+        assert!(len >= 3, "HeavyCruiser mesh should have at least 3 vertices, got {len}");
+    }
+
+    #[test]
+    fn generate_sniper_mesh_produces_vertices() {
+        let mesh = generate_sniper_mesh(10.0);
+        let positions = mesh
+            .attribute(Mesh::ATTRIBUTE_POSITION)
+            .expect("Sniper mesh should have positions");
+        let len = match positions {
+            bevy::mesh::VertexAttributeValues::Float32x3(v) => v.len(),
+            _ => panic!("Expected Float32x3 positions"),
+        };
+        assert!(len >= 3, "Sniper mesh should have at least 3 vertices, got {len}");
+    }
+
+    #[test]
+    fn generate_trader_mesh_produces_vertices() {
+        let mesh = generate_trader_mesh(14.0);
+        let positions = mesh
+            .attribute(Mesh::ATTRIBUTE_POSITION)
+            .expect("TraderShip mesh should have positions");
+        let len = match positions {
+            bevy::mesh::VertexAttributeValues::Float32x3(v) => v.len(),
+            _ => panic!("Expected Float32x3 positions"),
+        };
+        assert!(len >= 3, "TraderShip mesh should have at least 3 vertices, got {len}");
     }
 
     #[test]
