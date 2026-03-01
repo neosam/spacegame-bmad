@@ -130,6 +130,20 @@ pub fn emit_credit_events(
     }
 }
 
+/// Deducts 10% of Credits on PlayerDeath (floor integer division).
+/// Materials (PlayerInventory) are unaffected.
+/// No pending buffer needed — only writes Credits, no GameEvent emitted.
+pub fn on_player_death_deduct_credits(
+    mut reader: MessageReader<GameEvent>,
+    mut credits: ResMut<Credits>,
+) {
+    for event in reader.read() {
+        if matches!(event.kind, GameEventKind::PlayerDeath) {
+            credits.balance -= credits.balance / 10;
+        }
+    }
+}
+
 /// Reads EnemyDestroyed events and queues material drops in PendingDropSpawns.
 /// Uses rand::random for the probability roll. Does NOT spawn entities (no Commands).
 pub fn queue_material_drops(
