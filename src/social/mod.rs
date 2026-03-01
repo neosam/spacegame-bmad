@@ -7,7 +7,7 @@ use bevy::prelude::*;
 
 use self::enemy_ai::{
     update_fighter_ai, update_heavy_cruiser_ai, update_scout_drone_ai, update_sniper_ai,
-    PendingEnemyShotQueue,
+    update_swarm_ai, PendingEnemyShotQueue,
 };
 
 pub struct SocialPlugin;
@@ -23,5 +23,7 @@ impl Plugin for SocialPlugin {
         app.add_systems(Update, update_heavy_cruiser_ai);
         // Story 4-4: Sniper AI
         app.add_systems(Update, update_sniper_ai);
+        // Story 4-5: Swarm AI
+        app.add_systems(Update, update_swarm_ai);
     }
 }

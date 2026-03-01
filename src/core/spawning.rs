@@ -55,6 +55,72 @@ pub struct NeedsHeavyCruiserVisual;
 #[derive(Component)]
 pub struct NeedsSniperVisual;
 
+// ── Story 4-5: Swarms ───────────────────────────────────────────────────
+
+/// Groups a swarm entity with a unique swarm ID.
+/// All entities sharing the same `swarm_id` belong to the same swarm.
+#[derive(Component, Debug, Clone)]
+pub struct Swarm {
+    pub swarm_id: u32,
+}
+
+/// Marker for the leader of a swarm.
+/// One member per swarm is the leader; followers orient toward leader position.
+#[derive(Component, Debug, Clone)]
+pub struct SwarmLeader;
+
+/// Follower: stores the entity ID of its swarm leader.
+#[derive(Component, Debug, Clone)]
+pub struct SwarmFollower {
+    pub leader: Entity,
+}
+
+/// Spawns a swarm of 3–5 Fighter entities at the given center position.
+/// One entity is designated leader, the rest are followers.
+pub fn spawn_swarm(
+    commands: &mut Commands,
+    center: Vec2,
+    swarm_id: u32,
+    count: usize,
+    config: &SpawningConfig,
+) -> Vec<Entity> {
+    use crate::core::collision::{Collider, Health};
+    use crate::shared::components::Velocity;
+
+    let count = count.clamp(3, 5);
+    let mut entities = Vec::with_capacity(count);
+
+    // Spawn all swarm members without follower link first
+    for i in 0..count {
+        let angle = (i as f32 / count as f32) * std::f32::consts::TAU;
+        let offset = Vec2::new(angle.cos(), angle.sin()) * 30.0;
+        let pos = center + offset;
+
+        let entity = commands.spawn((
+            Fighter,
+            NeedsFighterVisual,
+            Swarm { swarm_id },
+            Collider { radius: config.fighter_radius },
+            Health { current: config.fighter_health, max: config.fighter_health },
+            Velocity(Vec2::ZERO),
+            Transform::from_translation(pos.extend(0.0)),
+        )).id();
+        entities.push(entity);
+    }
+
+    // First entity is the leader
+    if let Some(&leader) = entities.first() {
+        commands.entity(leader).insert(SwarmLeader);
+
+        // Rest are followers
+        for &follower_entity in entities.iter().skip(1) {
+            commands.entity(follower_entity).insert(SwarmFollower { leader });
+        }
+    }
+
+    entities
+}
+
 // ── Respawn ─────────────────────────────────────────────────────────────
 
 /// Which type of entity to respawn.
@@ -900,5 +966,109 @@ mod tests {
         let pref = PreferredRange { min: 150.0, max: 280.0 };
         assert!(pref.min > 0.0);
         assert!(pref.max > pref.min, "max ({}) should exceed min ({})", pref.max, pref.min);
+    }
+
+    // ── Story 4-5: Swarm tests ──
+
+    #[test]
+    fn spawn_swarm_creates_correct_entity_count() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        let config = SpawningConfig::default();
+
+        let count = 4;
+        app.world_mut().commands().queue(move |world: &mut bevy::ecs::world::World| {
+            let mut commands = world.commands();
+            spawn_swarm(&mut commands, Vec2::new(100.0, 0.0), 1, count, &config);
+        });
+        app.update();
+
+        let fighter_count = app
+            .world_mut()
+            .query_filtered::<Entity, With<Fighter>>()
+            .iter(app.world())
+            .count();
+        assert_eq!(fighter_count, count, "Swarm should spawn exactly {count} fighters");
+    }
+
+    #[test]
+    fn spawn_swarm_has_exactly_one_leader() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        let config = SpawningConfig::default();
+
+        app.world_mut().commands().queue(move |world: &mut bevy::ecs::world::World| {
+            let mut commands = world.commands();
+            spawn_swarm(&mut commands, Vec2::new(0.0, 0.0), 42, 3, &config);
+        });
+        app.update();
+
+        let leader_count = app
+            .world_mut()
+            .query_filtered::<Entity, With<SwarmLeader>>()
+            .iter(app.world())
+            .count();
+        assert_eq!(leader_count, 1, "Swarm should have exactly 1 leader");
+    }
+
+    #[test]
+    fn spawn_swarm_followers_reference_leader() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        let config = SpawningConfig::default();
+
+        app.world_mut().commands().queue(move |world: &mut bevy::ecs::world::World| {
+            let mut commands = world.commands();
+            spawn_swarm(&mut commands, Vec2::new(0.0, 0.0), 7, 4, &config);
+        });
+        app.update();
+
+        let follower_count = app
+            .world_mut()
+            .query_filtered::<Entity, With<SwarmFollower>>()
+            .iter(app.world())
+            .count();
+        // 4 total - 1 leader = 3 followers
+        assert_eq!(follower_count, 3, "Swarm of 4 should have 3 followers");
+    }
+
+    #[test]
+    fn spawn_swarm_all_share_same_swarm_id() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        let config = SpawningConfig::default();
+        let swarm_id = 99u32;
+
+        app.world_mut().commands().queue(move |world: &mut bevy::ecs::world::World| {
+            let mut commands = world.commands();
+            spawn_swarm(&mut commands, Vec2::new(0.0, 0.0), swarm_id, 3, &config);
+        });
+        app.update();
+
+        let mut query = app.world_mut().query::<&Swarm>();
+        for swarm in query.iter(app.world()) {
+            assert_eq!(swarm.swarm_id, swarm_id, "All swarm members should share swarm_id {}", swarm_id);
+        }
+    }
+
+    #[test]
+    fn spawn_swarm_clamped_to_3_to_5() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        let config = SpawningConfig::default();
+
+        // Request 10 — should clamp to 5
+        app.world_mut().commands().queue(move |world: &mut bevy::ecs::world::World| {
+            let mut commands = world.commands();
+            spawn_swarm(&mut commands, Vec2::ZERO, 1, 10, &config);
+        });
+        app.update();
+
+        let fighter_count = app
+            .world_mut()
+            .query_filtered::<Entity, With<Fighter>>()
+            .iter(app.world())
+            .count();
+        assert!(fighter_count <= 5, "Swarm count should be clamped to max 5, got {fighter_count}");
     }
 }

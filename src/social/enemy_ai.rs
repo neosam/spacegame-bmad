@@ -495,6 +495,100 @@ pub fn update_sniper_ai(
     }
 }
 
+/// Updates Swarm AI.
+/// SwarmLeader: behaves like a Fighter (aggressive pursuit).
+/// SwarmFollower: tracks leader position using world position cache.
+#[allow(clippy::type_complexity)]
+pub fn update_swarm_ai(
+    player_query: Query<&Transform, With<crate::core::flight::Player>>,
+    mut swarm_query: Query<
+        (
+            Entity,
+            &Transform,
+            &mut crate::shared::components::Velocity,
+            Option<&mut AiState>,
+            Option<&crate::core::collision::Health>,
+            Option<&crate::social::faction::AggroRange>,
+            Option<&crate::social::faction::AttackRange>,
+            Option<&crate::social::faction::FleeThreshold>,
+            Option<&crate::core::spawning::SwarmLeader>,
+            Option<&crate::core::spawning::SwarmFollower>,
+        ),
+        Without<crate::core::flight::Player>,
+    >,
+) {
+    let Ok(player_transform) = player_query.single() else {
+        return;
+    };
+    let player_pos = Vec2::new(
+        player_transform.translation.x,
+        player_transform.translation.y,
+    );
+
+    // First pass: collect leader positions
+    let mut leader_positions: std::collections::HashMap<Entity, Vec2> = std::collections::HashMap::new();
+    for (entity, transform, _, _, _, _, _, _, leader_marker, _) in swarm_query.iter() {
+        if leader_marker.is_some() {
+            leader_positions.insert(entity, Vec2::new(transform.translation.x, transform.translation.y));
+        }
+    }
+
+    // Second pass: update movement
+    const SWARM_SPEED: f32 = 110.0;
+    const FOLLOWER_SPEED: f32 = 110.0;
+
+    for (_, transform, mut velocity, ai_state_opt, health_opt, aggro_opt, attack_opt, flee_opt, leader_marker, follower_opt) in
+        swarm_query.iter_mut()
+    {
+        let pos = Vec2::new(transform.translation.x, transform.translation.y);
+
+        if leader_marker.is_some() {
+            // Leader: act like fighter AI
+            if let (Some(mut ai_state), Some(health), Some(aggro), Some(attack), Some(flee)) =
+                (ai_state_opt, health_opt, aggro_opt, attack_opt, flee_opt)
+            {
+                let to_player = player_pos - pos;
+                let distance = to_player.length();
+                let health_ratio = if health.max > 0.0 { health.current / health.max } else { 0.0 };
+
+                let ctx = AiContext {
+                    distance_to_player: distance,
+                    health_ratio,
+                    aggro_range: aggro.0,
+                    attack_range: attack.0,
+                    flee_threshold: flee.0,
+                };
+                *ai_state = next_state(&ai_state, &ctx);
+
+                match *ai_state {
+                    AiState::Chase | AiState::Attack => {
+                        let dir = if distance > 0.0 { to_player.normalize() } else { Vec2::X };
+                        velocity.0 = dir * SWARM_SPEED;
+                    }
+                    AiState::Flee => {
+                        let dir = if distance > 0.0 { -to_player.normalize() } else { Vec2::X };
+                        velocity.0 = dir * SWARM_SPEED;
+                    }
+                    AiState::Idle | AiState::Patrol => {
+                        velocity.0 = velocity.0 * 0.95;
+                    }
+                }
+            }
+        } else if let Some(follower) = follower_opt {
+            // Follower: move toward leader
+            if let Some(&leader_pos) = leader_positions.get(&follower.leader) {
+                let to_leader = leader_pos - pos;
+                let dist = to_leader.length();
+                if dist > 20.0 {
+                    velocity.0 = to_leader.normalize() * FOLLOWER_SPEED;
+                } else {
+                    velocity.0 = velocity.0 * 0.9;
+                }
+            }
+        }
+    }
+}
+
 /// A pending laser shot from an enemy, to be processed by collision systems.
 #[derive(Debug, Clone)]
 pub struct PendingEnemyShot {
@@ -1000,6 +1094,59 @@ mod tests {
             .expect("Sniper should have Velocity");
         // At 50 units from player (min=150), sniper should back away (positive X from player at origin)
         assert!(vel.0.x > 0.0, "Sniper too close should back away from player (positive X), got {}", vel.0.x);
+    }
+
+    // ── Swarm AI tests ──
+
+    #[test]
+    fn swarm_follower_moves_toward_leader() {
+        use crate::core::flight::Player;
+        use crate::core::spawning::{Swarm, SwarmFollower, SwarmLeader, Fighter};
+        use crate::shared::components::Velocity;
+        use crate::core::collision::Health;
+        use crate::social::faction::{AggroRange, AttackRange, FleeThreshold};
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f64(1.0 / 60.0),
+        ));
+        app.init_resource::<PendingEnemyShotQueue>();
+        app.add_systems(Update, update_swarm_ai);
+
+        app.world_mut().spawn((Player, Transform::default()));
+
+        // Spawn leader at origin
+        let leader = app.world_mut().spawn((
+            Fighter,
+            SwarmLeader,
+            Swarm { swarm_id: 1 },
+            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+            Velocity(Vec2::ZERO),
+            Health { current: 50.0, max: 50.0 },
+            AiState::Chase,
+            AggroRange(400.0),
+            AttackRange(100.0),
+            FleeThreshold(0.1),
+        )).id();
+
+        // Spawn follower 200 units away from leader
+        let follower = app.world_mut().spawn((
+            Fighter,
+            SwarmFollower { leader },
+            Swarm { swarm_id: 1 },
+            Transform::from_translation(Vec3::new(200.0, 0.0, 0.0)),
+            Velocity(Vec2::ZERO),
+            Health { current: 50.0, max: 50.0 },
+        )).id();
+
+        app.update(); // prime
+        app.update();
+
+        let vel = app.world().entity(follower).get::<Velocity>()
+            .expect("Follower should have Velocity");
+        // Follower at x=200, leader at x=0: should move in negative X direction
+        assert!(vel.0.x < 0.0, "Follower should move toward leader (negative X), got {}", vel.0.x);
     }
 
     #[test]
