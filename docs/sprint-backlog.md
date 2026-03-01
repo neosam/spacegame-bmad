@@ -12,7 +12,7 @@
 | Story ID | Titel | Status | Abhängigkeiten |
 |----------|-------|:------:|----------------|
 | 9-5 | Isolated Scene Architecture | done | keine |
-| 9-1 | Wormhole Visuals | todo | 9-5 |
+| 9-1 | Wormhole Visuals | done | 9-5 |
 | 9-2 | Enter Wormhole | todo | 9-1, 9-5 |
 | 9-3 | Arena Combat | todo | 9-2 |
 | 9-4 | Arena Rewards | todo | 9-3 |

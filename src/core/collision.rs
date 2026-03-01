@@ -294,7 +294,7 @@ pub fn tick_contact_cooldown(
 /// Handles player death: resets health/position/velocity, triggers destruction effect,
 /// grants invincibility, and emits `PlayerDeath` + `PlayerRespawned` events.
 /// Runs AFTER apply_damage and BEFORE despawn_destroyed.
-/// Respawns the player at the last docked station position, or Vec3::ZERO if never docked.
+/// Respawn priority: WormholeEntrance (if inside arena) > LastDockedStation > Vec3::ZERO.
 pub fn handle_player_death(
     mut commands: Commands,
     mut query: Query<(Entity, &mut Health, &mut Transform, &mut Velocity), With<Player>>,
@@ -303,6 +303,7 @@ pub fn handle_player_death(
     time: Res<Time>,
     severity_config: Res<EventSeverityConfig>,
     last_docked: Option<Res<super::station::LastDockedStation>>,
+    wormhole_entrance: Option<Res<super::wormhole::WormholeEntrance>>,
 ) {
     let Ok((entity, mut health, mut transform, mut velocity)) = query.single_mut() else {
         return;
@@ -323,11 +324,18 @@ pub fn handle_player_death(
             game_time: time.elapsed_secs_f64(),
         });
 
-        // Determine respawn position: last docked station or world origin
-        let respawn_pos = last_docked
-            .as_ref()
-            .map(|r| r.position.extend(0.0))
-            .unwrap_or(Vec3::ZERO);
+        // Determine respawn position:
+        // 1. WormholeEntrance.world_position (if inside arena)
+        // 2. LastDockedStation.position (if ever docked)
+        // 3. Vec3::ZERO (world origin fallback)
+        let respawn_pos = if let Some(entrance) = wormhole_entrance.as_ref() {
+            entrance.world_position.extend(0.0)
+        } else {
+            last_docked
+                .as_ref()
+                .map(|r| r.position.extend(0.0))
+                .unwrap_or(Vec3::ZERO)
+        };
 
         // Reset player state
         health.current = health.max;

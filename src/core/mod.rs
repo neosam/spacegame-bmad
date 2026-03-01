@@ -34,6 +34,8 @@ use self::economy::{
     PlayerInventory, PendingDropSpawns, PendingPickupEvents,
 };
 use self::station::{record_discovered_stations, update_docking, update_undocking, DiscoveredStations, LastDockedStation};
+use self::wormhole::check_wormhole_proximity;
+use crate::game_states::PlayingSubState;
 use self::upgrades::{
     apply_upgrade_effects, emit_craft_events, handle_craft_input, init_base_stats,
     mark_player_needs_upgrade_visual, navigate_station_ui, process_crafting_request, CraftingRequest,
@@ -363,6 +365,13 @@ impl Plugin for CorePlugin {
             )
                 .chain()
                 .after(CoreSet::Events),
+        );
+
+        // Wormhole proximity: runs in Update, only when Flying
+        // Checks if the player is close enough to a wormhole and presses E to enter it.
+        app.add_systems(
+            Update,
+            check_wormhole_proximity.run_if(in_state(PlayingSubState::Flying)),
         );
 
         // Camera follow in PostUpdate
