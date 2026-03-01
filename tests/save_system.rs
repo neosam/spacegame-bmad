@@ -36,6 +36,7 @@ fn save_then_load_restores_player_position() {
         active_weapon: "Spread".to_string(),
         energy_current: 75.0,
         energy_max: 100.0,
+        credits: 0,
     };
     let ron_str = player_save.to_ron().expect("Should serialize");
     fs::write(format!("{save_dir}player.ron"), &ron_str).expect("Should write");
@@ -114,6 +115,7 @@ fn save_then_load_restores_explored_chunks() {
         active_weapon: "Laser".to_string(),
         energy_current: 100.0,
         energy_max: 100.0,
+        credits: 0,
     };
     fs::write(format!("{save_dir}player.ron"), player_save.to_ron().expect("Should serialize"))
         .expect("Should write");
@@ -247,6 +249,7 @@ fn load_restores_world_seed() {
         active_weapon: "Laser".to_string(),
         energy_current: 100.0,
         energy_max: 100.0,
+        credits: 0,
     };
     fs::write(format!("{save_dir}player.ron"), player_save.to_ron().expect("Should serialize"))
         .expect("Should write");
@@ -364,6 +367,7 @@ fn v1_save_loads_with_empty_deltas() {
         active_weapon: "Laser".to_string(),
         energy_current: 100.0,
         energy_max: 100.0,
+        credits: 0,
     };
     fs::write(format!("{save_dir}player.ron"), player_save.to_ron().expect("Should serialize"))
         .expect("Should write");
@@ -417,6 +421,7 @@ fn save_preserves_deltas_across_sessions() {
         active_weapon: "Laser".to_string(),
         energy_current: 100.0,
         energy_max: 100.0,
+        credits: 0,
     };
     fs::write(format!("{save_dir}player.ron"), player_save.to_ron().expect("Should serialize"))
         .expect("Should write");
@@ -467,6 +472,7 @@ fn empty_deltas_same_as_no_deltas() {
         active_weapon: "Laser".to_string(),
         energy_current: 100.0,
         energy_max: 100.0,
+        credits: 0,
     };
     fs::write(format!("{save_dir}player.ron"), player_save.to_ron().expect("Should serialize"))
         .expect("Should write");
@@ -566,6 +572,8 @@ fn destroy_entity_then_save_load_stays_destroyed() {
     app2.init_resource::<PendingChunks>();
     app2.init_resource::<ChunkLoadState>();
     app2.init_resource::<WorldDeltas>();
+    app2.init_resource::<void_drifter::core::economy::Credits>();
+    app2.init_resource::<void_drifter::core::economy::DiscoveredChunks>();
     app2.add_message::<void_drifter::shared::events::GameEvent>();
     app2.insert_resource(void_drifter::infrastructure::events::EventSeverityConfig::default());
     app2.init_resource::<void_drifter::infrastructure::logbook::Logbook>();
@@ -771,6 +779,8 @@ fn e2e_damage_track_save_load_filters_entity() {
     app2.init_resource::<PendingChunks>();
     app2.init_resource::<ChunkLoadState>();
     app2.init_resource::<WorldDeltas>();
+    app2.init_resource::<void_drifter::core::economy::Credits>();
+    app2.init_resource::<void_drifter::core::economy::DiscoveredChunks>();
     app2.add_message::<void_drifter::shared::events::GameEvent>();
     app2.insert_resource(void_drifter::infrastructure::events::EventSeverityConfig::default());
     app2.init_resource::<void_drifter::infrastructure::logbook::Logbook>();

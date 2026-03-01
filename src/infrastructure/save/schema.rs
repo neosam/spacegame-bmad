@@ -3,7 +3,7 @@ use std::fmt;
 use serde::Deserialize;
 
 /// Current save file schema version.
-pub const SAVE_VERSION: u32 = 2;
+pub const SAVE_VERSION: u32 = 3;
 
 /// Errors that can occur during save/load operations.
 #[derive(Debug)]
@@ -46,7 +46,10 @@ pub fn check_version(ron_str: &str) -> Result<u32, SaveError> {
     let header: VersionHeader = ron::from_str(ron_str)
         .map_err(|e| SaveError::ParseError(format!("{e}")))?;
 
-    if header.schema_version != SAVE_VERSION && header.schema_version != 1 {
+    if header.schema_version != SAVE_VERSION
+        && header.schema_version != 1
+        && header.schema_version != 2
+    {
         return Err(SaveError::VersionMismatch {
             expected: SAVE_VERSION,
             found: header.schema_version,
@@ -61,15 +64,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn save_version_is_two() {
-        assert_eq!(SAVE_VERSION, 2);
+    fn save_version_is_three() {
+        assert_eq!(SAVE_VERSION, 3);
     }
 
     #[test]
     fn check_version_valid_current() {
-        let ron_str = r#"(schema_version: 2, position: (1.0, 2.0))"#;
+        let ron_str = r#"(schema_version: 3, position: (1.0, 2.0))"#;
         let version = check_version(ron_str).expect("Should parse valid version");
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
     }
 
     #[test]
@@ -77,6 +80,13 @@ mod tests {
         let ron_str = r#"(schema_version: 1, position: (1.0, 2.0))"#;
         let version = check_version(ron_str).expect("Should accept v1 for migration");
         assert_eq!(version, 1);
+    }
+
+    #[test]
+    fn check_version_accepts_v2() {
+        let ron_str = r#"(schema_version: 2, position: (1.0, 2.0))"#;
+        let version = check_version(ron_str).expect("Should accept v2 for migration");
+        assert_eq!(version, 2);
     }
 
     #[test]

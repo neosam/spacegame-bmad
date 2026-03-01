@@ -8,6 +8,7 @@ use bevy::prelude::*;
 
 use crate::core::camera::camera_follow_player;
 use crate::core::collision::{Collider, Health};
+use crate::core::economy::Credits;
 use crate::core::flight::Player;
 use crate::core::spawning::{NeedsAsteroidVisual, NeedsDroneVisual, SpawningConfig};
 use crate::core::station::{Docked, NeedsStationVisual, Station};
@@ -78,6 +79,10 @@ impl Plugin for RenderingPlugin {
         app.insert_resource(world_map_config);
         app.init_resource::<WorldMapOpen>();
         app.init_resource::<WorldMapState>();
+
+        // Credits HUD startup + update
+        app.add_systems(Startup, spawn_credits_hud);
+        app.add_systems(Update, update_credits_hud);
 
         // Startup systems
         app.add_systems(
@@ -592,7 +597,7 @@ pub fn spawn_station_ui(
     // Shop row (placeholder)
     let shop_row = commands
         .spawn((
-            Text("Shop  —  coming in Story 3-3".to_string()),
+            Text("Shop  —  not yet available".to_string()),
             TextFont {
                 font_size: 16.0,
                 ..default()
@@ -640,5 +645,55 @@ pub fn despawn_station_ui(
         for entity in query.iter() {
             commands.entity(entity).despawn();
         }
+    }
+}
+
+// ── Credits HUD ─────────────────────────────────────────────────────────
+
+/// Marker for the Credits HUD root entity.
+#[derive(Component, Debug)]
+pub struct CreditsHudRoot;
+
+/// Marker for the Credits HUD text entity (child of `CreditsHudRoot`).
+#[derive(Component, Debug)]
+pub struct CreditsHudText;
+
+/// Spawns a top-left Credits HUD at startup.
+pub fn spawn_credits_hud(mut commands: Commands) {
+    let root = commands
+        .spawn((
+            CreditsHudRoot,
+            Node {
+                position_type: PositionType::Absolute,
+                top: Val::Px(8.0),
+                left: Val::Px(8.0),
+                ..default()
+            },
+            GlobalZIndex(10),
+        ))
+        .id();
+
+    let text = commands
+        .spawn((
+            CreditsHudText,
+            Text("Credits: 0".to_string()),
+            TextFont {
+                font_size: 18.0,
+                ..default()
+            },
+            TextColor(Color::WHITE),
+        ))
+        .id();
+
+    commands.entity(root).add_child(text);
+}
+
+/// Updates the Credits HUD text each frame to reflect the current balance.
+pub fn update_credits_hud(
+    credits: Res<Credits>,
+    mut text_query: Query<&mut Text, With<CreditsHudText>>,
+) {
+    for mut text in text_query.iter_mut() {
+        *text = Text(format!("Credits: {}", credits.balance));
     }
 }

@@ -50,6 +50,8 @@ pub enum GameEventKind {
     GeneratorDestroyed,
     /// Destruction cascade complete — tutorial fully finished.
     TutorialComplete,
+    /// Player earned credits (from kill or discovery).
+    CreditsEarned { amount: u32 },
 }
 
 /// A game event emitted as a Bevy message by gameplay systems.

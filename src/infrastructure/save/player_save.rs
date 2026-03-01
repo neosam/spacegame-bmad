@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use serde::{Serialize, Deserialize};
 
 use crate::core::collision::Health;
+use crate::core::economy::Credits;
 use crate::core::flight::Player;
 use crate::core::weapons::{ActiveWeapon, Energy};
 use crate::shared::components::Velocity;
@@ -20,6 +21,9 @@ pub struct PlayerSave {
     pub active_weapon: String,
     pub energy_current: f32,
     pub energy_max: f32,
+    /// Player's credit balance. Defaults to 0 for backward compatibility with v1/v2 saves.
+    #[serde(default)]
+    pub credits: u32,
 }
 
 impl PlayerSave {
@@ -46,6 +50,7 @@ impl PlayerSave {
             active_weapon: weapon_str.to_string(),
             energy_current: energy.current,
             energy_max: energy.max_capacity,
+            credits: 0,
         }
     }
 
@@ -87,7 +92,9 @@ impl PlayerSave {
         let (transform, velocity, health, active_weapon, energy) =
             query.iter(world).next()?;
 
-        Some(Self::from_components(transform, velocity, health, active_weapon, energy))
+        let mut save = Self::from_components(transform, velocity, health, active_weapon, energy);
+        save.credits = world.get_resource::<Credits>().map(|c| c.balance).unwrap_or(0);
+        Some(save)
     }
 
     /// Applies saved state to the player entity in the world.
@@ -110,6 +117,11 @@ impl PlayerSave {
         self.apply_to_components(
             &mut transform, &mut velocity, &mut health, &mut active_weapon, &mut energy,
         );
+
+        // Restore credits resource
+        if let Some(mut credits) = world.get_resource_mut::<Credits>() {
+            credits.balance = self.credits;
+        }
     }
 
     /// Serializes to pretty-printed RON.
@@ -143,6 +155,7 @@ mod tests {
             active_weapon: "Laser".to_string(),
             energy_current: 75.0,
             energy_max: 100.0,
+            credits: 0,
         }
     }
 

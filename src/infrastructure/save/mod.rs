@@ -11,6 +11,7 @@ use bevy::ecs::message::MessageWriter;
 use bevy::prelude::*;
 
 use crate::core::collision::Health;
+use crate::core::economy::{Credits, DiscoveredChunks};
 use crate::core::flight::Player;
 use crate::core::input::ActionState;
 use crate::core::weapons::{ActiveWeapon, Energy};
@@ -58,6 +59,7 @@ pub fn save_game(
         (&Transform, &Velocity, &Health, &ActiveWeapon, &Energy),
         With<Player>,
     >,
+    credits: Res<Credits>,
     world_config: Res<WorldConfig>,
     explored_chunks: Res<ExploredChunks>,
     world_deltas: Res<WorldDeltas>,
@@ -93,7 +95,9 @@ pub fn save_game(
                 return;
             };
 
-            PlayerSave::from_components(transform, velocity, health, active_weapon, energy)
+            let mut ps = PlayerSave::from_components(transform, velocity, health, active_weapon, energy);
+            ps.credits = credits.balance;
+            ps
         };
 
         // Build WorldSave
@@ -150,6 +154,8 @@ pub fn load_game(
         (&mut Transform, &mut Velocity, &mut Health, &mut ActiveWeapon, &mut Energy),
         With<Player>,
     >,
+    mut credits: ResMut<Credits>,
+    mut discovered_chunks: ResMut<DiscoveredChunks>,
     mut explored_chunks: ResMut<ExploredChunks>,
     mut world_deltas: ResMut<WorldDeltas>,
     mut save_state: ResMut<SaveState>,
@@ -186,6 +192,8 @@ pub fn load_game(
                                 &mut active_weapon,
                                 &mut energy,
                             );
+                            // Restore credits
+                            credits.balance = player_save.credits;
                             save_state.loaded_from_save = true;
                         }
                     }
@@ -210,6 +218,10 @@ pub fn load_game(
                         world_config.seed = world_save.seed;
                         world_save
                             .apply_to_world_resources(&mut explored_chunks, &mut world_deltas);
+                        // Restore discovered chunks so we don't re-award credits on re-entry
+                        for coord in explored_chunks.chunks.keys() {
+                            discovered_chunks.chunks.insert(*coord);
+                        }
                     }
                     Err(e) => {
                         warn!(

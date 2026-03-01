@@ -1,5 +1,6 @@
 pub mod camera;
 pub mod collision;
+pub mod economy;
 pub mod flight;
 pub mod input;
 pub mod spawning;
@@ -21,6 +22,7 @@ use self::spawning::{
     drift_entities, spawn_respawn_timers, tick_respawn_timers,
     SpawningConfig,
 };
+use self::economy::{award_credits_on_discovery, award_credits_on_kill, emit_credit_events, Credits, DiscoveredChunks, PendingCreditEvents};
 use self::station::{update_docking, update_undocking};
 use self::tutorial::{
     advance_phase_on_wreck_shot, apply_gravity_well, check_generator_destroyed,
@@ -281,6 +283,17 @@ impl Plugin for CorePlugin {
 
         // Tutorial weapon lock system
         app.add_systems(FixedUpdate, update_weapons_lock.before(CoreSet::Input));
+
+        // Credits economy: track kills and chunk discoveries
+        app.init_resource::<Credits>();
+        app.init_resource::<DiscoveredChunks>();
+        app.init_resource::<PendingCreditEvents>();
+        app.add_systems(
+            FixedUpdate,
+            (award_credits_on_kill, award_credits_on_discovery, emit_credit_events)
+                .chain()
+                .after(CoreSet::Events),
+        );
 
         // Camera follow in PostUpdate
         app.add_systems(PostUpdate, camera_follow_player);
