@@ -34,21 +34,21 @@ pub struct SocialPlugin;
 
 impl Plugin for SocialPlugin {
     fn build(&self, app: &mut App) {
+        // Story 4-8: Attack Telegraphing — runs BEFORE AI systems so facing is current this frame
+        app.add_systems(Update, update_enemy_facing);
         // Story 4-1: Scout Drone AI
         app.init_resource::<PendingEnemyShotQueue>();
-        app.add_systems(Update, update_scout_drone_ai);
+        app.add_systems(Update, update_scout_drone_ai.after(update_enemy_facing));
         // Story 4-2: Fighter AI
-        app.add_systems(Update, update_fighter_ai);
+        app.add_systems(Update, update_fighter_ai.after(update_enemy_facing));
         // Story 4-3: Heavy Cruiser AI
-        app.add_systems(Update, update_heavy_cruiser_ai);
+        app.add_systems(Update, update_heavy_cruiser_ai.after(update_enemy_facing));
         // Story 4-4: Sniper AI
         app.add_systems(Update, update_sniper_ai);
         // Story 4-5: Swarm AI
         app.add_systems(Update, update_swarm_ai);
         // Story 4-6: Faction Behavior Profiles
         app.init_resource::<FactionBehaviorProfiles>();
-        // Story 4-8: Attack Telegraphing
-        app.add_systems(Update, update_enemy_facing);
         // Story 7-1: Boss AI — only when Flying (boss does not appear in arena)
         app.add_systems(Update, update_boss_ai.run_if(in_state(PlayingSubState::Flying)));
         // Story 7-2: Boss Telegraphing

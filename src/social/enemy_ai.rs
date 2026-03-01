@@ -207,6 +207,7 @@ pub fn update_scout_drone_ai(
             &crate::social::faction::FleeThreshold,
             &mut ErraticOffset,
             &mut EnemyFireCooldown,
+            Option<&crate::social::faction::FacingDirection>,
         ),
         With<crate::core::spawning::ScoutDrone>,
     >,
@@ -231,6 +232,7 @@ pub fn update_scout_drone_ai(
         flee_threshold,
         mut erratic,
         mut fire_cooldown,
+        facing,
     ) in drone_query.iter_mut()
     {
         let drone_pos = Vec2::new(transform.translation.x, transform.translation.y);
@@ -271,11 +273,10 @@ pub fn update_scout_drone_ai(
         const DRONE_SPEED: f32 = 80.0;
         match *ai_state {
             AiState::Chase => {
-                let dir = if distance > 0.0 {
-                    to_player.normalize()
-                } else {
-                    Vec2::X
-                };
+                // Fly in facing direction if available, else directly toward player
+                let dir = facing.map(|f| f.0).unwrap_or_else(|| {
+                    if distance > 0.0 { to_player.normalize() } else { Vec2::X }
+                });
                 velocity.0 = dir * DRONE_SPEED + erratic.offset;
             }
             AiState::Attack => {
@@ -294,11 +295,10 @@ pub fn update_scout_drone_ai(
                 }
             }
             AiState::Flee => {
-                let dir = if distance > 0.0 {
-                    -to_player.normalize()
-                } else {
-                    Vec2::X
-                };
+                // Fly in facing direction (update_enemy_facing inverts to away), fallback: flee directly
+                let dir = facing.map(|f| f.0).unwrap_or_else(|| {
+                    if distance > 0.0 { -to_player.normalize() } else { Vec2::X }
+                });
                 velocity.0 = dir * DRONE_SPEED * 1.5;
             }
             AiState::Idle | AiState::Patrol => {
@@ -325,6 +325,7 @@ pub fn update_fighter_ai(
             &crate::social::faction::AttackRange,
             &crate::social::faction::FleeThreshold,
             &mut EnemyFireCooldown,
+            Option<&crate::social::faction::FacingDirection>,
         ),
         With<crate::core::spawning::Fighter>,
     >,
@@ -339,7 +340,7 @@ pub fn update_fighter_ai(
         player_transform.translation.y,
     );
 
-    for (transform, health, mut velocity, mut ai_state, aggro, attack, flee, mut cooldown) in
+    for (transform, health, mut velocity, mut ai_state, aggro, attack, flee, mut cooldown, facing) in
         fighter_query.iter_mut()
     {
         let pos = Vec2::new(transform.translation.x, transform.translation.y);
@@ -359,7 +360,10 @@ pub fn update_fighter_ai(
         const FIGHTER_SPEED: f32 = 120.0;
         match *ai_state {
             AiState::Chase | AiState::Attack => {
-                let dir = if distance > 0.0 { to_player.normalize() } else { Vec2::X };
+                // Fly in facing direction if available, else directly toward player
+                let dir = facing.map(|f| f.0).unwrap_or_else(|| {
+                    if distance > 0.0 { to_player.normalize() } else { Vec2::X }
+                });
                 velocity.0 = dir * FIGHTER_SPEED;
                 // Attack state: shoot
                 if *ai_state == AiState::Attack {
@@ -375,7 +379,9 @@ pub fn update_fighter_ai(
                 }
             }
             AiState::Flee => {
-                let dir = if distance > 0.0 { -to_player.normalize() } else { Vec2::X };
+                let dir = facing.map(|f| f.0).unwrap_or_else(|| {
+                    if distance > 0.0 { -to_player.normalize() } else { Vec2::X }
+                });
                 velocity.0 = dir * FIGHTER_SPEED * 1.2;
             }
             AiState::Idle | AiState::Patrol => {
@@ -400,6 +406,7 @@ pub fn update_heavy_cruiser_ai(
             &crate::social::faction::AttackRange,
             &crate::social::faction::FleeThreshold,
             &mut EnemyFireCooldown,
+            Option<&crate::social::faction::FacingDirection>,
         ),
         With<crate::core::spawning::HeavyCruiser>,
     >,
@@ -414,7 +421,7 @@ pub fn update_heavy_cruiser_ai(
         player_transform.translation.y,
     );
 
-    for (transform, health, mut velocity, mut ai_state, aggro, attack, flee, mut cooldown) in
+    for (transform, health, mut velocity, mut ai_state, aggro, attack, flee, mut cooldown, facing) in
         cruiser_query.iter_mut()
     {
         let pos = Vec2::new(transform.translation.x, transform.translation.y);
@@ -435,7 +442,9 @@ pub fn update_heavy_cruiser_ai(
         const CRUISER_SPEED: f32 = 40.0;
         match *ai_state {
             AiState::Chase => {
-                let dir = if distance > 0.0 { to_player.normalize() } else { Vec2::X };
+                let dir = facing.map(|f| f.0).unwrap_or_else(|| {
+                    if distance > 0.0 { to_player.normalize() } else { Vec2::X }
+                });
                 velocity.0 = dir * CRUISER_SPEED;
             }
             AiState::Attack => {
@@ -452,7 +461,9 @@ pub fn update_heavy_cruiser_ai(
                 }
             }
             AiState::Flee => {
-                let dir = if distance > 0.0 { -to_player.normalize() } else { Vec2::X };
+                let dir = facing.map(|f| f.0).unwrap_or_else(|| {
+                    if distance > 0.0 { -to_player.normalize() } else { Vec2::X }
+                });
                 velocity.0 = dir * CRUISER_SPEED;
             }
             AiState::Idle | AiState::Patrol => {
@@ -821,9 +832,10 @@ pub fn update_enemy_facing(
     player_query: Query<&Transform, With<crate::core::flight::Player>>,
     mut enemy_query: Query<
         (
-            &Transform,
+            &mut Transform,
             &mut crate::social::faction::FacingDirection,
             Option<&crate::social::faction::TurnRate>,
+            Option<&AiState>,
         ),
         (
             Without<crate::core::flight::Player>,
@@ -845,7 +857,7 @@ pub fn update_enemy_facing(
         player_transform.translation.y,
     );
 
-    for (transform, mut facing, turn_rate_opt) in enemy_query.iter_mut() {
+    for (mut transform, mut facing, turn_rate_opt, ai_state_opt) in enemy_query.iter_mut() {
         let enemy_pos = Vec2::new(transform.translation.x, transform.translation.y);
         let to_player = player_pos - enemy_pos;
 
@@ -853,7 +865,10 @@ pub fn update_enemy_facing(
             continue;
         }
 
-        let target_dir = to_player.normalize();
+        // When fleeing, turn away from the player instead of toward them
+        let fleeing = matches!(ai_state_opt, Some(AiState::Flee));
+        let raw_dir = to_player.normalize();
+        let target_dir = if fleeing { -raw_dir } else { raw_dir };
         let turn_rate = turn_rate_opt.map(|r| r.0).unwrap_or(3.0); // Default 3 rad/s
 
         // Rotate current facing toward target_dir at turn_rate
@@ -870,6 +885,10 @@ pub fn update_enemy_facing(
         let actual_turn = angle_diff.clamp(-max_turn, max_turn);
         let new_angle = current_angle + actual_turn;
         facing.0 = Vec2::new(new_angle.cos(), new_angle.sin());
+
+        // Apply facing to Transform rotation so mesh visually rotates
+        // Mesh tip is at +Y; Quat::from_rotation_z(new_angle - PI/2) maps +Y → facing direction
+        transform.rotation = Quat::from_rotation_z(new_angle - std::f32::consts::FRAC_PI_2);
     }
 }
 
