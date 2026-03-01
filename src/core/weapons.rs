@@ -1,6 +1,6 @@
 use bevy::ecs::message::{Message, MessageWriter};
 use bevy::prelude::*;
-use serde::Deserialize;
+use serde::{Serialize, Deserialize};
 
 use crate::core::flight::Player;
 use crate::core::input::ActionState;
@@ -86,7 +86,7 @@ impl Default for Energy {
 }
 
 /// Which weapon the player currently fires on input.
-#[derive(Component, Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Component, Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ActiveWeapon {
     #[default]
     Laser,

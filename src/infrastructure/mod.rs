@@ -1,5 +1,6 @@
 pub mod events;
 pub mod logbook;
+pub mod save;
 
 use bevy::prelude::*;
 
@@ -33,5 +34,6 @@ impl Plugin for InfrastructurePlugin {
         app.init_resource::<Logbook>();
         app.add_message::<GameEvent>();
         app.add_systems(FixedUpdate, record_game_events.in_set(CoreSet::Events));
+        app.add_plugins(save::SavePlugin);
     }
 }

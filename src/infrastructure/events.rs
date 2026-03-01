@@ -24,6 +24,7 @@ impl Default for EventSeverityConfig {
         mappings.insert("ChunkUnloaded".to_string(), EventSeverity::Tier3);
         mappings.insert("WeaponFired".to_string(), EventSeverity::Tier3);
         mappings.insert("WeaponSwitched".to_string(), EventSeverity::Tier3);
+        mappings.insert("GameSaved".to_string(), EventSeverity::Tier2);
         Self { mappings }
     }
 }
@@ -44,6 +45,7 @@ impl EventSeverityConfig {
             "ChunkUnloaded",
             "WeaponFired",
             "WeaponSwitched",
+            "GameSaved",
         ];
 
         for key in self.mappings.keys() {
@@ -76,6 +78,7 @@ impl EventSeverityConfig {
             GameEventKind::ChunkUnloaded { .. } => "ChunkUnloaded",
             GameEventKind::WeaponFired { .. } => "WeaponFired",
             GameEventKind::WeaponSwitched { .. } => "WeaponSwitched",
+            GameEventKind::GameSaved => "GameSaved",
         };
         self.mappings
             .get(key)
@@ -144,7 +147,7 @@ mod tests {
     #[test]
     fn severity_config_default_has_all_mappings() {
         let config = EventSeverityConfig::default();
-        assert_eq!(config.mappings.len(), 7, "Should have 7 default mappings");
+        assert_eq!(config.mappings.len(), 8, "Should have 8 default mappings");
         assert_eq!(
             config.severity_for(&GameEventKind::PlayerRespawned),
             EventSeverity::Tier2
@@ -197,7 +200,7 @@ mod tests {
         // Default config should have all known keys — validate should not panic
         let config = EventSeverityConfig::default();
         config.validate(); // should produce no warnings
-        assert_eq!(config.mappings.len(), 7);
+        assert_eq!(config.mappings.len(), 8);
     }
 
     #[test]
@@ -215,7 +218,7 @@ mod tests {
         let config = EventSeverityConfig {
             mappings: HashMap::new(),
         };
-        // validate() would warn about all 7 missing keys — verify no panic
+        // validate() would warn about all 8 missing keys — verify no panic
         config.validate();
     }
 }

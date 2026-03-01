@@ -40,6 +40,8 @@ pub enum GameEventKind {
     WeaponFired { weapon: WeaponKind },
     /// Player toggled weapon.
     WeaponSwitched { from: WeaponKind, to: WeaponKind },
+    /// Game was saved to disk.
+    GameSaved,
 }
 
 /// A game event emitted as a Bevy message by gameplay systems.

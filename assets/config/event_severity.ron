@@ -7,5 +7,6 @@
         "ChunkUnloaded": Tier3,
         "WeaponFired": Tier3,
         "WeaponSwitched": Tier3,
+        "GameSaved": Tier2,
     },
 )

@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
+use serde::{Serialize, Deserialize};
 
 use super::chunk::ChunkCoord;
 use super::noise_layers::{biome_noise_value, noise_to_unit};
@@ -30,7 +31,7 @@ fn chunk_seed(world_seed: u64, coord: ChunkCoord) -> u64 {
 // ── Biome ────────────────────────────────────────────────────────────────
 
 /// The three biome types in the world.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Component)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Component, Serialize, Deserialize)]
 pub enum BiomeType {
     DeepSpace,
     AsteroidField,

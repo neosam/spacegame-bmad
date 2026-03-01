@@ -61,7 +61,7 @@ development_status:
   1-5-chunk-loading: done
   1-6-noise-biome-distribution: done
   1-7-event-system: done
-  1-8-save-system: backlog
+  1-8-save-system: done
   1-9-delta-save: backlog
   1-10-wasm-build: backlog
   1-11-soft-speed-cap: backlog

@@ -14,6 +14,7 @@ pub struct ActionState {
     pub interact: bool,
     pub toggle_map: bool,
     pub pause: bool,
+    pub save: bool,
 }
 
 /// Reads keyboard and gamepad input, writes to `ActionState` resource.
@@ -46,6 +47,11 @@ pub fn read_input(
     // Keyboard: switch weapon (rising edge only)
     if keyboard.just_pressed(KeyCode::Tab) {
         action_state.switch_weapon = true;
+    }
+
+    // Keyboard: save (rising edge only)
+    if keyboard.just_pressed(KeyCode::F5) {
+        action_state.save = true;
     }
 
     // Clamp rotation

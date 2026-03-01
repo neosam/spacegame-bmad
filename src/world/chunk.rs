@@ -1,9 +1,10 @@
 use std::collections::HashSet;
 
 use bevy::prelude::*;
+use serde::{Serialize, Deserialize};
 
 /// Integer coordinate identifying a chunk in the world grid.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize)]
 pub struct ChunkCoord {
     pub x: i32,
     pub y: i32,
