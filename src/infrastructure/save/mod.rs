@@ -37,9 +37,24 @@ pub struct SaveConfig {
 impl Default for SaveConfig {
     fn default() -> Self {
         Self {
-            save_dir: "saves/".to_string(),
+            save_dir: default_save_dir(),
         }
     }
+}
+
+/// Returns the platform-appropriate save directory.
+/// Native: uses `directories::ProjectDirs` (XDG on Linux, AppData on Windows, Library on macOS).
+/// WASM: returns empty string (saves not supported via filesystem).
+fn default_save_dir() -> String {
+    #[cfg(all(not(target_arch = "wasm32"), feature = "directories"))]
+    {
+        use directories::ProjectDirs;
+        if let Some(dirs) = ProjectDirs::from("io.itch", "neosam", "void-drifter") {
+            return dirs.data_dir().to_string_lossy().into_owned() + "/";
+        }
+    }
+    // Fallback: relative path (development / unsupported platforms)
+    "saves/".to_string()
 }
 
 /// Runtime state tracking for saves.
@@ -439,7 +454,14 @@ mod tests {
     #[test]
     fn save_config_default_has_save_dir() {
         let config = SaveConfig::default();
-        assert_eq!(config.save_dir, "saves/");
+        // On native with directories feature: platform path ending with /
+        // Fallback: "saves/"
+        assert!(
+            config.save_dir.ends_with('/'),
+            "save_dir should end with '/': {}",
+            config.save_dir
+        );
+        assert!(!config.save_dir.is_empty(), "save_dir should not be empty");
     }
 
     #[test]

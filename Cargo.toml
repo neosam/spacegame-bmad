@@ -5,7 +5,7 @@ edition = "2024"
 
 [features]
 default = ["native"]
-native = ["bevy/multi_threaded", "bevy/x11", "bevy/wayland"]
+native = ["bevy/multi_threaded", "bevy/x11", "bevy/wayland", "directories"]
 wasm = ["bevy/webgpu"]
 dev = ["bevy-inspector-egui", "bevy_egui"]
 
@@ -20,6 +20,7 @@ serde = { version = "1", features = ["derive"] }
 ron = "0.10"
 rand = "0.9"
 noise = "0.9"
+directories = { version = "5", optional = true }
 
 [dependencies.bevy-inspector-egui]
 version = "0.36.0"
