@@ -8,9 +8,9 @@ use bevy::time::TimeUpdateStrategy;
 use void_drifter::core::flight::Player;
 use void_drifter::core::tutorial::{
     advance_phase_on_wreck_shot, apply_gravity_well, check_tutorial_wave_complete,
-    generate_tutorial_zone, spawn_tutorial_enemies, validate_tutorial_seed, GravityWellGenerator,
-    TutorialConfig, TutorialEnemy, TutorialEnemyWave, TutorialPhase, TutorialStation, TutorialWreck,
-    TutorialZone, WeaponsLocked, WreckShotState,
+    dock_at_station, generate_tutorial_zone, spawn_tutorial_enemies, validate_tutorial_seed,
+    GravityWellGenerator, SpreadUnlocked, TutorialConfig, TutorialEnemy, TutorialEnemyWave,
+    TutorialPhase, TutorialStation, TutorialWreck, TutorialZone, WeaponsLocked, WreckShotState,
 };
 use void_drifter::core::spawning::{ScoutDrone, SpawningConfig};
 use void_drifter::shared::components::JustDamaged;
@@ -885,4 +885,244 @@ fn normal_scout_drone_still_triggers_respawn_timer() {
         1,
         "Normal ScoutDrone should still trigger a RespawnTimer"
     );
+}
+
+// ── Station Docking Integration Tests ───────────────────────────────────
+
+/// Create a minimal app with dock_at_station system for isolated integration testing.
+fn station_docking_test_app() -> App {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.add_plugins(bevy::state::app::StatesPlugin);
+    app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+        Duration::from_secs_f64(1.0 / 60.0),
+    ));
+    app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
+    app.insert_resource(TutorialConfig::default());
+    app.init_state::<TutorialPhase>();
+    app.add_message::<void_drifter::shared::events::GameEvent>();
+    app.insert_resource(void_drifter::infrastructure::events::EventSeverityConfig::default());
+    app.add_systems(FixedUpdate, dock_at_station);
+    // Prime
+    app.update();
+    app
+}
+
+#[test]
+fn station_docking_advances_phase_to_station_visited_when_complete() {
+    let mut app = station_docking_test_app();
+
+    // Manually set phase to Complete
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::Complete);
+    app.update(); // Apply state transition to Complete
+
+    // Spawn player at origin
+    app.world_mut().spawn((
+        Player,
+        Transform::from_translation(Vec3::ZERO),
+        Velocity::default(),
+    ));
+
+    // Spawn station close enough to player (within dock_radius = 150)
+    app.world_mut().spawn((
+        TutorialStation { defective: true },
+        Transform::from_translation(Vec3::new(50.0, 0.0, 0.0)),
+    ));
+
+    app.update(); // dock_at_station runs, sets NextState to StationVisited
+    app.update(); // Apply state transition to StationVisited
+
+    let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::StationVisited,
+        "Phase should advance to StationVisited after docking"
+    );
+}
+
+#[test]
+fn station_docking_sets_station_not_defective() {
+    let mut app = station_docking_test_app();
+
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::Complete);
+    app.update();
+
+    app.world_mut().spawn((
+        Player,
+        Transform::from_translation(Vec3::ZERO),
+        Velocity::default(),
+    ));
+
+    let station = app
+        .world_mut()
+        .spawn((
+            TutorialStation { defective: true },
+            Transform::from_translation(Vec3::new(50.0, 0.0, 0.0)),
+        ))
+        .id();
+
+    app.update();
+
+    let station_data = app
+        .world()
+        .entity(station)
+        .get::<TutorialStation>()
+        .expect("Station should have TutorialStation");
+    assert!(
+        !station_data.defective,
+        "Station should be marked non-defective after docking"
+    );
+}
+
+#[test]
+fn station_docking_adds_spread_unlocked_to_player() {
+    let mut app = station_docking_test_app();
+
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::Complete);
+    app.update();
+
+    let player = app
+        .world_mut()
+        .spawn((
+            Player,
+            Transform::from_translation(Vec3::ZERO),
+            Velocity::default(),
+        ))
+        .id();
+
+    app.world_mut().spawn((
+        TutorialStation { defective: true },
+        Transform::from_translation(Vec3::new(50.0, 0.0, 0.0)),
+    ));
+
+    app.update();
+
+    let has_spread_unlocked = app
+        .world()
+        .entity(player)
+        .get::<SpreadUnlocked>()
+        .is_some();
+    assert!(
+        has_spread_unlocked,
+        "Player should receive SpreadUnlocked component after docking"
+    );
+}
+
+#[test]
+fn station_docking_is_idempotent_when_already_station_visited() {
+    let mut app = station_docking_test_app();
+
+    // Phase already at StationVisited
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::StationVisited);
+    app.update();
+
+    app.world_mut().spawn((
+        Player,
+        Transform::from_translation(Vec3::ZERO),
+        Velocity::default(),
+    ));
+
+    app.world_mut().spawn((
+        TutorialStation { defective: false },
+        Transform::from_translation(Vec3::new(50.0, 0.0, 0.0)),
+    ));
+
+    app.update();
+
+    let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::StationVisited,
+        "Phase should remain StationVisited — idempotent"
+    );
+}
+
+#[test]
+fn station_no_dock_when_not_in_complete_phase() {
+    let mut app = station_docking_test_app();
+
+    // Phase is SpreadUnlocked (not Complete)
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::SpreadUnlocked);
+    app.update();
+
+    app.world_mut().spawn((
+        Player,
+        Transform::from_translation(Vec3::ZERO),
+        Velocity::default(),
+    ));
+
+    app.world_mut().spawn((
+        TutorialStation { defective: true },
+        Transform::from_translation(Vec3::new(50.0, 0.0, 0.0)),
+    ));
+
+    app.update();
+
+    let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::SpreadUnlocked,
+        "Phase should not change when not in Complete phase"
+    );
+}
+
+#[test]
+fn station_no_dock_when_too_far() {
+    let mut app = station_docking_test_app();
+
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::Complete);
+    app.update();
+
+    app.world_mut().spawn((
+        Player,
+        Transform::from_translation(Vec3::ZERO),
+        Velocity::default(),
+    ));
+
+    // Station far beyond dock_radius (default 150.0)
+    app.world_mut().spawn((
+        TutorialStation { defective: true },
+        Transform::from_translation(Vec3::new(500.0, 0.0, 0.0)),
+    ));
+
+    app.update();
+
+    let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::Complete,
+        "Phase should remain Complete when player is too far from station"
+    );
+}
+
+#[test]
+fn hundred_seed_station_dock_radius_fits_station_range() {
+    // Station offset is in [200, 400]; dock_radius is 150 — player within 550 can dock.
+    // This test checks that the dock_radius is positive and plausible for all seeds.
+    let config = TutorialConfig::default();
+    assert!(
+        config.dock_radius > 0.0,
+        "dock_radius must be positive for docking to work"
+    );
+    // Validate all seeds still produce valid layouts with dock_radius present
+    for seed in 0..100 {
+        let result = validate_tutorial_seed(seed, &config);
+        assert!(
+            result.is_ok(),
+            "Seed {seed} should still pass layout validation with dock_radius present: {:?}",
+            result.expect_err("Expected Ok")
+        );
+    }
 }

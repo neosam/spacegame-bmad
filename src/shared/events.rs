@@ -44,6 +44,8 @@ pub enum GameEventKind {
     GameSaved,
     /// Tutorial zone was spawned.
     TutorialZoneSpawned,
+    /// Player docked at the tutorial station, receiving the Spread weapon.
+    StationDocked,
 }
 
 /// A game event emitted as a Bevy message by gameplay systems.

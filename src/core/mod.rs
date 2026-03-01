@@ -22,7 +22,8 @@ use self::spawning::{
 };
 use self::tutorial::{
     advance_phase_on_wreck_shot, apply_gravity_well, check_tutorial_wave_complete,
-    spawn_tutorial_enemies, spawn_tutorial_zone, update_weapons_lock, TutorialConfig, TutorialPhase,
+    dock_at_station, spawn_tutorial_enemies, spawn_tutorial_zone, update_weapons_lock,
+    TutorialConfig, TutorialPhase,
 };
 use self::weapons::{
     fire_weapon, move_spread_projectiles, regenerate_energy, switch_weapon, tick_fire_cooldown,
@@ -235,6 +236,9 @@ impl Plugin for CorePlugin {
             )
                 .after(CoreSet::Damage),
         );
+
+        // Station docking: runs in CoreSet::Events, after Damage has settled
+        app.add_systems(FixedUpdate, dock_at_station.in_set(CoreSet::Events));
 
         // Tutorial weapon lock system
         app.add_systems(FixedUpdate, update_weapons_lock.before(CoreSet::Input));

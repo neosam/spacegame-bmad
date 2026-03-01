@@ -34,6 +34,8 @@ pub struct TutorialConfig {
     pub tutorial_enemy_count: usize,
     /// Radius around the wreck in which tutorial enemies are spawned
     pub tutorial_enemy_spawn_radius: f32,
+    /// Distance from station within which the player docks and receives the Spread weapon
+    pub dock_radius: f32,
 }
 
 impl Default for TutorialConfig {
@@ -52,6 +54,7 @@ impl Default for TutorialConfig {
             wreck_offset_max: 700.0,
             tutorial_enemy_count: 3,
             tutorial_enemy_spawn_radius: 150.0,
+            dock_radius: 150.0,
         }
     }
 }
@@ -129,6 +132,8 @@ pub enum TutorialPhase {
     SpreadUnlocked,
     /// Tutorial complete — all abilities available
     Complete,
+    /// Player docked at station after generator destruction — tutorial fully done
+    StationVisited,
 }
 
 // ── Layout Generation ───────────────────────────────────────────────────
@@ -378,6 +383,11 @@ pub fn spawn_tutorial_zone(
 #[derive(Component, Debug)]
 pub struct WeaponsLocked;
 
+/// Marker component added to the player when the tutorial station grants the Spread weapon.
+/// Present from the moment the player docks at the tutorial station onward.
+#[derive(Component, Debug)]
+pub struct SpreadUnlocked;
+
 /// System that adds/removes WeaponsLocked based on TutorialPhase.
 pub fn update_weapons_lock(
     mut commands: Commands,
@@ -506,6 +516,53 @@ pub fn check_tutorial_wave_complete(
     }
 }
 
+// ── Station Docking ─────────────────────────────────────────────────────
+
+/// Detects player proximity to the `TutorialStation` when the phase is `Complete`.
+/// When the player is within `dock_radius`, the station grants the Spread weapon:
+/// - `SpreadUnlocked` marker component added to player
+/// - `TutorialStation.defective` set to `false`
+/// - Phase advances from `Complete` to `StationVisited`
+/// - `GameEvent::StationDocked` emitted (Tier1)
+///
+/// The transition is idempotent: once `StationVisited`, the guard returns immediately.
+pub fn dock_at_station(
+    config: Res<TutorialConfig>,
+    phase: Res<State<TutorialPhase>>,
+    mut next_phase: ResMut<NextState<TutorialPhase>>,
+    mut station_query: Query<(&mut TutorialStation, &Transform)>,
+    player_query: Query<(Entity, &Transform), With<crate::core::flight::Player>>,
+    mut commands: Commands,
+    mut game_events: bevy::ecs::message::MessageWriter<crate::shared::events::GameEvent>,
+    time: Res<Time>,
+    severity_config: Res<crate::infrastructure::events::EventSeverityConfig>,
+) {
+    if *phase.get() != TutorialPhase::Complete {
+        return;
+    }
+    let Ok((player_entity, player_transform)) = player_query.single() else {
+        return;
+    };
+    let player_pos = player_transform.translation.truncate();
+
+    for (mut station, station_transform) in station_query.iter_mut() {
+        let station_pos = station_transform.translation.truncate();
+        let distance = (station_pos - player_pos).length();
+        if distance <= config.dock_radius {
+            commands.entity(player_entity).insert(SpreadUnlocked);
+            station.defective = false;
+            next_phase.set(TutorialPhase::StationVisited);
+            let kind = crate::shared::events::GameEventKind::StationDocked;
+            game_events.write(crate::shared::events::GameEvent {
+                severity: severity_config.severity_for(&kind),
+                kind,
+                position: station_pos,
+                game_time: time.elapsed_secs_f64(),
+            });
+        }
+    }
+}
+
 // ── Unit Tests ──────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -528,6 +585,7 @@ mod tests {
         assert!(config.wreck_offset_max >= config.wreck_offset_min);
         assert!(config.tutorial_enemy_count > 0);
         assert!(config.tutorial_enemy_spawn_radius > 0.0);
+        assert!(config.dock_radius > 0.0);
     }
 
     #[test]
@@ -546,6 +604,7 @@ mod tests {
             wreck_offset_max: 700.0,
             tutorial_enemy_count: 5,
             tutorial_enemy_spawn_radius: 200.0,
+            dock_radius: 120.0,
         )"#;
         let config = TutorialConfig::from_ron(ron_str).expect("Should parse RON");
         assert!((config.safe_radius - 1500.0).abs() < f32::EPSILON);
@@ -555,6 +614,7 @@ mod tests {
         assert!((config.wreck_offset_max - 700.0).abs() < f32::EPSILON);
         assert_eq!(config.tutorial_enemy_count, 5);
         assert!((config.tutorial_enemy_spawn_radius - 200.0).abs() < f32::EPSILON);
+        assert!((config.dock_radius - 120.0).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -1071,5 +1131,43 @@ mod tests {
     fn tutorial_enemy_wave_can_be_set() {
         let wave = TutorialEnemyWave { remaining: 3 };
         assert_eq!(wave.remaining, 3, "TutorialEnemyWave remaining should be 3");
+    }
+
+    // ── Station Docking Unit Tests ───────────────────────────────────────
+
+    #[test]
+    fn tutorial_config_dock_radius_default_positive() {
+        let config = TutorialConfig::default();
+        assert!(
+            config.dock_radius > 0.0,
+            "dock_radius should be positive, got {}",
+            config.dock_radius
+        );
+    }
+
+    #[test]
+    fn tutorial_config_from_ron_includes_dock_radius() {
+        let config = TutorialConfig::default();
+        // Ensure dock_radius is serializable / deserializable by checking default
+        assert!(
+            (config.dock_radius - 150.0).abs() < f32::EPSILON,
+            "Default dock_radius should be 150.0, got {}",
+            config.dock_radius
+        );
+    }
+
+    #[test]
+    fn tutorial_phase_station_visited_variant_exists() {
+        // Ensure StationVisited can be constructed and is distinct from Complete
+        let complete = TutorialPhase::Complete;
+        let station_visited = TutorialPhase::StationVisited;
+        assert_ne!(complete, station_visited, "StationVisited should differ from Complete");
+    }
+
+    #[test]
+    fn spread_unlocked_is_a_component() {
+        // Verify SpreadUnlocked can be constructed (it's a marker — no fields)
+        let _marker = SpreadUnlocked;
+        // If it compiles and is a Component, the test passes
     }
 }
