@@ -11,7 +11,8 @@ use bevy::ecs::message::MessageWriter;
 use bevy::prelude::*;
 
 use crate::core::collision::Health;
-use crate::core::economy::{Credits, DiscoveredChunks};
+use crate::core::economy::{Credits, DiscoveredChunks, PlayerInventory};
+use crate::shared::components::MaterialType;
 use crate::core::flight::Player;
 use crate::core::input::ActionState;
 use crate::core::weapons::{ActiveWeapon, Energy};
@@ -60,6 +61,7 @@ pub fn save_game(
         With<Player>,
     >,
     credits: Res<Credits>,
+    inventory: Res<PlayerInventory>,
     world_config: Res<WorldConfig>,
     explored_chunks: Res<ExploredChunks>,
     world_deltas: Res<WorldDeltas>,
@@ -97,6 +99,9 @@ pub fn save_game(
 
             let mut ps = PlayerSave::from_components(transform, velocity, health, active_weapon, energy);
             ps.credits = credits.balance;
+            ps.inventory_common_scrap = inventory.items.get(&MaterialType::CommonScrap).copied().unwrap_or(0);
+            ps.inventory_rare_alloy = inventory.items.get(&MaterialType::RareAlloy).copied().unwrap_or(0);
+            ps.inventory_energy_core = inventory.items.get(&MaterialType::EnergyCore).copied().unwrap_or(0);
             ps
         };
 
@@ -155,6 +160,7 @@ pub fn load_game(
         With<Player>,
     >,
     mut credits: ResMut<Credits>,
+    mut inventory: ResMut<PlayerInventory>,
     mut discovered_chunks: ResMut<DiscoveredChunks>,
     mut explored_chunks: ResMut<ExploredChunks>,
     mut world_deltas: ResMut<WorldDeltas>,
@@ -194,6 +200,17 @@ pub fn load_game(
                             );
                             // Restore credits
                             credits.balance = player_save.credits;
+                            // Restore inventory
+                            inventory.items.clear();
+                            if player_save.inventory_common_scrap > 0 {
+                                inventory.items.insert(MaterialType::CommonScrap, player_save.inventory_common_scrap);
+                            }
+                            if player_save.inventory_rare_alloy > 0 {
+                                inventory.items.insert(MaterialType::RareAlloy, player_save.inventory_rare_alloy);
+                            }
+                            if player_save.inventory_energy_core > 0 {
+                                inventory.items.insert(MaterialType::EnergyCore, player_save.inventory_energy_core);
+                            }
                             save_state.loaded_from_save = true;
                         }
                     }

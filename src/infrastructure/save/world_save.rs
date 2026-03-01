@@ -293,7 +293,7 @@ mod tests {
     fn world_save_corrupt_deltas_recovers_core_fields() {
         // Valid core fields but malformed chunk_deltas
         let ron_str = r#"(
-            schema_version: 3,
+            schema_version: 4,
             seed: 42,
             explored_chunks: [
                 ((0, 0), "DeepSpace"),

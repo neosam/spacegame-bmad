@@ -138,6 +138,9 @@ fn credits_save_load_roundtrip() {
         energy_current: 100.0,
         energy_max: 100.0,
         credits: 42,
+        inventory_common_scrap: 0,
+        inventory_rare_alloy: 0,
+        inventory_energy_core: 0,
     };
 
     // Serialize and deserialize

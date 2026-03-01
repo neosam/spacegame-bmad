@@ -3,7 +3,7 @@ use std::fmt;
 use serde::Deserialize;
 
 /// Current save file schema version.
-pub const SAVE_VERSION: u32 = 3;
+pub const SAVE_VERSION: u32 = 4;
 
 /// Errors that can occur during save/load operations.
 #[derive(Debug)]
@@ -49,6 +49,7 @@ pub fn check_version(ron_str: &str) -> Result<u32, SaveError> {
     if header.schema_version != SAVE_VERSION
         && header.schema_version != 1
         && header.schema_version != 2
+        && header.schema_version != 3
     {
         return Err(SaveError::VersionMismatch {
             expected: SAVE_VERSION,
@@ -64,14 +65,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn save_version_is_three() {
-        assert_eq!(SAVE_VERSION, 3);
+    fn save_version_is_four() {
+        assert_eq!(SAVE_VERSION, 4);
     }
 
     #[test]
     fn check_version_valid_current() {
-        let ron_str = r#"(schema_version: 3, position: (1.0, 2.0))"#;
+        let ron_str = r#"(schema_version: 4, position: (1.0, 2.0))"#;
         let version = check_version(ron_str).expect("Should parse valid version");
+        assert_eq!(version, 4);
+    }
+
+    #[test]
+    fn check_version_accepts_v3() {
+        let ron_str = r#"(schema_version: 3, position: (1.0, 2.0))"#;
+        let version = check_version(ron_str).expect("Should accept v3 for migration");
         assert_eq!(version, 3);
     }
 

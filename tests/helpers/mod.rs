@@ -25,7 +25,7 @@ use void_drifter::shared::components::Velocity;
 use void_drifter::shared::events::GameEvent;
 use void_drifter::rendering::minimap::{MinimapConfig, MinimapState};
 use void_drifter::rendering::world_map::{WorldMapConfig, WorldMapOpen, WorldMapState};
-use void_drifter::core::economy::{Credits, DiscoveredChunks};
+use void_drifter::core::economy::{Credits, DiscoveredChunks, PlayerInventory, PendingDropSpawns, PendingPickupEvents};
 use void_drifter::infrastructure::save::delta::{track_destroyed_entities, WorldDeltas};
 use void_drifter::core::tutorial::{TutorialConfig, TutorialPhase};
 use void_drifter::world::{
@@ -63,6 +63,9 @@ pub fn test_app() -> App {
     app.init_resource::<WorldDeltas>();
     app.init_resource::<Credits>();
     app.init_resource::<DiscoveredChunks>();
+    app.init_resource::<PlayerInventory>();
+    app.init_resource::<PendingDropSpawns>();
+    app.init_resource::<PendingPickupEvents>();
     app.insert_resource(TutorialConfig::default());
     app.init_state::<TutorialPhase>();
     app.add_message::<LaserFired>();

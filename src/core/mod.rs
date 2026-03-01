@@ -22,7 +22,12 @@ use self::spawning::{
     drift_entities, spawn_respawn_timers, tick_respawn_timers,
     SpawningConfig,
 };
-use self::economy::{award_credits_on_discovery, award_credits_on_kill, emit_credit_events, Credits, DiscoveredChunks, PendingCreditEvents};
+use self::economy::{
+    award_credits_on_discovery, award_credits_on_kill, emit_credit_events,
+    collect_material_drops, emit_pickup_events, queue_material_drops, spawn_material_drops,
+    Credits, DiscoveredChunks, PendingCreditEvents,
+    PlayerInventory, PendingDropSpawns, PendingPickupEvents,
+};
 use self::station::{update_docking, update_undocking};
 use self::tutorial::{
     advance_phase_on_wreck_shot, apply_gravity_well, check_generator_destroyed,
@@ -291,6 +296,17 @@ impl Plugin for CorePlugin {
         app.add_systems(
             FixedUpdate,
             (award_credits_on_kill, award_credits_on_discovery, emit_credit_events)
+                .chain()
+                .after(CoreSet::Events),
+        );
+
+        // Material drops: spawn on kill, collect on proximity
+        app.init_resource::<PlayerInventory>();
+        app.init_resource::<PendingDropSpawns>();
+        app.init_resource::<PendingPickupEvents>();
+        app.add_systems(
+            FixedUpdate,
+            (queue_material_drops, spawn_material_drops, collect_material_drops, emit_pickup_events)
                 .chain()
                 .after(CoreSet::Events),
         );

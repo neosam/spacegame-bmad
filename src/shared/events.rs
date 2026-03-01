@@ -2,6 +2,7 @@ use bevy::ecs::message::Message;
 use bevy::prelude::*;
 use serde::Deserialize;
 
+use crate::shared::components::MaterialType;
 use crate::world::{BiomeType, ChunkCoord};
 
 /// Which weapon the player fired or switched to/from.
@@ -52,6 +53,8 @@ pub enum GameEventKind {
     TutorialComplete,
     /// Player earned credits (from kill or discovery).
     CreditsEarned { amount: u32 },
+    /// Player picked up a material drop.
+    MaterialCollected { material: MaterialType },
 }
 
 /// A game event emitted as a Bevy message by gameplay systems.

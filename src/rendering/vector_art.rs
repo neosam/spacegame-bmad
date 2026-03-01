@@ -318,6 +318,48 @@ pub fn generate_tutorial_generator_mesh(radius: f32) -> Mesh {
     mesh
 }
 
+/// Generate a small diamond mesh for material drop pickups.
+/// Uses the same pattern as generate_tutorial_generator_mesh but with a smaller radius.
+pub fn generate_material_drop_mesh(half_size: f32) -> Mesh {
+    let mut buffers: VertexBuffers<[f32; 3], u32> = VertexBuffers::new();
+    let mut tessellator = FillTessellator::new();
+
+    let mut builder = Path::builder();
+    builder.begin(point(0.0, half_size));          // Top
+    builder.line_to(point(half_size, 0.0));        // Right
+    builder.line_to(point(0.0, -half_size));       // Bottom
+    builder.line_to(point(-half_size, 0.0));       // Left
+    builder.close();
+    let path = builder.build();
+
+    let result = tessellator.tessellate_path(
+        &path,
+        &FillOptions::default(),
+        &mut BuffersBuilder::new(&mut buffers, |vertex: FillVertex| {
+            [vertex.position().x, vertex.position().y, 0.0]
+        }),
+    );
+
+    if let Err(e) = result {
+        warn!("Material drop tessellation failed: {e:?}, using circle fallback");
+        return Mesh::from(Circle::new(half_size));
+    }
+
+    let positions: Vec<[f32; 3]> = buffers.vertices.clone();
+    let normals: Vec<[f32; 3]> = vec![[0.0, 0.0, 1.0]; positions.len()];
+    let uvs: Vec<[f32; 2]> = positions
+        .iter()
+        .map(|p| [(p[0] / half_size + 1.0) / 2.0, (p[1] / half_size + 1.0) / 2.0])
+        .collect();
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Indices::U32(buffers.indices));
+    mesh
+}
+
 /// Generate an asteroid mesh and verify it produces valid geometry.
 #[cfg(test)]
 mod tests {

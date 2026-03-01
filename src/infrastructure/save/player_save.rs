@@ -2,10 +2,10 @@ use bevy::prelude::*;
 use serde::{Serialize, Deserialize};
 
 use crate::core::collision::Health;
-use crate::core::economy::Credits;
+use crate::core::economy::{Credits, PlayerInventory};
 use crate::core::flight::Player;
 use crate::core::weapons::{ActiveWeapon, Energy};
-use crate::shared::components::Velocity;
+use crate::shared::components::{MaterialType, Velocity};
 
 use super::schema::{check_version, SaveError, SAVE_VERSION};
 
@@ -21,9 +21,18 @@ pub struct PlayerSave {
     pub active_weapon: String,
     pub energy_current: f32,
     pub energy_max: f32,
-    /// Player's credit balance. Defaults to 0 for backward compatibility with v1/v2 saves.
+    /// Player's credit balance. Defaults to 0 for backward compatibility with v1/v2/v3 saves.
     #[serde(default)]
     pub credits: u32,
+    /// Inventory: CommonScrap count. Defaults to 0 for backward compatibility.
+    #[serde(default)]
+    pub inventory_common_scrap: u32,
+    /// Inventory: RareAlloy count. Defaults to 0 for backward compatibility.
+    #[serde(default)]
+    pub inventory_rare_alloy: u32,
+    /// Inventory: EnergyCore count. Defaults to 0 for backward compatibility.
+    #[serde(default)]
+    pub inventory_energy_core: u32,
 }
 
 impl PlayerSave {
@@ -51,6 +60,9 @@ impl PlayerSave {
             energy_current: energy.current,
             energy_max: energy.max_capacity,
             credits: 0,
+            inventory_common_scrap: 0,
+            inventory_rare_alloy: 0,
+            inventory_energy_core: 0,
         }
     }
 
@@ -94,6 +106,11 @@ impl PlayerSave {
 
         let mut save = Self::from_components(transform, velocity, health, active_weapon, energy);
         save.credits = world.get_resource::<Credits>().map(|c| c.balance).unwrap_or(0);
+        if let Some(inv) = world.get_resource::<PlayerInventory>() {
+            save.inventory_common_scrap = inv.items.get(&MaterialType::CommonScrap).copied().unwrap_or(0);
+            save.inventory_rare_alloy = inv.items.get(&MaterialType::RareAlloy).copied().unwrap_or(0);
+            save.inventory_energy_core = inv.items.get(&MaterialType::EnergyCore).copied().unwrap_or(0);
+        }
         Some(save)
     }
 
@@ -121,6 +138,19 @@ impl PlayerSave {
         // Restore credits resource
         if let Some(mut credits) = world.get_resource_mut::<Credits>() {
             credits.balance = self.credits;
+        }
+        // Restore inventory resource
+        if let Some(mut inv) = world.get_resource_mut::<PlayerInventory>() {
+            inv.items.clear();
+            if self.inventory_common_scrap > 0 {
+                inv.items.insert(MaterialType::CommonScrap, self.inventory_common_scrap);
+            }
+            if self.inventory_rare_alloy > 0 {
+                inv.items.insert(MaterialType::RareAlloy, self.inventory_rare_alloy);
+            }
+            if self.inventory_energy_core > 0 {
+                inv.items.insert(MaterialType::EnergyCore, self.inventory_energy_core);
+            }
         }
     }
 
@@ -156,6 +186,9 @@ mod tests {
             energy_current: 75.0,
             energy_max: 100.0,
             credits: 0,
+            inventory_common_scrap: 0,
+            inventory_rare_alloy: 0,
+            inventory_energy_core: 0,
         }
     }
 

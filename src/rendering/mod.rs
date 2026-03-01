@@ -10,6 +10,7 @@ use crate::core::camera::camera_follow_player;
 use crate::core::collision::{Collider, Health};
 use crate::core::economy::Credits;
 use crate::core::flight::Player;
+use crate::shared::components::{MaterialType, NeedsMaterialDropVisual};
 use crate::core::spawning::{NeedsAsteroidVisual, NeedsDroneVisual, SpawningConfig};
 use crate::core::station::{Docked, NeedsStationVisual, Station};
 use crate::core::tutorial::{generate_tutorial_zone, GravityWellBoundary, GravityWellGenerator, TutorialConfig, TutorialStation, TutorialWreck};
@@ -31,8 +32,8 @@ use self::minimap::{setup_minimap, update_minimap_blips, MinimapConfig, MinimapS
 use self::world_map::{toggle_world_map, update_world_map, WorldMapConfig, WorldMapOpen, WorldMapState};
 use self::vector_art::{
     generate_asteroid_mesh, generate_circle_outline_mesh, generate_drone_mesh, generate_laser_mesh,
-    generate_player_mesh, generate_projectile_mesh, generate_tutorial_generator_mesh,
-    generate_tutorial_station_mesh, generate_tutorial_wreck_mesh,
+    generate_material_drop_mesh, generate_player_mesh, generate_projectile_mesh,
+    generate_tutorial_generator_mesh, generate_tutorial_station_mesh, generate_tutorial_wreck_mesh,
 };
 
 pub struct RenderingPlugin;
@@ -83,6 +84,11 @@ impl Plugin for RenderingPlugin {
         // Credits HUD startup + update
         app.add_systems(Startup, spawn_credits_hud);
         app.add_systems(Update, update_credits_hud);
+
+        // Material drop assets + visual attach
+        app.init_resource::<MaterialDropAssets>();
+        app.add_systems(Startup, setup_material_drop_assets);
+        app.add_systems(Update, attach_material_drop_visual);
 
         // Startup systems
         app.add_systems(
@@ -695,5 +701,56 @@ pub fn update_credits_hud(
 ) {
     for mut text in text_query.iter_mut() {
         *text = Text(format!("Credits: {}", credits.balance));
+    }
+}
+
+// ── Material Drop Rendering ────────────────────────────────────────────────
+
+/// Cached mesh and material handles for each material drop type.
+#[derive(Resource, Default)]
+pub struct MaterialDropAssets {
+    pub common_scrap_mesh: Handle<Mesh>,
+    pub common_scrap_material: Handle<ColorMaterial>,
+    pub rare_alloy_mesh: Handle<Mesh>,
+    pub rare_alloy_material: Handle<ColorMaterial>,
+    pub energy_core_mesh: Handle<Mesh>,
+    pub energy_core_material: Handle<ColorMaterial>,
+}
+
+/// Creates mesh and material handles for all three material drop types at startup.
+pub fn setup_material_drop_assets(
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut assets: ResMut<MaterialDropAssets>,
+) {
+    let drop_mesh = generate_material_drop_mesh(8.0);
+
+    assets.common_scrap_mesh = meshes.add(drop_mesh.clone());
+    assets.common_scrap_material = materials.add(ColorMaterial::from(Color::srgb(0.5, 0.5, 0.5)));
+
+    assets.rare_alloy_mesh = meshes.add(drop_mesh.clone());
+    assets.rare_alloy_material = materials.add(ColorMaterial::from(Color::srgb(0.27, 0.53, 1.0)));
+
+    assets.energy_core_mesh = meshes.add(drop_mesh);
+    assets.energy_core_material = materials.add(ColorMaterial::from(Color::srgb(1.0, 0.84, 0.0)));
+}
+
+/// Attaches the appropriate mesh and material to newly spawned material drop entities.
+/// Removes the NeedsMaterialDropVisual marker once visuals are attached.
+pub fn attach_material_drop_visual(
+    mut commands: Commands,
+    query: Query<(Entity, &MaterialType), With<NeedsMaterialDropVisual>>,
+    assets: Res<MaterialDropAssets>,
+) {
+    for (entity, material_type) in query.iter() {
+        let (mesh, mat) = match material_type {
+            MaterialType::CommonScrap => (&assets.common_scrap_mesh, &assets.common_scrap_material),
+            MaterialType::RareAlloy => (&assets.rare_alloy_mesh, &assets.rare_alloy_material),
+            MaterialType::EnergyCore => (&assets.energy_core_mesh, &assets.energy_core_material),
+        };
+        commands
+            .entity(entity)
+            .insert((Mesh2d(mesh.clone()), MeshMaterial2d(mat.clone())))
+            .remove::<NeedsMaterialDropVisual>();
     }
 }
