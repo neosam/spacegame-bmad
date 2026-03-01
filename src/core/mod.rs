@@ -34,7 +34,9 @@ use self::economy::{
     PlayerInventory, PendingDropSpawns, PendingPickupEvents,
 };
 use self::station::{record_discovered_stations, update_docking, update_undocking, DiscoveredStations, LastDockedStation};
-use self::wormhole::check_wormhole_proximity;
+use self::wormhole::{
+    check_wormhole_proximity, setup_arena, spawn_arena_wave, enforce_arena_boundary, cleanup_arena,
+};
 use crate::game_states::PlayingSubState;
 use self::upgrades::{
     apply_upgrade_effects, emit_craft_events, handle_craft_input, init_base_stats,
@@ -373,6 +375,19 @@ impl Plugin for CorePlugin {
             Update,
             check_wormhole_proximity.run_if(in_state(PlayingSubState::Flying)),
         );
+
+        // Story 9-3: Arena Combat — setup on entry
+        app.add_systems(OnEnter(PlayingSubState::InWormhole), setup_arena);
+
+        // Story 9-3: Arena Combat — wave spawning and boundary enforcement in FixedUpdate
+        app.add_systems(
+            FixedUpdate,
+            (spawn_arena_wave, enforce_arena_boundary)
+                .run_if(in_state(PlayingSubState::InWormhole)),
+        );
+
+        // Story 9-3: Arena Combat — cleanup on exit
+        app.add_systems(OnExit(PlayingSubState::InWormhole), cleanup_arena);
 
         // Camera follow in PostUpdate
         app.add_systems(PostUpdate, camera_follow_player);

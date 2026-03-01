@@ -8,6 +8,7 @@ pub mod enemy_ai;
 pub mod faction;
 
 use bevy::prelude::*;
+use bevy::state::condition::in_state;
 
 use self::companion::{
     CompanionRoster, handle_recruit_companion, handle_wingman_commands,
@@ -27,6 +28,7 @@ use self::enemy_ai::{
     BossRetreatBark, PendingEnemyShotQueue,
 };
 use self::faction::FactionBehaviorProfiles;
+use crate::game_states::PlayingSubState;
 
 pub struct SocialPlugin;
 
@@ -47,13 +49,13 @@ impl Plugin for SocialPlugin {
         app.init_resource::<FactionBehaviorProfiles>();
         // Story 4-8: Attack Telegraphing
         app.add_systems(Update, update_enemy_facing);
-        // Story 7-1: Boss AI
-        app.add_systems(Update, update_boss_ai);
+        // Story 7-1: Boss AI — only when Flying (boss does not appear in arena)
+        app.add_systems(Update, update_boss_ai.run_if(in_state(PlayingSubState::Flying)));
         // Story 7-2: Boss Telegraphing
-        app.add_systems(Update, update_boss_telegraphing.after(update_boss_ai));
+        app.add_systems(Update, update_boss_telegraphing.after(update_boss_ai).run_if(in_state(PlayingSubState::Flying)));
         // Story 7-5: Boss Flee Signal
         app.init_resource::<BossRetreatBark>();
-        app.add_systems(Update, update_boss_flee_bark.after(update_boss_ai));
+        app.add_systems(Update, update_boss_flee_bark.after(update_boss_ai).run_if(in_state(PlayingSubState::Flying)));
         app.add_systems(Update, tick_boss_retreat_bark);
 
         // Story 6a-1: Companion Roster resource

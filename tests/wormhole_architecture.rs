@@ -9,9 +9,12 @@ mod helpers;
 
 use bevy::prelude::*;
 use void_drifter::core::wormhole::{
-    ArenaState, Wormhole, WormholeEntrance, WORMHOLE_ENTER_RADIUS, should_spawn_wormhole,
-    check_wormhole_proximity,
+    ArenaState, ArenaEnemy, ArenaBoundary, Wormhole, WormholeEntrance,
+    WORMHOLE_ENTER_RADIUS, ARENA_RADIUS,
+    should_spawn_wormhole, check_wormhole_proximity, setup_arena, spawn_arena_wave,
+    enforce_arena_boundary, cleanup_arena,
 };
+use void_drifter::core::spawning::SpawningConfig;
 use void_drifter::core::flight::Player;
 use void_drifter::core::input::ActionState;
 use void_drifter::game_states::PlayingSubState;
@@ -471,4 +474,235 @@ fn wormhole_entry_creates_arena_state() {
         "ArenaState.enemies_remaining should be 0 on entry"
     );
     assert!(!arena.cleared, "ArenaState.cleared should be false on entry");
+}
+
+// ── Story 9-3: Arena Combat ───────────────────────────────────────────────────
+
+/// ArenaEnemy and ArenaBoundary are distinct marker components (compile check).
+#[test]
+fn arena_enemy_is_not_boundary() {
+    let _: ArenaEnemy = ArenaEnemy;
+    let _: ArenaBoundary = ArenaBoundary;
+}
+
+/// ARENA_RADIUS constant must be exactly 800.0.
+#[test]
+fn arena_radius_is_800() {
+    assert_eq!(ARENA_RADIUS, 800.0, "ARENA_RADIUS should be 800.0");
+}
+
+/// setup_arena initializes ArenaState: wave=0, total_waves=3, enemies_remaining=0, cleared=false.
+#[test]
+fn setup_arena_initializes_state() {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    // Start with a non-default ArenaState to verify setup_arena resets it
+    app.insert_resource(ArenaState {
+        wave: 5,
+        total_waves: 10,
+        enemies_remaining: 99,
+        cleared: true,
+    });
+    app.add_systems(bevy::app::Startup, setup_arena);
+    app.update();
+
+    let arena = app
+        .world()
+        .get_resource::<ArenaState>()
+        .expect("ArenaState resource should exist after setup_arena");
+
+    assert_eq!(arena.wave, 0, "setup_arena should reset wave to 0");
+    assert_eq!(arena.total_waves, 3, "setup_arena should set total_waves to 3");
+    assert_eq!(arena.enemies_remaining, 0, "setup_arena should reset enemies_remaining to 0");
+    assert!(!arena.cleared, "setup_arena should reset cleared to false");
+}
+
+/// spawn_arena_wave spawns wave 1 (3 ScoutDrones) when no enemies remain and wave=0.
+#[test]
+fn spawn_arena_wave_spawns_wave_1_on_first_call() {
+    use void_drifter::core::spawning::ScoutDrone;
+
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.insert_resource(SpawningConfig::default());
+    app.insert_resource(ArenaState {
+        wave: 0,
+        total_waves: 3,
+        enemies_remaining: 0,
+        cleared: false,
+    });
+    app.add_systems(bevy::app::Update, spawn_arena_wave);
+    app.update();
+
+    let drone_count = app
+        .world_mut()
+        .query_filtered::<Entity, (With<ScoutDrone>, With<ArenaEnemy>)>()
+        .iter(app.world())
+        .count();
+    assert_eq!(drone_count, 3, "Wave 1 should spawn 3 ScoutDrones with ArenaEnemy marker");
+
+    let arena = app
+        .world()
+        .get_resource::<ArenaState>()
+        .expect("ArenaState should exist");
+    assert_eq!(arena.wave, 1, "wave should advance to 1 after first spawn");
+}
+
+/// After all waves are spawned and enemies are gone, arena is marked cleared.
+#[test]
+fn arena_cleared_after_all_waves_defeated() {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.insert_resource(SpawningConfig::default());
+    // Simulate: wave 3 already done, no enemies
+    app.insert_resource(ArenaState {
+        wave: 3,
+        total_waves: 3,
+        enemies_remaining: 0,
+        cleared: false,
+    });
+    app.add_systems(bevy::app::Update, spawn_arena_wave);
+    app.update();
+
+    let arena = app
+        .world()
+        .get_resource::<ArenaState>()
+        .expect("ArenaState should exist");
+    assert!(arena.cleared, "Arena should be cleared after all waves are done and no enemies remain");
+}
+
+/// enforce_arena_boundary clamps player position to ARENA_RADIUS when outside.
+#[test]
+fn enforce_arena_boundary_clamps_player() {
+    use void_drifter::shared::components::Velocity;
+
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.add_systems(bevy::app::Update, enforce_arena_boundary);
+
+    // Spawn player far outside the arena
+    let player = app.world_mut().spawn((
+        Player,
+        Transform::from_translation(Vec3::new(2000.0, 0.0, 0.0)),
+        Velocity(Vec2::new(500.0, 0.0)),
+    )).id();
+
+    app.update();
+
+    let transform = app
+        .world()
+        .entity(player)
+        .get::<Transform>()
+        .expect("Player should have Transform");
+    let pos2 = transform.translation.truncate();
+    assert!(
+        pos2.length() <= ARENA_RADIUS + 0.01,
+        "Player at distance {} should be clamped to ARENA_RADIUS {}",
+        pos2.length(),
+        ARENA_RADIUS
+    );
+
+    let velocity = app
+        .world()
+        .entity(player)
+        .get::<Velocity>()
+        .expect("Player should have Velocity");
+    assert_eq!(
+        velocity.0,
+        Vec2::ZERO,
+        "Player velocity should be zeroed when clamped to boundary"
+    );
+}
+
+/// enforce_arena_boundary leaves player inside the arena untouched.
+#[test]
+fn enforce_arena_boundary_does_not_clamp_inside_player() {
+    use void_drifter::shared::components::Velocity;
+
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.add_systems(bevy::app::Update, enforce_arena_boundary);
+
+    let start_pos = Vec3::new(100.0, 200.0, 0.0);
+    let start_vel = Vec2::new(30.0, -20.0);
+
+    let player = app.world_mut().spawn((
+        Player,
+        Transform::from_translation(start_pos),
+        Velocity(start_vel),
+    )).id();
+
+    app.update();
+
+    let transform = app
+        .world()
+        .entity(player)
+        .get::<Transform>()
+        .expect("Player should have Transform");
+    // Position should be unchanged
+    assert!(
+        (transform.translation - start_pos).length() < 0.01,
+        "Player inside arena should not be moved: expected {:?}, got {:?}",
+        start_pos,
+        transform.translation
+    );
+}
+
+/// cleanup_arena despawns all ArenaEnemy entities.
+#[test]
+fn cleanup_arena_despawns_all_arena_enemies() {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.add_systems(bevy::app::Update, cleanup_arena);
+
+    // Spawn some ArenaEnemy entities
+    for _ in 0..5 {
+        app.world_mut().spawn(ArenaEnemy);
+    }
+    // Spawn a non-arena entity that should survive
+    app.world_mut().spawn(Transform::default());
+
+    app.update();
+
+    let arena_enemy_count = app
+        .world_mut()
+        .query_filtered::<Entity, With<ArenaEnemy>>()
+        .iter(app.world())
+        .count();
+    assert_eq!(arena_enemy_count, 0, "cleanup_arena should despawn all ArenaEnemy entities");
+
+    // Non-arena entity should still exist
+    let transform_count = app
+        .world_mut()
+        .query_filtered::<Entity, With<Transform>>()
+        .iter(app.world())
+        .count();
+    assert!(transform_count > 0, "Non-arena entities should survive cleanup_arena");
+}
+
+/// Arena enemies have ArenaEnemy marker component set during wave spawn.
+#[test]
+fn arena_enemies_have_arena_enemy_marker() {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.insert_resource(SpawningConfig::default());
+    app.insert_resource(ArenaState {
+        wave: 0,
+        total_waves: 3,
+        enemies_remaining: 0,
+        cleared: false,
+    });
+    app.add_systems(bevy::app::Update, spawn_arena_wave);
+    app.update();
+
+    // All spawned enemies must have ArenaEnemy
+    let with_marker = app
+        .world_mut()
+        .query_filtered::<Entity, With<ArenaEnemy>>()
+        .iter(app.world())
+        .count();
+    assert!(
+        with_marker > 0,
+        "At least some enemies should be spawned with ArenaEnemy marker after wave 1"
+    );
 }
