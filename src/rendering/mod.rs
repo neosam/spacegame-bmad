@@ -121,7 +121,7 @@ impl Plugin for RenderingPlugin {
         app.add_systems(Update, (
             toggle_logbook_ui,
             update_logbook_milestones,
-            (spawn_logbook_ui, update_logbook_ui, despawn_logbook_ui).chain(),
+            (spawn_logbook_ui, despawn_logbook_ui).chain(),
         ));
 
         // Material drop assets + visual attach
