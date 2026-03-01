@@ -5,16 +5,14 @@ edition = "2024"
 
 [features]
 default = ["native"]
-native = ["bevy/multi_threaded"]
-wasm = []
+native = ["bevy/multi_threaded", "bevy/x11", "bevy/wayland"]
+wasm = ["bevy/webgpu"]
 dev = ["bevy-inspector-egui", "bevy_egui"]
 
 [dependencies]
 bevy = { version = "0.18.0", default-features = false, features = [
     "2d",
     "bevy_ui",
-    "x11",
-    "wayland",
 ] }
 lyon_tessellation = "1.0"
 bevy_kira_audio = "0.25.0"
@@ -31,6 +29,9 @@ optional = true
 version = "0.39"
 optional = true
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
 [dev-dependencies]
 bevy-inspector-egui = "0.36.0"
 bevy_egui = "0.39"
@@ -41,3 +42,8 @@ unwrap_used = "deny"
 
 [profile.dev.package."*"]
 opt-level = 1
+
+[profile.release]
+lto = true
+opt-level = 2
+strip = true

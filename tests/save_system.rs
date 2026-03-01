@@ -637,6 +637,48 @@ fn golden_fixture_v1_loads_successfully() {
     assert!(world_save.chunk_deltas.is_empty());
 }
 
+#[test]
+fn wasm_save_guard_native_save_still_works() {
+    let save_dir = "target/test_saves/wasm_guard/";
+    cleanup_save_dir(save_dir);
+
+    let mut app = test_app();
+    app.insert_resource(SaveConfig { save_dir: save_dir.to_string() });
+    app.init_resource::<SaveState>();
+    app.add_systems(Update, save_game);
+    let _player = spawn_player(&mut app);
+
+    // Trigger save
+    app.world_mut().resource_mut::<ActionState>().save = true;
+    app.update();
+
+    // On native, save_game should NOT be guarded — files should exist
+    assert!(
+        fs::metadata(format!("{save_dir}player.ron")).is_ok(),
+        "save_game must still create player.ron on native after WASM guard was added"
+    );
+    assert!(
+        fs::metadata(format!("{save_dir}world.ron")).is_ok(),
+        "save_game must still create world.ron on native after WASM guard was added"
+    );
+
+    // Verify load_game also works
+    let mut app2 = test_app();
+    app2.insert_resource(SaveConfig { save_dir: save_dir.to_string() });
+    app2.init_resource::<SaveState>();
+    app2.add_systems(Update, load_game);
+    let _player2 = spawn_player(&mut app2);
+    app2.update();
+
+    let save_state = app2.world().resource::<SaveState>();
+    assert!(
+        save_state.loaded_from_save,
+        "load_game must still work on native after WASM guard was added"
+    );
+
+    cleanup_save_dir(save_dir);
+}
+
 /// End-to-end: damage kills entity → track_destroyed_entities records delta →
 /// save → fresh app → load → chunk loads without destroyed entity.
 #[test]

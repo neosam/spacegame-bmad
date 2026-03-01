@@ -4,6 +4,7 @@ pub mod schema;
 pub mod player_save;
 pub mod world_save;
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 
 use bevy::ecs::message::MessageWriter;
@@ -15,11 +16,15 @@ use crate::core::input::ActionState;
 use crate::core::weapons::{ActiveWeapon, Energy};
 use crate::infrastructure::events::EventSeverityConfig;
 use crate::shared::components::Velocity;
-use crate::shared::events::{GameEvent, GameEventKind};
+use crate::shared::events::GameEvent;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::shared::events::GameEventKind;
 use crate::world::{ExploredChunks, WorldConfig};
 
 use self::delta::WorldDeltas;
+#[cfg(not(target_arch = "wasm32"))]
 use self::player_save::PlayerSave;
+#[cfg(not(target_arch = "wasm32"))]
 use self::world_save::WorldSave;
 
 /// Configuration for the save system.
@@ -45,6 +50,7 @@ pub struct SaveState {
 
 /// System that saves the game when `ActionState.save` is true.
 #[allow(clippy::too_many_arguments)]
+#[cfg_attr(target_arch = "wasm32", allow(unused_variables, unused_mut))]
 pub fn save_game(
     action_state: Res<ActionState>,
     config: Res<SaveConfig>,
@@ -64,69 +70,80 @@ pub fn save_game(
         return;
     }
 
-    // Create save directory if it doesn't exist
-    if let Err(e) = std::fs::create_dir_all(&config.save_dir) {
-        warn!("Failed to create save directory '{}': {e}", config.save_dir);
+    #[cfg(target_arch = "wasm32")]
+    {
+        // Saves not available on WASM — LocalStorage backend not yet implemented
         return;
     }
 
-    // Build PlayerSave from query
-    let player_save = {
-        let Some((transform, velocity, health, active_weapon, energy)) =
-            player_query.iter().next()
-        else {
-            warn!("No player entity found for save");
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        // Create save directory if it doesn't exist
+        if let Err(e) = std::fs::create_dir_all(&config.save_dir) {
+            warn!("Failed to create save directory '{}': {e}", config.save_dir);
             return;
+        }
+
+        // Build PlayerSave from query
+        let player_save = {
+            let Some((transform, velocity, health, active_weapon, energy)) =
+                player_query.iter().next()
+            else {
+                warn!("No player entity found for save");
+                return;
+            };
+
+            PlayerSave::from_components(transform, velocity, health, active_weapon, energy)
         };
 
-        PlayerSave::from_components(transform, velocity, health, active_weapon, energy)
-    };
+        // Build WorldSave
+        let world_save =
+            WorldSave::from_resources(world_config.seed, &explored_chunks, &world_deltas);
 
-    // Build WorldSave
-    let world_save = WorldSave::from_resources(world_config.seed, &explored_chunks, &world_deltas);
+        // Serialize and write
+        let player_ron = match player_save.to_ron() {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("Failed to serialize player save: {e}");
+                return;
+            }
+        };
+        let world_ron = match world_save.to_ron() {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("Failed to serialize world save: {e}");
+                return;
+            }
+        };
 
-    // Serialize and write
-    let player_ron = match player_save.to_ron() {
-        Ok(s) => s,
-        Err(e) => {
-            warn!("Failed to serialize player save: {e}");
+        let player_path = Path::new(&config.save_dir).join("player.ron");
+        let world_path = Path::new(&config.save_dir).join("world.ron");
+
+        if let Err(e) = std::fs::write(&player_path, &player_ron) {
+            warn!("Failed to write {}: {e}", player_path.display());
             return;
         }
-    };
-    let world_ron = match world_save.to_ron() {
-        Ok(s) => s,
-        Err(e) => {
-            warn!("Failed to serialize world save: {e}");
+        if let Err(e) = std::fs::write(&world_path, &world_ron) {
+            warn!("Failed to write {}: {e}", world_path.display());
             return;
         }
-    };
 
-    let player_path = Path::new(&config.save_dir).join("player.ron");
-    let world_path = Path::new(&config.save_dir).join("world.ron");
+        save_state.last_save_time = Some(time.elapsed_secs_f64());
 
-    if let Err(e) = std::fs::write(&player_path, &player_ron) {
-        warn!("Failed to write {}: {e}", player_path.display());
-        return;
+        // Emit GameSaved event
+        let position = Vec2::new(player_save.position.0, player_save.position.1);
+        let kind = GameEventKind::GameSaved;
+        game_events.write(GameEvent {
+            severity: severity_config.severity_for(&kind),
+            kind,
+            position,
+            game_time: time.elapsed_secs_f64(),
+        });
     }
-    if let Err(e) = std::fs::write(&world_path, &world_ron) {
-        warn!("Failed to write {}: {e}", world_path.display());
-        return;
-    }
-
-    save_state.last_save_time = Some(time.elapsed_secs_f64());
-
-    // Emit GameSaved event
-    let position = Vec2::new(player_save.position.0, player_save.position.1);
-    let kind = GameEventKind::GameSaved;
-    game_events.write(GameEvent {
-        severity: severity_config.severity_for(&kind),
-        kind,
-        position,
-        game_time: time.elapsed_secs_f64(),
-    });
 }
 
 /// System that loads the game at startup if save files exist.
+#[cfg_attr(target_arch = "wasm32", allow(unused_variables, unused_mut))]
 pub fn load_game(
     config: Res<SaveConfig>,
     mut player_query: Query<
@@ -138,51 +155,81 @@ pub fn load_game(
     mut save_state: ResMut<SaveState>,
     mut world_config: ResMut<WorldConfig>,
 ) {
-    let player_path = Path::new(&config.save_dir).join("player.ron");
-    let world_path = Path::new(&config.save_dir).join("world.ron");
+    #[cfg(target_arch = "wasm32")]
+    {
+        // Load not available on WASM — no filesystem access
+        return;
+    }
 
-    // Try loading player save
-    match std::fs::read_to_string(&player_path) {
-        Ok(contents) => {
-            match PlayerSave::from_ron(&contents) {
-                Ok(player_save) => {
-                    if let Some((mut transform, mut velocity, mut health, mut active_weapon, mut energy)) =
-                        player_query.iter_mut().next()
-                    {
-                        player_save.apply_to_components(
-                            &mut transform, &mut velocity, &mut health,
-                            &mut active_weapon, &mut energy,
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let player_path = Path::new(&config.save_dir).join("player.ron");
+        let world_path = Path::new(&config.save_dir).join("world.ron");
+
+        // Try loading player save
+        match std::fs::read_to_string(&player_path) {
+            Ok(contents) => {
+                match PlayerSave::from_ron(&contents) {
+                    Ok(player_save) => {
+                        if let Some((
+                            mut transform,
+                            mut velocity,
+                            mut health,
+                            mut active_weapon,
+                            mut energy,
+                        )) = player_query.iter_mut().next()
+                        {
+                            player_save.apply_to_components(
+                                &mut transform,
+                                &mut velocity,
+                                &mut health,
+                                &mut active_weapon,
+                                &mut energy,
+                            );
+                            save_state.loaded_from_save = true;
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Corrupt player save file '{}': {e}. Starting fresh.",
+                            player_path.display()
                         );
-                        save_state.loaded_from_save = true;
                     }
                 }
-                Err(e) => {
-                    warn!("Corrupt player save file '{}': {e}. Starting fresh.", player_path.display());
-                }
+            }
+            Err(_) => {
+                // No save file — start fresh (not an error)
             }
         }
-        Err(_) => {
-            // No save file — start fresh (not an error)
-        }
-    }
 
-    // Try loading world save
-    match std::fs::read_to_string(&world_path) {
-        Ok(contents) => {
-            match WorldSave::from_ron(&contents) {
-                Ok(world_save) => {
-                    world_config.seed = world_save.seed;
-                    world_save.apply_to_world_resources(&mut explored_chunks, &mut world_deltas);
-                }
-                Err(e) => {
-                    warn!("Corrupt world save file '{}': {e}. Starting fresh.", world_path.display());
+        // Try loading world save
+        match std::fs::read_to_string(&world_path) {
+            Ok(contents) => {
+                match WorldSave::from_ron(&contents) {
+                    Ok(world_save) => {
+                        world_config.seed = world_save.seed;
+                        world_save
+                            .apply_to_world_resources(&mut explored_chunks, &mut world_deltas);
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Corrupt world save file '{}': {e}. Starting fresh.",
+                            world_path.display()
+                        );
+                    }
                 }
             }
-        }
-        Err(_) => {
-            // No save file — start fresh
+            Err(_) => {
+                // No save file — start fresh
+            }
         }
     }
+}
+
+/// Warns on startup that saves are disabled on WASM.
+#[cfg(target_arch = "wasm32")]
+fn warn_saves_disabled_on_wasm() {
+    warn!("Save system disabled on WASM — no persistent storage configured");
 }
 
 /// Plugin that registers save/load systems and resources.
@@ -204,6 +251,8 @@ impl Plugin for SavePlugin {
             FixedUpdate,
             save_game.in_set(crate::core::CoreSet::Events),
         );
+        #[cfg(target_arch = "wasm32")]
+        app.add_systems(Startup, warn_saves_disabled_on_wasm);
     }
 }
 

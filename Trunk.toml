@@ -1,0 +1,6 @@
+[build]
+dist = "dist"
+
+[tools.wasm_opt]
+version = "version_121"
+args = ["-Oz"]
