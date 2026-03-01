@@ -3,6 +3,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
 use super::chunk::ChunkCoord;
+use super::noise_layers::{biome_noise_value, noise_to_unit};
 use super::BiomeConfig;
 
 /// Generates a random speed within [min, max]. Falls back to `min` if range is invalid.
@@ -18,10 +19,6 @@ fn safe_speed(rng: &mut StdRng, min: f32, max: f32) -> f32 {
 
 const PRIME1: u64 = 6_364_136_223_846_793_005;
 const PRIME2: u64 = 1_442_695_040_888_963_407;
-
-/// Offset added to the world seed for biome determination,
-/// keeping biome selection independent of entity generation.
-const BIOME_SEED_OFFSET: u64 = 0xB10E_B10E_B10E_B10E;
 
 /// Derives a per-chunk seed from the world seed and chunk coordinate.
 fn chunk_seed(world_seed: u64, coord: ChunkCoord) -> u64 {
@@ -40,12 +37,11 @@ pub enum BiomeType {
     WreckField,
 }
 
-/// Determines the biome type for a chunk.
+/// Determines the biome type for a chunk using continuous noise.
 /// Pure function: same seed + coord always produces the same biome.
 pub fn determine_biome(seed: u64, coord: ChunkCoord, config: &BiomeConfig) -> BiomeType {
-    let biome_seed = chunk_seed(seed.wrapping_add(BIOME_SEED_OFFSET), coord);
-    let mut rng = StdRng::seed_from_u64(biome_seed);
-    let value: f32 = rng.random();
+    let raw = biome_noise_value(seed, coord, &config.noise);
+    let value = noise_to_unit(raw);
     if value < config.deep_space_threshold {
         BiomeType::DeepSpace
     } else if value < config.asteroid_field_threshold {

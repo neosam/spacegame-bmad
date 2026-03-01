@@ -59,7 +59,7 @@ development_status:
   1-3-minimap-blips: done
   1-4-world-map: done
   1-5-chunk-loading: done
-  1-6-noise-biome-distribution: backlog
+  1-6-noise-biome-distribution: done
   1-7-event-system: backlog
   1-8-save-system: backlog
   1-9-delta-save: backlog

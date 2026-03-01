@@ -1,5 +1,6 @@
 pub mod chunk;
 pub mod generation;
+pub mod noise_layers;
 
 use bevy::prelude::*;
 use serde::Deserialize;
@@ -78,6 +79,8 @@ pub struct BiomeConfig {
     pub deep_space: BiomeSpawnParams,
     pub asteroid_field: BiomeSpawnParams,
     pub wreck_field: BiomeSpawnParams,
+    #[serde(default)]
+    pub noise: noise_layers::BiomeNoiseConfig,
 }
 
 impl BiomeConfig {
@@ -166,6 +169,7 @@ impl Default for BiomeConfig {
                 drone_velocity_min: 5.0,
                 drone_velocity_max: 15.0,
             },
+            noise: noise_layers::BiomeNoiseConfig::default(),
         }
     }
 }
@@ -393,6 +397,7 @@ impl Plugin for WorldPlugin {
         };
 
         biome_config.validate_thresholds();
+        biome_config.noise.validate();
         if world_config.max_chunks_per_frame == 0 {
             warn!("WorldConfig: max_chunks_per_frame is 0. No chunks will ever load.");
         }
@@ -519,6 +524,49 @@ mod tests {
         assert_eq!(config.deep_space.asteroid_count_max, 1);
         assert_eq!(config.asteroid_field.asteroid_count_min, 5);
         assert!((config.wreck_field.asteroid_health - 70.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn biome_config_from_ron_with_noise_params() {
+        let ron_str = r#"(
+            deep_space_threshold: 0.3,
+            asteroid_field_threshold: 0.7,
+            deep_space: (
+                asteroid_count_min: 0, asteroid_count_max: 2,
+                drone_count_min: 0, drone_count_max: 1,
+                asteroid_health: 50.0, asteroid_radius: 20.0,
+                drone_health: 30.0, drone_radius: 10.0,
+                asteroid_velocity_min: 5.0, asteroid_velocity_max: 15.0,
+                drone_velocity_min: 10.0, drone_velocity_max: 25.0,
+            ),
+            asteroid_field: (
+                asteroid_count_min: 6, asteroid_count_max: 12,
+                drone_count_min: 1, drone_count_max: 3,
+                asteroid_health: 50.0, asteroid_radius: 20.0,
+                drone_health: 30.0, drone_radius: 10.0,
+                asteroid_velocity_min: 5.0, asteroid_velocity_max: 15.0,
+                drone_velocity_min: 10.0, drone_velocity_max: 25.0,
+            ),
+            wreck_field: (
+                asteroid_count_min: 2, asteroid_count_max: 5,
+                drone_count_min: 2, drone_count_max: 4,
+                asteroid_health: 80.0, asteroid_radius: 25.0,
+                drone_health: 30.0, drone_radius: 10.0,
+                asteroid_velocity_min: 2.0, asteroid_velocity_max: 8.0,
+                drone_velocity_min: 5.0, drone_velocity_max: 15.0,
+            ),
+            noise: (
+                noise_scale: 0.5,
+                noise_octaves: 6,
+                noise_persistence: 0.4,
+                noise_lacunarity: 2.5,
+            ),
+        )"#;
+        let config = BiomeConfig::from_ron(ron_str).expect("Should parse BiomeConfig with noise params");
+        assert!((config.noise.noise_scale - 0.5).abs() < f64::EPSILON);
+        assert_eq!(config.noise.noise_octaves, 6);
+        assert!((config.noise.noise_persistence - 0.4).abs() < f64::EPSILON);
+        assert!((config.noise.noise_lacunarity - 2.5).abs() < f64::EPSILON);
     }
 
     #[test]

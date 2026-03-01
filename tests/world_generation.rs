@@ -88,30 +88,28 @@ fn chunk_unload_despawns_entities() {
     // Initial load at origin
     run_until_loaded(&mut app);
 
-    // Record entities belonging to chunk (-2, -2)
-    let distant_chunk = void_drifter::world::chunk::ChunkCoord { x: -2, y: -2 };
-    let has_distant_entities = {
+    // Find a loaded chunk that actually has entities (some may be empty e.g. DeepSpace)
+    let distant_chunk = {
         let mut query = app.world_mut().query::<&ChunkEntity>();
-        query
+        let coord = query
             .iter(app.world())
-            .any(|ce| ce.coord == distant_chunk)
+            .map(|ce| ce.coord)
+            .next()
+            .expect("Should have at least one chunk with entities");
+        coord
     };
-    assert!(
-        has_distant_entities,
-        "Chunk (-2,-2) should have entities at origin load_radius=2"
-    );
 
-    // Move player far away so chunk (-2,-2) falls out of range
+    // Move player far away so the found chunk falls out of range
     app.world_mut()
         .entity_mut(player)
         .get_mut::<Transform>()
         .expect("Player should have Transform")
-        .translation = Vec3::new(5000.0, 5000.0, 0.0);
+        .translation = Vec3::new(50000.0, 50000.0, 0.0);
 
     // Unloading is immediate (one frame), loading is staggered
     app.update();
 
-    // Verify entities with ChunkEntity { coord: (-2,-2) } are actually gone
+    // Verify entities from that chunk are actually gone
     let remaining = {
         let mut query = app.world_mut().query::<&ChunkEntity>();
         query
@@ -121,7 +119,8 @@ fn chunk_unload_despawns_entities() {
     };
     assert_eq!(
         remaining, 0,
-        "Entities from unloaded chunk (-2,-2) should be despawned, found {remaining}"
+        "Entities from unloaded chunk ({},{}) should be despawned, found {remaining}",
+        distant_chunk.x, distant_chunk.y
     );
 }
 
