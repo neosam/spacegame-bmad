@@ -537,7 +537,7 @@ pub fn update_chunks(
                             AiState::Idle,
                             AggroRange(350.0),
                             AttackRange(150.0),
-                            FleeThreshold(0.0), // Bosses never flee
+                            FleeThreshold(0.2), // Story 7-5: bosses flee at <20% HP
                             EnemyFireCooldown::default(),
                             FacingDirection::default(),
                             TurnRate(1.5), // Slow, deliberate turning

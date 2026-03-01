@@ -3,7 +3,7 @@
 **Sprint:** Epic 7
 **Datum:** 2026-02-28
 **Dependencies:** Epic 4 (Combat Depth), Epic 5 (Progression & Upgrades)
-**Epic Status:** backlog
+**Epic Status:** done
 
 ---
 
@@ -11,11 +11,11 @@
 
 | Story ID | Titel | Status | Abhängigkeiten |
 |----------|-------|:------:|----------------|
-| 7-1 | Boss Encounters (Basis) | backlog | keine |
-| 7-2 | Boss Telegraphing | backlog | 7-1 |
-| 7-3 | Faction Bosses | backlog | 7-1 |
-| 7-4 | Boss Loot | backlog | 7-1 |
-| 7-5 | Boss Flee | backlog | 7-1 |
+| 7-1 | Boss Encounters (Basis) | done | keine |
+| 7-2 | Boss Telegraphing | done | 7-1 |
+| 7-3 | Faction Bosses | done | 7-1 |
+| 7-4 | Boss Loot | done | 7-1 |
+| 7-5 | Boss Flee | done | 7-1 |
 
 ---
 

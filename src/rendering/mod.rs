@@ -20,6 +20,7 @@ use crate::core::station::{Docked, NeedsStationVisual, Station, StationType};
 use crate::core::tutorial::{generate_tutorial_zone, GravityWellBoundary, GravityWellGenerator, TutorialConfig, TutorialStation, TutorialWreck};
 use crate::social::companion::{CompanionData, NeedsCompanionVisual};
 use crate::social::companion_personality::{BarkDisplay, PlayerOpinions, format_opinion_score};
+use crate::social::enemy_ai::{AttackWarning, BossRetreatBark};
 use crate::social::faction::FactionId;
 use crate::core::weapons::{
     ActiveWeapon, Energy, FireCooldown, NeedsLaserVisual, NeedsProjectileVisual, WeaponConfig,
@@ -101,6 +102,11 @@ impl Plugin for RenderingPlugin {
         // Bark HUD (companion one-liners)
         app.add_systems(Startup, spawn_bark_hud);
         app.add_systems(Update, update_bark_hud);
+        // Story 7-2: Boss attack warning visual (pulsing color)
+        app.add_systems(Update, update_boss_warning_visual);
+        // Story 7-5: Boss retreat HUD
+        app.add_systems(Startup, spawn_boss_retreat_hud);
+        app.add_systems(Update, update_boss_retreat_hud);
 
         // Material drop assets + visual attach
         app.init_resource::<MaterialDropAssets>();
@@ -1478,5 +1484,84 @@ pub fn update_bark_hud(
         None => {
             *visibility = Visibility::Hidden;
         }
+    }
+}
+
+// ── Story 7-2: Boss Attack Warning Visual ────────────────────────────────
+
+/// Pulses boss mesh color while `AttackWarning` is active.
+/// Changes to bright warning orange (pulsing). Resets to dark red when no warning.
+/// Uses the shared BossAssets material — acceptable for typical single-boss-warning scenarios.
+pub fn update_boss_warning_visual(
+    boss_assets: Res<BossAssets>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    warning_query: Query<&AttackWarning, With<crate::core::spawning::BossEnemy>>,
+    time: Res<Time>,
+) {
+    let Some(mat) = materials.get_mut(&boss_assets.material) else {
+        return;
+    };
+    // Check if any boss has an active warning
+    let mut active_warning: Option<f32> = None;
+    for warning in warning_query.iter() {
+        active_warning = Some(warning.timer);
+        break; // Use first active warning
+    }
+    if let Some(timer) = active_warning {
+        // Pulse: brightness oscillates with period based on timer
+        use std::f32::consts::TAU;
+        let brightness = (timer * TAU).sin().abs();
+        // Pulse between dark red (0.8, 0.1, 0.1) and bright orange (1.0, 0.6, 0.0)
+        mat.color = Color::srgb(
+            0.8 + 0.2 * brightness,
+            0.1 + 0.5 * brightness,
+            0.1 * (1.0 - brightness),
+        );
+    } else {
+        // Reset to original dark red — no active warnings
+        mat.color = Color::srgb(0.8, 0.1, 0.1);
+    }
+    let _ = time; // used implicitly via timer tick in update_boss_telegraphing
+}
+
+// ── Story 7-5: Boss Retreat HUD ──────────────────────────────────────────
+
+/// Marker for the boss retreat HUD text node.
+#[derive(Component, Debug)]
+pub struct BossRetreatHudMarker;
+
+/// Spawns the boss retreat HUD: centered warning text shown briefly when boss flees.
+pub fn spawn_boss_retreat_hud(mut commands: Commands) {
+    commands.spawn((
+        BossRetreatHudMarker,
+        Text::new(""),
+        TextFont {
+            font_size: 22.0,
+            ..default()
+        },
+        TextColor(Color::srgb(1.0, 0.3, 0.1)),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(40.0),
+            left: Val::Percent(35.0),
+            ..default()
+        },
+        Visibility::Hidden,
+    ));
+}
+
+/// Shows "BOSS RETREATING" for the duration of BossRetreatBark.timer.
+pub fn update_boss_retreat_hud(
+    bark: Res<BossRetreatBark>,
+    mut query: Query<(&mut Text, &mut Visibility), With<BossRetreatHudMarker>>,
+) {
+    let Ok((mut text, mut visibility)) = query.single_mut() else {
+        return;
+    };
+    if bark.timer > 0.0 {
+        text.0 = "BOSS RETREATING".to_string();
+        *visibility = Visibility::Visible;
+    } else {
+        *visibility = Visibility::Hidden;
     }
 }

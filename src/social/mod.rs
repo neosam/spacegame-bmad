@@ -21,8 +21,10 @@ use self::companion_personality::{
     update_companion_target, fire_companion_weapon, detect_companion_damage,
 };
 use self::enemy_ai::{
-    update_boss_ai, update_enemy_facing, update_fighter_ai, update_heavy_cruiser_ai,
-    update_scout_drone_ai, update_sniper_ai, update_swarm_ai, PendingEnemyShotQueue,
+    update_boss_ai, update_boss_telegraphing, update_boss_flee_bark, tick_boss_retreat_bark,
+    update_enemy_facing, update_fighter_ai, update_heavy_cruiser_ai,
+    update_scout_drone_ai, update_sniper_ai, update_swarm_ai,
+    BossRetreatBark, PendingEnemyShotQueue,
 };
 use self::faction::FactionBehaviorProfiles;
 
@@ -47,6 +49,12 @@ impl Plugin for SocialPlugin {
         app.add_systems(Update, update_enemy_facing);
         // Story 7-1: Boss AI
         app.add_systems(Update, update_boss_ai);
+        // Story 7-2: Boss Telegraphing
+        app.add_systems(Update, update_boss_telegraphing.after(update_boss_ai));
+        // Story 7-5: Boss Flee Signal
+        app.init_resource::<BossRetreatBark>();
+        app.add_systems(Update, update_boss_flee_bark.after(update_boss_ai));
+        app.add_systems(Update, tick_boss_retreat_bark);
 
         // Story 6a-1: Companion Roster resource
         app.init_resource::<CompanionRoster>();

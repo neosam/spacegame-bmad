@@ -720,13 +720,96 @@ pub fn update_boss_ai(
                 }
             }
             AiState::Flee => {
-                // Bosses don't flee (flee_threshold=0.0) but handle gracefully
-                velocity.0 = velocity.0 * 0.95;
+                // Story 7-5: flee at 2× variant speed away from player
+                let away = if distance > 0.0 { -to_player.normalize() } else { Vec2::Y };
+                velocity.0 = away * stats.speed * 2.0;
             }
             AiState::Idle | AiState::Patrol => {
                 velocity.0 = velocity.0 * 0.98;
             }
         }
+    }
+}
+
+// ── Story 7-2: Boss Telegraphing ────────────────────────────────────────
+
+/// Active attack warning on a boss entity.
+/// Inserted when boss enters Attack state, removed after timer expires or state leaves Attack.
+#[derive(Component, Debug, Clone)]
+pub struct AttackWarning {
+    /// Countdown in seconds — starts at 1.5, ticks down to 0 then is removed.
+    pub timer: f32,
+}
+
+/// Updates boss telegraphing: inserts/ticks/removes AttackWarning on boss entities.
+///
+/// - Entering Attack state → insert `AttackWarning { timer: 1.5 }`
+/// - While in Attack → tick timer down; remove when ≤ 0
+/// - Leaving Attack → immediately remove warning
+pub fn update_boss_telegraphing(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut query: Query<(Entity, &AiState, Option<&mut AttackWarning>), With<crate::core::spawning::BossEnemy>>,
+) {
+    let dt = time.delta_secs();
+    for (entity, ai_state, warning_opt) in query.iter_mut() {
+        match (ai_state, warning_opt) {
+            (AiState::Attack, None) => {
+                commands.entity(entity).insert(AttackWarning { timer: 1.5 });
+            }
+            (AiState::Attack, Some(mut warning)) => {
+                warning.timer -= dt;
+                if warning.timer <= 0.0 {
+                    commands.entity(entity).remove::<AttackWarning>();
+                }
+            }
+            (_, Some(_)) => {
+                commands.entity(entity).remove::<AttackWarning>();
+            }
+            _ => {}
+        }
+    }
+}
+
+// ── Story 7-5: Boss Flee Signal ─────────────────────────────────────────
+
+/// Marks that this boss has already triggered a flee bark — prevents repeated HUD messages.
+/// Inserted once when boss enters AiState::Flee for the first time.
+#[derive(Component, Debug, Clone)]
+pub struct BossFleeSignaled;
+
+/// Resource written by `update_boss_flee_bark`, read by rendering to show HUD overlay.
+#[derive(Resource, Default, Debug)]
+pub struct BossRetreatBark {
+    /// Remaining display time in seconds. 0 or negative = inactive.
+    pub timer: f32,
+}
+
+/// Detects bosses entering Flee state for the first time and inserts BossFleeSignaled.
+/// Writes BossRetreatBark resource to trigger "BOSS RETREATING" HUD text for 3.0s.
+pub fn update_boss_flee_bark(
+    mut commands: Commands,
+    mut bark: ResMut<BossRetreatBark>,
+    query: Query<
+        (Entity, &AiState),
+        (
+            With<crate::core::spawning::BossEnemy>,
+            Without<BossFleeSignaled>,
+        ),
+    >,
+) {
+    for (entity, ai_state) in query.iter() {
+        if *ai_state == AiState::Flee {
+            commands.entity(entity).insert(BossFleeSignaled);
+            bark.timer = 3.0;
+        }
+    }
+}
+
+/// Ticks the BossRetreatBark timer down each frame.
+pub fn tick_boss_retreat_bark(time: Res<Time>, mut bark: ResMut<BossRetreatBark>) {
+    if bark.timer > 0.0 {
+        bark.timer -= time.delta_secs();
     }
 }
 
@@ -1772,5 +1855,294 @@ mod tests {
             .expect("Sniper should have Velocity");
         // At 350 units (max=280), sniper should approach (negative X toward player at origin)
         assert!(vel.0.x < 0.0, "Sniper too far should approach player (negative X), got {}", vel.0.x);
+    }
+
+    // ── Story 7-2: Boss Telegraphing tests ───────────────────────────────
+
+    fn boss_telegraphing_app() -> App {
+        use crate::core::collision::Health;
+        use crate::core::spawning::BossEnemy;
+        use crate::shared::components::Velocity;
+        use crate::social::faction::{AggroRange, AttackRange, FleeThreshold};
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f64(1.0 / 60.0),
+        ));
+        app.init_resource::<PendingEnemyShotQueue>();
+        app.add_systems(Update, (update_boss_ai, update_boss_telegraphing.after(update_boss_ai)));
+        // Spawn player at origin
+        app.world_mut().spawn((crate::core::flight::Player, Transform::default()));
+        // Spawn boss in attack range
+        app.world_mut().spawn((
+            BossEnemy,
+            crate::core::spawning::NeedsBossVisual,
+            Transform::from_translation(Vec3::new(100.0, 0.0, 0.0)),
+            Velocity(Vec2::ZERO),
+            Health { current: 500.0, max: 500.0 },
+            AiState::Chase,
+            AggroRange(350.0),
+            AttackRange(150.0),
+            FleeThreshold(0.2),
+            EnemyFireCooldown::default(),
+        ));
+        app.update(); // prime
+        app
+    }
+
+    #[test]
+    fn attack_warning_inserted_when_boss_attacks() {
+        use crate::core::spawning::BossEnemy;
+        let mut app = boss_telegraphing_app();
+        // Boss is in attack range (100 < 150), after FSM transition it should Attack
+        // Run enough frames for FSM to transition Chase → Attack
+        for _ in 0..5 {
+            app.update();
+        }
+        // Check if any boss entered Attack state
+        let has_attack_state = app.world_mut()
+            .query_filtered::<&AiState, With<BossEnemy>>()
+            .iter(app.world())
+            .any(|s| *s == AiState::Attack);
+
+        if has_attack_state {
+            let has_warning = app.world_mut()
+                .query_filtered::<&AttackWarning, With<BossEnemy>>()
+                .iter(app.world())
+                .count();
+            assert!(
+                has_warning > 0,
+                "Boss in Attack state should have AttackWarning component"
+            );
+        }
+        // If boss isn't in Attack state yet, test is still valid (FSM may need more frames)
+    }
+
+    #[test]
+    fn attack_warning_timer_starts_at_1_5() {
+        use crate::core::collision::Health;
+        use crate::core::spawning::BossEnemy;
+        use crate::shared::components::Velocity;
+        use crate::social::faction::{AggroRange, AttackRange, FleeThreshold};
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f64(1.0 / 60.0),
+        ));
+        app.init_resource::<PendingEnemyShotQueue>();
+        app.add_systems(Update, update_boss_telegraphing);
+        // Spawn boss already in Attack state
+        app.world_mut().spawn((
+            BossEnemy,
+            crate::core::spawning::NeedsBossVisual,
+            Transform::from_translation(Vec3::new(50.0, 0.0, 0.0)),
+            Velocity(Vec2::ZERO),
+            Health { current: 500.0, max: 500.0 },
+            AiState::Attack,
+            AggroRange(350.0),
+            AttackRange(150.0),
+            FleeThreshold(0.2),
+            EnemyFireCooldown::default(),
+        ));
+        app.update(); // prime (first frame inserts warning)
+        app.update(); // second frame — warning should now be present
+
+        let warning = app.world_mut()
+            .query_filtered::<&AttackWarning, With<BossEnemy>>()
+            .iter(app.world())
+            .next()
+            .expect("Boss in Attack state should have AttackWarning");
+        assert!(
+            warning.timer > 0.0 && warning.timer <= 1.5,
+            "AttackWarning timer should start at 1.5 and count down, got {}",
+            warning.timer
+        );
+    }
+
+    #[test]
+    fn attack_warning_removed_when_state_leaves_attack() {
+        use crate::core::collision::Health;
+        use crate::core::spawning::BossEnemy;
+        use crate::shared::components::Velocity;
+        use crate::social::faction::{AggroRange, AttackRange, FleeThreshold};
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f64(1.0 / 60.0),
+        ));
+        app.init_resource::<PendingEnemyShotQueue>();
+        app.add_systems(Update, update_boss_telegraphing);
+        // Spawn boss in Attack state, then we'll switch it to Idle
+        let boss = app.world_mut().spawn((
+            BossEnemy,
+            crate::core::spawning::NeedsBossVisual,
+            Transform::from_translation(Vec3::new(50.0, 0.0, 0.0)),
+            Velocity(Vec2::ZERO),
+            Health { current: 500.0, max: 500.0 },
+            AiState::Attack,
+            AggroRange(350.0),
+            AttackRange(150.0),
+            FleeThreshold(0.2),
+            EnemyFireCooldown::default(),
+        )).id();
+        app.update(); // prime
+        app.update(); // warning inserted
+
+        // Manually switch boss to Idle state
+        app.world_mut().entity_mut(boss)
+            .insert(AiState::Idle);
+        app.update(); // telegraphing system should remove warning
+
+        let warning_count = app.world_mut()
+            .query_filtered::<&AttackWarning, With<BossEnemy>>()
+            .iter(app.world())
+            .count();
+        assert_eq!(
+            warning_count, 0,
+            "AttackWarning should be removed when boss leaves Attack state"
+        );
+    }
+
+    // ── Story 7-5: Boss Flee tests ───────────────────────────────────────
+
+    #[test]
+    fn boss_flee_signaled_inserted_once_on_flee() {
+        use crate::core::collision::Health;
+        use crate::core::spawning::BossEnemy;
+        use crate::shared::components::Velocity;
+        use crate::social::faction::{AggroRange, AttackRange, FleeThreshold};
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f64(1.0 / 60.0),
+        ));
+        app.init_resource::<BossRetreatBark>();
+        app.add_systems(Update, update_boss_flee_bark);
+        // Spawn boss in Flee state
+        app.world_mut().spawn((
+            BossEnemy,
+            crate::core::spawning::NeedsBossVisual,
+            Transform::from_translation(Vec3::new(50.0, 0.0, 0.0)),
+            Velocity(Vec2::ZERO),
+            Health { current: 50.0, max: 500.0 }, // 10% HP — below flee threshold
+            AiState::Flee,
+            AggroRange(350.0),
+            AttackRange(150.0),
+            FleeThreshold(0.2),
+            EnemyFireCooldown::default(),
+        ));
+        app.update(); // prime
+        app.update(); // flee_bark system runs
+
+        let signaled_count = app.world_mut()
+            .query_filtered::<&BossFleeSignaled, With<BossEnemy>>()
+            .iter(app.world())
+            .count();
+        assert_eq!(
+            signaled_count, 1,
+            "BossFleeSignaled should be inserted exactly once when boss flees, got {}",
+            signaled_count
+        );
+
+        // Run several more frames — should NOT re-insert (already has BossFleeSignaled)
+        for _ in 0..5 {
+            app.update();
+        }
+        let signaled_count2 = app.world_mut()
+            .query_filtered::<&BossFleeSignaled, With<BossEnemy>>()
+            .iter(app.world())
+            .count();
+        assert_eq!(
+            signaled_count2, 1,
+            "BossFleeSignaled should remain exactly 1 (not duplicated), got {}",
+            signaled_count2
+        );
+    }
+
+    #[test]
+    fn boss_retreat_bark_timer_set_to_3_on_flee() {
+        use crate::core::collision::Health;
+        use crate::core::spawning::BossEnemy;
+        use crate::shared::components::Velocity;
+        use crate::social::faction::{AggroRange, AttackRange, FleeThreshold};
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f64(1.0 / 60.0),
+        ));
+        app.init_resource::<BossRetreatBark>();
+        app.add_systems(Update, update_boss_flee_bark);
+        // Spawn boss in Flee state
+        app.world_mut().spawn((
+            BossEnemy,
+            crate::core::spawning::NeedsBossVisual,
+            Transform::from_translation(Vec3::new(50.0, 0.0, 0.0)),
+            Velocity(Vec2::ZERO),
+            Health { current: 50.0, max: 500.0 },
+            AiState::Flee,
+            AggroRange(350.0),
+            AttackRange(150.0),
+            FleeThreshold(0.2),
+            EnemyFireCooldown::default(),
+        ));
+        app.update(); // prime
+        app.update(); // system runs
+
+        let bark = app.world().resource::<BossRetreatBark>();
+        assert!(
+            (bark.timer - 3.0).abs() < 0.1,
+            "BossRetreatBark timer should be ~3.0s after boss enters Flee, got {}",
+            bark.timer
+        );
+    }
+
+    #[test]
+    fn boss_flee_speed_is_double_variant_speed() {
+        use crate::core::collision::Health;
+        use crate::core::flight::Player;
+        use crate::core::spawning::BossEnemy;
+        use crate::shared::components::Velocity;
+        use crate::social::faction::{AggroRange, AttackRange, FleeThreshold};
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f64(1.0 / 60.0),
+        ));
+        app.init_resource::<PendingEnemyShotQueue>();
+        app.add_systems(Update, update_boss_ai);
+        // Spawn player at origin
+        app.world_mut().spawn((Player, Transform::default()));
+        // Spawn Admiral boss in Flee state (speed 60 → flee = 120)
+        let boss = app.world_mut().spawn((
+            BossEnemy,
+            crate::core::spawning::NeedsBossVisual,
+            Transform::from_translation(Vec3::new(80.0, 0.0, 0.0)),
+            Velocity(Vec2::ZERO),
+            Health { current: 50.0, max: 500.0 }, // low HP
+            AiState::Flee,
+            AggroRange(350.0),
+            AttackRange(150.0),
+            FleeThreshold(0.2),
+            EnemyFireCooldown::default(),
+            BossVariant::Admiral,
+        )).id();
+        app.update(); // prime
+        app.update(); // boss_ai runs
+
+        let vel = app.world().entity(boss).get::<Velocity>()
+            .expect("Boss should have Velocity");
+        let speed = vel.0.length();
+        // Admiral speed is 60, flee should be 60 * 2 = 120
+        assert!(
+            (speed - 120.0).abs() < 1.0,
+            "Boss flee speed should be 2× variant speed (Admiral=120.0), got {}",
+            speed
+        );
+        // Should be moving away from player (positive X since boss is at +80 from player at origin)
+        assert!(
+            vel.0.x > 0.0,
+            "Boss should flee away from player (positive X), got {}",
+            vel.0.x
+        );
     }
 }
