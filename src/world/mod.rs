@@ -37,10 +37,26 @@ pub struct WorldConfig {
     pub entity_budget: usize,
     #[serde(default = "default_max_chunks_per_frame")]
     pub max_chunks_per_frame: usize,
+    /// Health multiplier per 100 world-units of distance from origin.
+    /// e.g. 0.1 means +10% health every 100 units.
+    #[serde(default = "default_difficulty_health_scale_per_100u")]
+    pub difficulty_health_scale_per_100u: f32,
+    /// Extra enemy count multiplier per 100 world-units of distance from origin.
+    /// Currently informational — used by spawn-count calculations in future stories.
+    #[serde(default = "default_difficulty_count_scale_per_100u")]
+    pub difficulty_count_scale_per_100u: f32,
 }
 
 fn default_max_chunks_per_frame() -> usize {
     4
+}
+
+fn default_difficulty_health_scale_per_100u() -> f32 {
+    0.1
+}
+
+fn default_difficulty_count_scale_per_100u() -> f32 {
+    0.05
 }
 
 impl Default for WorldConfig {
@@ -51,6 +67,8 @@ impl Default for WorldConfig {
             load_radius: 2,
             entity_budget: 200,
             max_chunks_per_frame: 4,
+            difficulty_health_scale_per_100u: 0.1,
+            difficulty_count_scale_per_100u: 0.05,
         }
     }
 }
@@ -60,6 +78,32 @@ impl WorldConfig {
     pub fn from_ron(ron_str: &str) -> Result<Self, ron::error::SpannedError> {
         ron::from_str(ron_str)
     }
+}
+
+// ── Story 4-11: Distance Difficulty Scaling ───────────────────────────────
+
+/// Returns scaled (health, damage) values for an enemy at `distance` world-units from origin.
+///
+/// Formula: `scaled = base * (1.0 + scale_per_100u * (distance / 100.0))`
+///
+/// Both values are floored at their `base` values (scaling never reduces below base).
+///
+/// # Arguments
+/// * `distance`   — Euclidean distance from world origin to enemy spawn position
+/// * `base_health` — Base health value before scaling
+/// * `base_damage` — Base damage value before scaling
+/// * `health_scale_per_100u` — Fractional health increase per 100 world-units
+pub fn enemy_stats_for_distance(
+    distance: f32,
+    base_health: f32,
+    base_damage: f32,
+    health_scale_per_100u: f32,
+) -> (f32, f32) {
+    let tiers = (distance / 100.0).max(0.0);
+    let multiplier = 1.0 + health_scale_per_100u * tiers;
+    let scaled_health = base_health * multiplier;
+    let scaled_damage = base_damage * multiplier;
+    (scaled_health, scaled_damage)
 }
 
 // ── Biome Config ─────────────────────────────────────────────────────────
@@ -366,12 +410,21 @@ pub fn update_chunks(
                         seed_index,
                     ))
                     .id(),
-                generation::BlueprintType::ScoutDrone => commands
+                generation::BlueprintType::ScoutDrone => {
+                    // Story 4-11: Scale health with distance from origin
+                    let distance = blueprint.position.length();
+                    let (scaled_health, _scaled_damage) = enemy_stats_for_distance(
+                        distance,
+                        blueprint.health,
+                        5.0, // base drone shot damage
+                        config.difficulty_health_scale_per_100u,
+                    );
+                    commands
                     .spawn((
                         ScoutDrone,
                         NeedsDroneVisual,
                         Collider { radius: blueprint.radius },
-                        Health { current: blueprint.health, max: blueprint.health },
+                        Health { current: scaled_health, max: scaled_health },
                         Velocity(blueprint.velocity),
                         Transform::from_translation(blueprint.position.extend(0.0)),
                         chunk_marker,
@@ -396,7 +449,8 @@ pub fn update_chunks(
                         FacingDirection::default(),
                         TurnRate(3.0),
                     ))
-                    .id(),
+                    .id()
+                },
                 generation::BlueprintType::Station => {
                     let station_type = match rand::random::<u8>() % 3 {
                         0 => StationType::TradingPost,
@@ -739,5 +793,107 @@ mod tests {
             .chunks
             .insert(ChunkCoord { x: 1, y: 0 }, vec![Entity::from_bits(3)]);
         assert_eq!(index.entity_count(), 3);
+    }
+
+    // ── Story 4-11: Distance Difficulty Scaling ──
+
+    #[test]
+    fn enemy_stats_at_origin_equals_base() {
+        let (health, damage) = enemy_stats_for_distance(0.0, 30.0, 5.0, 0.1);
+        assert!(
+            (health - 30.0).abs() < f32::EPSILON,
+            "Health at origin should equal base health"
+        );
+        assert!(
+            (damage - 5.0).abs() < f32::EPSILON,
+            "Damage at origin should equal base damage"
+        );
+    }
+
+    #[test]
+    fn enemy_stats_at_100_units_scaled_by_one_tier() {
+        // 100 units = 1 tier, scale 0.1 → multiplier 1.1
+        let (health, damage) = enemy_stats_for_distance(100.0, 30.0, 5.0, 0.1);
+        let expected_health = 30.0 * 1.1;
+        let expected_damage = 5.0 * 1.1;
+        assert!(
+            (health - expected_health).abs() < 0.001,
+            "Health should be scaled by 1.1 at 100 units distance, got {health}"
+        );
+        assert!(
+            (damage - expected_damage).abs() < 0.001,
+            "Damage should be scaled by 1.1 at 100 units distance, got {damage}"
+        );
+    }
+
+    #[test]
+    fn enemy_stats_at_1000_units_scaled_by_ten_tiers() {
+        // 1000 units = 10 tiers, scale 0.1 → multiplier 2.0
+        let (health, _damage) = enemy_stats_for_distance(1000.0, 30.0, 5.0, 0.1);
+        let expected_health = 30.0 * 2.0;
+        assert!(
+            (health - expected_health).abs() < 0.001,
+            "Health at 1000 units should be doubled with scale 0.1, got {health}"
+        );
+    }
+
+    #[test]
+    fn enemy_stats_negative_distance_treated_as_zero() {
+        // Negative distance (origin side) should not reduce below base
+        let (health, damage) = enemy_stats_for_distance(-500.0, 30.0, 5.0, 0.1);
+        assert!(
+            (health - 30.0).abs() < f32::EPSILON,
+            "Health with negative distance should equal base (no penalty), got {health}"
+        );
+        assert!(
+            (damage - 5.0).abs() < f32::EPSILON,
+            "Damage with negative distance should equal base, got {damage}"
+        );
+    }
+
+    #[test]
+    fn enemy_stats_zero_scale_always_returns_base() {
+        let (health, damage) = enemy_stats_for_distance(5000.0, 50.0, 10.0, 0.0);
+        assert!(
+            (health - 50.0).abs() < f32::EPSILON,
+            "Zero scale should keep health at base"
+        );
+        assert!(
+            (damage - 10.0).abs() < f32::EPSILON,
+            "Zero scale should keep damage at base"
+        );
+    }
+
+    #[test]
+    fn world_config_default_has_difficulty_scaling_fields() {
+        let config = WorldConfig::default();
+        assert!(
+            config.difficulty_health_scale_per_100u > 0.0,
+            "Default difficulty_health_scale_per_100u should be positive"
+        );
+        assert!(
+            config.difficulty_count_scale_per_100u > 0.0,
+            "Default difficulty_count_scale_per_100u should be positive"
+        );
+    }
+
+    #[test]
+    fn world_config_ron_without_difficulty_fields_uses_defaults() {
+        let ron_str = r#"(
+            seed: 42,
+            chunk_size: 1000.0,
+            load_radius: 2,
+            entity_budget: 200,
+        )"#;
+        let config = WorldConfig::from_ron(ron_str)
+            .expect("Should parse RON without difficulty fields");
+        assert!(
+            (config.difficulty_health_scale_per_100u - 0.1).abs() < f32::EPSILON,
+            "Should default to 0.1"
+        );
+        assert!(
+            (config.difficulty_count_scale_per_100u - 0.05).abs() < f32::EPSILON,
+            "Should default to 0.05"
+        );
     }
 }
