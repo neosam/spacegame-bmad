@@ -6,6 +6,70 @@ pub mod world_map;
 
 use bevy::prelude::*;
 
+// ── Display Config ───────────────────────────────────────────────────────
+
+/// UI scaling and HUD size settings.
+/// Loaded from `assets/config/display.ron` at startup.
+/// When `STEAM_DECK=1` env var is set, `ui_scale` defaults to 1.4.
+#[derive(Resource, serde::Deserialize, Clone, Debug)]
+pub struct DisplayConfig {
+    /// Global UI scale multiplier. Steam Deck preset: 1.4.
+    pub ui_scale: f32,
+    /// Base font size for HUD text elements.
+    pub hud_text_size: f32,
+    /// Minimap radius in screen pixels.
+    pub minimap_size: f32,
+}
+
+impl Default for DisplayConfig {
+    fn default() -> Self {
+        // Check for Steam Deck environment variable
+        let ui_scale = std::env::var("STEAM_DECK").map(|_| 1.4).unwrap_or(1.0);
+        Self {
+            ui_scale,
+            hud_text_size: 18.0,
+            minimap_size: 120.0,
+        }
+    }
+}
+
+impl DisplayConfig {
+    /// Load config from RON string.
+    pub fn from_ron(ron_str: &str) -> Result<Self, ron::error::SpannedError> {
+        ron::from_str(ron_str)
+    }
+
+    /// Effective font size accounting for scale.
+    pub fn effective_font_size(&self) -> f32 {
+        self.hud_text_size * self.ui_scale
+    }
+}
+
+/// Loads `DisplayConfig` from `assets/config/display.ron`.
+/// If `STEAM_DECK=1` env var is set, overrides `ui_scale` to 1.4.
+/// Falls back to `DisplayConfig::default()` if the file is missing or unparseable.
+fn load_display_config(mut commands: Commands) {
+    let config_path = "assets/config/display.ron";
+    let mut config = match std::fs::read_to_string(config_path) {
+        Ok(contents) => match DisplayConfig::from_ron(&contents) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                warn!("Failed to parse {config_path}: {e}. Using defaults.");
+                DisplayConfig::default()
+            }
+        },
+        Err(e) => {
+            warn!("Failed to read {config_path}: {e}. Using defaults.");
+            DisplayConfig::default()
+        }
+    };
+    // Override ui_scale for Steam Deck
+    if std::env::var("STEAM_DECK").is_ok() {
+        config.ui_scale = 1.4;
+    }
+    commands.insert_resource(config);
+}
+
 use crate::core::camera::camera_follow_player;
 use crate::core::collision::{Collider, Health};
 use crate::core::economy::Credits;
@@ -176,6 +240,9 @@ impl Plugin for RenderingPlugin {
         app.add_systems(Startup, setup_thruster_assets);
         // Story 10-3: Juice settings — load from RON, overrides init_resource default
         app.add_systems(Startup, load_juice_settings);
+        // Story 11-3: Display config — load from RON, supports STEAM_DECK env var
+        app.insert_resource(DisplayConfig::default());
+        app.add_systems(Startup, load_display_config);
 
         // Update systems: visual setup for entities
         app.add_systems(
@@ -1158,7 +1225,7 @@ pub struct CreditsHudRoot;
 pub struct CreditsHudText;
 
 /// Spawns a top-left Credits HUD at startup.
-pub fn spawn_credits_hud(mut commands: Commands) {
+pub fn spawn_credits_hud(mut commands: Commands, display: Res<DisplayConfig>) {
     let root = commands
         .spawn((
             CreditsHudRoot,
@@ -1177,7 +1244,7 @@ pub fn spawn_credits_hud(mut commands: Commands) {
             CreditsHudText,
             Text("Credits: 0".to_string()),
             TextFont {
-                font_size: 18.0,
+                font_size: display.effective_font_size(),
                 ..default()
             },
             TextColor(Color::WHITE),
@@ -1219,7 +1286,7 @@ pub struct HealthBarText;
 pub struct EnergyBarText;
 
 /// Spawns the bottom-left Health + Energy HUD at startup.
-pub fn spawn_vitals_hud(mut commands: Commands) {
+pub fn spawn_vitals_hud(mut commands: Commands, display: Res<DisplayConfig>) {
     let root = commands
         .spawn((
             Node {
@@ -1246,7 +1313,7 @@ pub fn spawn_vitals_hud(mut commands: Commands) {
     let hp_label = commands
         .spawn((
             Text("HP".to_string()),
-            TextFont { font_size: 12.0, ..default() },
+            TextFont { font_size: 12.0 * display.ui_scale, ..default() },
             TextColor(Color::srgba(0.8, 0.8, 0.8, 1.0)),
             Node { width: Val::Px(20.0), ..default() },
         ))
@@ -1279,7 +1346,7 @@ pub fn spawn_vitals_hud(mut commands: Commands) {
         .spawn((
             HealthBarText,
             Text("?/?".to_string()),
-            TextFont { font_size: 11.0, ..default() },
+            TextFont { font_size: 11.0 * display.ui_scale, ..default() },
             TextColor(Color::srgba(0.9, 0.9, 0.9, 1.0)),
         ))
         .id();
@@ -1297,7 +1364,7 @@ pub fn spawn_vitals_hud(mut commands: Commands) {
     let en_label = commands
         .spawn((
             Text("EN".to_string()),
-            TextFont { font_size: 12.0, ..default() },
+            TextFont { font_size: 12.0 * display.ui_scale, ..default() },
             TextColor(Color::srgba(0.8, 0.8, 0.8, 1.0)),
             Node { width: Val::Px(20.0), ..default() },
         ))
@@ -1330,7 +1397,7 @@ pub fn spawn_vitals_hud(mut commands: Commands) {
         .spawn((
             EnergyBarText,
             Text("?/?".to_string()),
-            TextFont { font_size: 11.0, ..default() },
+            TextFont { font_size: 11.0 * display.ui_scale, ..default() },
             TextColor(Color::srgba(0.9, 0.9, 0.9, 1.0)),
         ))
         .id();
@@ -1517,12 +1584,12 @@ fn render_companions(
 pub struct BarkHudMarker;
 
 /// Spawns the bark HUD: a centered text node at the top of the screen.
-pub fn spawn_bark_hud(mut commands: Commands) {
+pub fn spawn_bark_hud(mut commands: Commands, display: Res<DisplayConfig>) {
     commands.spawn((
         BarkHudMarker,
         Text::new(""),
         TextFont {
-            font_size: 16.0,
+            font_size: 16.0 * display.ui_scale,
             ..default()
         },
         TextColor(Color::srgba(1.0, 0.95, 0.7, 1.0)),
@@ -1570,11 +1637,11 @@ pub fn update_bark_hud(
 #[derive(Component)]
 struct CoordsHudMarker;
 
-pub fn spawn_coords_hud(mut commands: Commands) {
+pub fn spawn_coords_hud(mut commands: Commands, display: Res<DisplayConfig>) {
     commands.spawn((
         CoordsHudMarker,
         Text::new(""),
-        TextFont { font_size: 12.0, ..default() },
+        TextFont { font_size: 12.0 * display.ui_scale, ..default() },
         TextColor(Color::srgba(0.7, 0.9, 1.0, 0.85)),
         Node {
             position_type: PositionType::Absolute,
@@ -1857,12 +1924,12 @@ pub fn despawn_logbook_ui(
 pub struct BossRetreatHudMarker;
 
 /// Spawns the boss retreat HUD: centered warning text shown briefly when boss flees.
-pub fn spawn_boss_retreat_hud(mut commands: Commands) {
+pub fn spawn_boss_retreat_hud(mut commands: Commands, display: Res<DisplayConfig>) {
     commands.spawn((
         BossRetreatHudMarker,
         Text::new(""),
         TextFont {
-            font_size: 22.0,
+            font_size: 22.0 * display.ui_scale,
             ..default()
         },
         TextColor(Color::srgb(1.0, 0.3, 0.1)),
@@ -1949,12 +2016,12 @@ const SAVE_INDICATOR_DURATION: f64 = 2.0;
 pub struct SaveIndicatorMarker;
 
 /// Spawns the save indicator: "Saved ✓" shown briefly after saving.
-pub fn spawn_save_indicator(mut commands: Commands) {
+pub fn spawn_save_indicator(mut commands: Commands, display: Res<DisplayConfig>) {
     commands.spawn((
         SaveIndicatorMarker,
         Text::new("Saved ✓"),
         TextFont {
-            font_size: 14.0,
+            font_size: 14.0 * display.ui_scale,
             ..default()
         },
         TextColor(Color::srgba(0.4, 1.0, 0.4, 1.0)),
@@ -1981,4 +2048,75 @@ pub fn update_save_indicator(
         Some(t) if time.elapsed_secs_f64() - t < SAVE_INDICATOR_DURATION => Visibility::Visible,
         _ => Visibility::Hidden,
     };
+}
+
+// ── DisplayConfig tests ───────────────────────────────────────────────────
+
+#[cfg(test)]
+mod display_config_tests {
+    use super::DisplayConfig;
+
+    #[test]
+    fn display_config_default_has_sensible_values() {
+        // Remove STEAM_DECK env var for this test to ensure deterministic defaults.
+        // SAFETY: test-only, no concurrent env access in this test.
+        unsafe { std::env::remove_var("STEAM_DECK") };
+        let config = DisplayConfig::default();
+        assert!(
+            (config.ui_scale - 1.0).abs() < f32::EPSILON,
+            "Default ui_scale should be 1.0, got {}",
+            config.ui_scale
+        );
+        assert!(
+            (config.hud_text_size - 18.0).abs() < f32::EPSILON,
+            "Default hud_text_size should be 18.0"
+        );
+        assert!(
+            (config.minimap_size - 120.0).abs() < f32::EPSILON,
+            "Default minimap_size should be 120.0"
+        );
+    }
+
+    #[test]
+    fn display_config_effective_font_size_applies_scale() {
+        let config = DisplayConfig {
+            ui_scale: 1.4,
+            hud_text_size: 18.0,
+            minimap_size: 120.0,
+        };
+        let expected = 18.0 * 1.4;
+        let actual = config.effective_font_size();
+        assert!(
+            (actual - expected).abs() < 0.01,
+            "effective_font_size should be hud_text_size * ui_scale = {expected}, got {actual}"
+        );
+    }
+
+    #[test]
+    fn display_config_deserialize_from_ron() {
+        let ron_str = r#"(
+            ui_scale: 1.4,
+            hud_text_size: 24.0,
+            minimap_size: 150.0,
+        )"#;
+        let config: DisplayConfig = ron::from_str(ron_str).expect("deserialize display config");
+        assert!((config.ui_scale - 1.4).abs() < 0.01, "ui_scale should be 1.4");
+        assert!((config.hud_text_size - 24.0).abs() < 0.01, "hud_text_size should be 24.0");
+        assert!((config.minimap_size - 150.0).abs() < 0.01, "minimap_size should be 150.0");
+    }
+
+    #[test]
+    fn display_config_steam_deck_scale_override() {
+        // With STEAM_DECK env var set, ui_scale should be 1.4
+        // SAFETY: test-only, no concurrent env access in this test.
+        unsafe { std::env::set_var("STEAM_DECK", "1") };
+        let config = DisplayConfig::default();
+        assert!(
+            (config.ui_scale - 1.4).abs() < f32::EPSILON,
+            "STEAM_DECK env var should set ui_scale to 1.4, got {}",
+            config.ui_scale
+        );
+        // SAFETY: test-only cleanup
+        unsafe { std::env::remove_var("STEAM_DECK") };
+    }
 }
