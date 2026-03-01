@@ -84,7 +84,7 @@ development_status:
   2-11-gravity-well-visual: done
 
   # ── Epic 3: Stations & Economy (Must | Dependencies: Epic 1) ──
-  epic-3: in-progress
+  epic-3: done
   3-1-station-docking: done
   3-2-station-shop-ui: done
   3-3-earn-credits: done
@@ -92,7 +92,7 @@ development_status:
   3-5-death-credit-loss: done
   3-6-station-types: done
   3-7-economy-scaling: done
-  epic-3-retrospective: optional
+  epic-3-retrospective: done
 
   # ── Epic 4: Combat Depth (Must | Dependencies: Epic 1) ──
   epic-4: backlog
