@@ -7,6 +7,7 @@ use crate::shared::events::{GameEvent, GameEventKind};
 use super::flight::Player;
 use super::spawning::{Asteroid, ScoutDrone};
 use super::weapons::{LaserFired, SpreadProjectile, WeaponConfig};
+use crate::core::tutorial::GravityWellGenerator;
 
 /// Radius used for spread projectile collision checks.
 pub const PROJECTILE_RADIUS: f32 = 2.0;
@@ -108,7 +109,7 @@ pub struct LaserHitPositions {
 pub fn check_laser_collisions(
     mut laser_reader: MessageReader<LaserFired>,
     config: Res<WeaponConfig>,
-    colliders: Query<(Entity, &Transform, &Collider), (With<Health>, Without<Player>)>,
+    colliders: Query<(Entity, &Transform, &Collider), (With<Health>, Without<Player>, Without<GravityWellGenerator>)>,
     mut damage_queue: ResMut<DamageQueue>,
     mut laser_hit_positions: ResMut<LaserHitPositions>,
 ) {
