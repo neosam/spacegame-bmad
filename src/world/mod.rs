@@ -20,6 +20,8 @@ use crate::infrastructure::events::EventSeverityConfig;
 use crate::infrastructure::save::delta::{SeedIndex, WorldDeltas};
 use crate::shared::components::Velocity;
 use crate::shared::events::{GameEvent, GameEventKind};
+use crate::social::enemy_ai::{AiState, ErraticOffset, EnemyFireCooldown};
+use crate::social::faction::{FactionId, AggroRange, AttackRange, FleeThreshold, PatrolRadius};
 
 // ── World Config ─────────────────────────────────────────────────────────
 
@@ -365,18 +367,24 @@ pub fn update_chunks(
                     .spawn((
                         ScoutDrone,
                         NeedsDroneVisual,
-                        Collider {
-                            radius: blueprint.radius,
-                        },
-                        Health {
-                            current: blueprint.health,
-                            max: blueprint.health,
-                        },
+                        Collider { radius: blueprint.radius },
+                        Health { current: blueprint.health, max: blueprint.health },
                         Velocity(blueprint.velocity),
                         Transform::from_translation(blueprint.position.extend(0.0)),
                         chunk_marker,
                         biome,
                         seed_index,
+                    ))
+                    .insert((
+                        // Story 4-1: AI components
+                        FactionId::RogueDrones,
+                        AiState::Idle,
+                        AggroRange(200.0),
+                        AttackRange(80.0),
+                        FleeThreshold(0.2),
+                        PatrolRadius(150.0),
+                        ErraticOffset::default(),
+                        EnemyFireCooldown::default(),
                     ))
                     .id(),
                 generation::BlueprintType::Station => {

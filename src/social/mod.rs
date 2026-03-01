@@ -5,10 +5,14 @@ pub mod faction;
 
 use bevy::prelude::*;
 
+use self::enemy_ai::{update_scout_drone_ai, PendingEnemyShotQueue};
+
 pub struct SocialPlugin;
 
 impl Plugin for SocialPlugin {
-    fn build(&self, _app: &mut App) {
-        // Epic 4 systems registered per story
+    fn build(&self, app: &mut App) {
+        // Story 4-1: Scout Drone AI
+        app.init_resource::<PendingEnemyShotQueue>();
+        app.add_systems(Update, update_scout_drone_ai);
     }
 }
