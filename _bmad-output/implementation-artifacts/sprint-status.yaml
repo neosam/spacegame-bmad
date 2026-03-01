@@ -77,7 +77,7 @@ development_status:
   2-6-destroy-generator: done
   2-7-destruction-cascade: done
   2-8-constraint-validation: done
-  epic-2-retrospective: optional
+  epic-2-retrospective: done
 
   # ── Epic 3: Stations & Economy (Must | Dependencies: Epic 1) ──
   epic-3: backlog
