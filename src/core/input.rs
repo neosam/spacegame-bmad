@@ -15,6 +15,12 @@ pub struct ActionState {
     pub toggle_map: bool,
     pub pause: bool,
     pub save: bool,
+    /// F key — craft or buy currently selected recipe (when docked)
+    pub craft: bool,
+    /// R key — navigate recipe list upward (when docked)
+    pub nav_up: bool,
+    /// T key — navigate recipe list downward (when docked)
+    pub nav_down: bool,
 }
 
 /// Reads keyboard and gamepad input, writes to `ActionState` resource.
@@ -57,6 +63,21 @@ pub fn read_input(
     // Keyboard: save (rising edge only)
     if keyboard.just_pressed(KeyCode::F5) {
         action_state.save = true;
+    }
+
+    // Keyboard: craft/buy selected recipe (rising edge only) — F key
+    if keyboard.just_pressed(KeyCode::KeyF) {
+        action_state.craft = true;
+    }
+
+    // Keyboard: navigate recipe list up — R key (conflict-free with thrust/rotation)
+    if keyboard.just_pressed(KeyCode::KeyR) {
+        action_state.nav_up = true;
+    }
+
+    // Keyboard: navigate recipe list down — T key (conflict-free with thrust/rotation)
+    if keyboard.just_pressed(KeyCode::KeyT) {
+        action_state.nav_down = true;
     }
 
     // Clamp rotation

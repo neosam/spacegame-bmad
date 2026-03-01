@@ -32,9 +32,9 @@ use self::economy::{
 };
 use self::station::{update_docking, update_undocking};
 use self::upgrades::{
-    apply_upgrade_effects, emit_craft_events, init_base_stats, mark_player_needs_upgrade_visual,
-    process_crafting_request, CraftingRequest, DiscoveredRecipes, InstalledUpgrades,
-    PendingCraftEvents,
+    apply_upgrade_effects, emit_craft_events, handle_craft_input, init_base_stats,
+    mark_player_needs_upgrade_visual, navigate_station_ui, process_crafting_request, CraftingRequest,
+    DiscoveredRecipes, InstalledUpgrades, PendingCraftEvents, StationUiState,
 };
 use self::tutorial::{
     advance_phase_on_wreck_shot, apply_gravity_well, check_generator_destroyed,
@@ -329,8 +329,16 @@ impl Plugin for CorePlugin {
         app.init_resource::<DiscoveredRecipes>();
         app.init_resource::<CraftingRequest>();
         app.init_resource::<PendingCraftEvents>();
+        app.init_resource::<StationUiState>();
         // BaseStats must be initialized AFTER FlightConfig + WeaponConfig are inserted
         app.add_systems(Startup, init_base_stats);
+        // Station UI navigation and craft input: runs in Input set so craft request is ready before processing
+        app.add_systems(
+            FixedUpdate,
+            (navigate_station_ui, handle_craft_input)
+                .chain()
+                .in_set(CoreSet::Input),
+        );
         // Upgrade effect application and event emission run after all economy events
         app.add_systems(
             FixedUpdate,

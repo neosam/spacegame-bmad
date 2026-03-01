@@ -146,10 +146,10 @@ impl Plugin for RenderingPlugin {
         // Ship upgrade visual: update player color based on hull upgrade tier
         app.add_systems(Update, update_ship_upgrade_visual);
 
-        // Station Shop UI: spawn on dock, despawn on undock
+        // Station Shop UI: spawn on dock, update while docked, despawn on undock
         app.add_systems(
             Update,
-            (spawn_station_ui, despawn_station_ui).chain(),
+            (spawn_station_ui, update_station_ui, despawn_station_ui).chain(),
         );
 
         // Update systems: visual effects + minimap
@@ -715,6 +715,199 @@ fn render_traders(
 #[derive(Component, Debug)]
 pub struct StationUiRoot;
 
+/// Builds and spawns the station UI panel with full recipe list.
+///
+/// Called both on initial dock and when the UI needs a refresh (e.g. after crafting).
+fn build_station_ui(
+    station_name: &str,
+    station_type_label: &str,
+    credits: &crate::core::economy::Credits,
+    inventory: &crate::core::economy::PlayerInventory,
+    recipes: &crate::core::upgrades::DiscoveredRecipes,
+    installed: &crate::core::upgrades::InstalledUpgrades,
+    ui_state: &crate::core::upgrades::StationUiState,
+    commands: &mut Commands,
+) {
+    use crate::shared::components::MaterialType;
+    use crate::core::upgrades::{AcquisitionMethod, can_craft};
+
+    let scrap = inventory
+        .items
+        .get(&MaterialType::CommonScrap)
+        .copied()
+        .unwrap_or(0);
+    let alloy = inventory
+        .items
+        .get(&MaterialType::RareAlloy)
+        .copied()
+        .unwrap_or(0);
+    let core = inventory
+        .items
+        .get(&MaterialType::EnergyCore)
+        .copied()
+        .unwrap_or(0);
+
+    // Root panel — full-width strip anchored to the bottom of the screen
+    let root = commands
+        .spawn((
+            StationUiRoot,
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Px(220.0),
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(0.0),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::FlexStart,
+                justify_content: JustifyContent::FlexStart,
+                padding: UiRect::all(Val::Px(12.0)),
+                row_gap: Val::Px(4.0),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.05, 0.05, 0.15, 0.88)),
+            GlobalZIndex(50),
+        ))
+        .id();
+
+    // Header row: station name and type
+    let header_text = format!("{station_name}  [{station_type_label}]");
+    let header = commands
+        .spawn((
+            Text(header_text),
+            TextFont {
+                font_size: 20.0,
+                ..default()
+            },
+            TextColor(Color::WHITE),
+        ))
+        .id();
+
+    // Resource row: credits and inventory
+    let resources_text = format!(
+        "Credits: {}  |  Scrap: {}  Alloy: {}  Core: {}",
+        credits.balance, scrap, alloy, core
+    );
+    let resources = commands
+        .spawn((
+            Text(resources_text),
+            TextFont {
+                font_size: 15.0,
+                ..default()
+            },
+            TextColor(Color::srgba(0.8, 0.9, 0.8, 1.0)),
+        ))
+        .id();
+
+    // Separator
+    let separator = commands
+        .spawn((
+            Text("─────────────────────────────────────────────".to_string()),
+            TextFont {
+                font_size: 13.0,
+                ..default()
+            },
+            TextColor(Color::srgba(0.4, 0.4, 0.5, 1.0)),
+        ))
+        .id();
+
+    // Recipe rows — show up to 5, centered around selected index
+    let total = recipes.recipes.len();
+    let selected = ui_state.selected_recipe_index.min(total.saturating_sub(1));
+    let max_visible = 5usize;
+    let start = if total <= max_visible {
+        0
+    } else {
+        let half = max_visible / 2;
+        if selected < half {
+            0
+        } else if selected + (max_visible - half) > total {
+            total - max_visible
+        } else {
+            selected - half
+        }
+    };
+    let end = (start + max_visible).min(total);
+
+    let mut children: Vec<Entity> = vec![header, resources, separator];
+
+    for idx in start..end {
+        let recipe = &recipes.recipes[idx];
+        let is_selected = idx == selected;
+        let craftable = can_craft(recipe, inventory, credits);
+        let already_installed = recipe.ship_system
+            .map(|s| installed.ship_tier(s) >= recipe.tier)
+            .or_else(|| recipe.weapon_system.map(|s| installed.weapon_tier(s) >= recipe.tier))
+            .unwrap_or(false);
+
+        let method_label = match recipe.acquisition {
+            AcquisitionMethod::CraftOnly => "[CRAFT]",
+            AcquisitionMethod::BuyOnly => "[BUY]",
+            AcquisitionMethod::CraftOrBuy => "[CRAFT/BUY]",
+        };
+
+        let cursor = if is_selected { "►" } else { " " };
+        let installed_tag = if already_installed { " ✓" } else { "" };
+        let row_text = format!(
+            "{}  {:<14} {:>2}s {:>2}a {:>2}c  {:>3}cr  {}{}",
+            cursor,
+            recipe.display_name,
+            recipe.cost_common_scrap,
+            recipe.cost_rare_alloy,
+            recipe.cost_energy_core,
+            recipe.credit_cost,
+            method_label,
+            installed_tag,
+        );
+
+        let row_color = if already_installed {
+            Color::srgba(0.5, 0.8, 0.5, 1.0) // green: already owned
+        } else if craftable {
+            Color::srgba(0.9, 0.9, 0.9, 1.0) // white: affordable
+        } else {
+            Color::srgba(0.45, 0.45, 0.45, 1.0) // grey: cannot afford
+        };
+
+        let row = commands
+            .spawn((
+                Text(row_text),
+                TextFont {
+                    font_size: 15.0,
+                    ..default()
+                },
+                TextColor(row_color),
+            ))
+            .id();
+        children.push(row);
+    }
+
+    // Bottom separator
+    let sep2 = commands
+        .spawn((
+            Text("─────────────────────────────────────────────".to_string()),
+            TextFont {
+                font_size: 13.0,
+                ..default()
+            },
+            TextColor(Color::srgba(0.4, 0.4, 0.5, 1.0)),
+        ))
+        .id();
+    children.push(sep2);
+
+    // Hint row
+    let hint = commands
+        .spawn((
+            Text("R/T = navigate  |  F = craft/buy  |  E = undock".to_string()),
+            TextFont {
+                font_size: 13.0,
+                ..default()
+            },
+            TextColor(Color::srgba(0.5, 0.5, 0.5, 1.0)),
+        ))
+        .id();
+    children.push(hint);
+
+    commands.entity(root).add_children(&children);
+}
+
 /// Spawns a station shop UI panel when the player gains a `Docked` component.
 ///
 /// Reacts to `Added<Docked>` — fires on the frame the player docks.
@@ -722,6 +915,11 @@ pub struct StationUiRoot;
 pub fn spawn_station_ui(
     player_query: Query<&Docked, (Added<Docked>, With<Player>)>,
     station_query: Query<&Station>,
+    credits: Res<crate::core::economy::Credits>,
+    inventory: Res<crate::core::economy::PlayerInventory>,
+    recipes: Res<crate::core::upgrades::DiscoveredRecipes>,
+    installed: Res<crate::core::upgrades::InstalledUpgrades>,
+    ui_state: Res<crate::core::upgrades::StationUiState>,
     mut commands: Commands,
 ) {
     let Ok(docked) = player_query.single() else {
@@ -734,90 +932,68 @@ pub fn spawn_station_ui(
         .map(|s| (s.name, s.station_type.display_name()))
         .unwrap_or(("Unknown Station", "Unknown Type"));
 
-    // Root panel — full-width strip anchored to the bottom of the screen
-    let root = commands
-        .spawn((
-            StationUiRoot,
-            Node {
-                width: Val::Percent(100.0),
-                height: Val::Px(180.0),
-                position_type: PositionType::Absolute,
-                bottom: Val::Px(0.0),
-                flex_direction: FlexDirection::Column,
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                padding: UiRect::all(Val::Px(12.0)),
-                row_gap: Val::Px(6.0),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.05, 0.05, 0.15, 0.88)),
-            GlobalZIndex(50),
-        ))
-        .id();
+    build_station_ui(
+        station_name,
+        station_type_label,
+        &credits,
+        &inventory,
+        &recipes,
+        &installed,
+        &ui_state,
+        &mut commands,
+    );
+}
 
-    // Station name title
-    let title = commands
-        .spawn((
-            Text(station_name.to_string()),
-            TextFont {
-                font_size: 22.0,
-                ..default()
-            },
-            TextColor(Color::WHITE),
-        ))
-        .id();
+/// Updates the station UI every frame while docked.
+///
+/// Despawns the existing StationUiRoot and respawns a fresh one reflecting
+/// current credits, inventory, and recipe selection. This is the simplest
+/// approach for MVP — cheap enough for a UI that only runs while docked.
+pub fn update_station_ui(
+    player_query: Query<&Docked, With<Player>>,
+    station_query: Query<&Station>,
+    credits: Res<crate::core::economy::Credits>,
+    inventory: Res<crate::core::economy::PlayerInventory>,
+    recipes: Res<crate::core::upgrades::DiscoveredRecipes>,
+    installed: Res<crate::core::upgrades::InstalledUpgrades>,
+    ui_state: Res<crate::core::upgrades::StationUiState>,
+    existing_ui: Query<Entity, With<StationUiRoot>>,
+    mut commands: Commands,
+) {
+    // Only refresh when at least one of the relevant resources changed or selection moved
+    if !credits.is_changed()
+        && !inventory.is_changed()
+        && !recipes.is_changed()
+        && !installed.is_changed()
+        && !ui_state.is_changed()
+    {
+        return;
+    }
 
-    // Station type subtitle
-    let type_label = commands
-        .spawn((
-            Text(station_type_label.to_string()),
-            TextFont {
-                font_size: 16.0,
-                ..default()
-            },
-            TextColor(Color::srgba(0.7, 0.7, 0.7, 1.0)),
-        ))
-        .id();
+    let Ok(docked) = player_query.single() else {
+        return;
+    };
 
-    // Shop row (placeholder)
-    let shop_row = commands
-        .spawn((
-            Text("Shop  —  not yet available".to_string()),
-            TextFont {
-                font_size: 16.0,
-                ..default()
-            },
-            TextColor(Color::srgba(0.7, 0.7, 0.7, 1.0)),
-        ))
-        .id();
+    // Despawn old UI
+    for entity in existing_ui.iter() {
+        commands.entity(entity).despawn();
+    }
 
-    // Repair row (placeholder)
-    let repair_row = commands
-        .spawn((
-            Text("Repair  —  not yet available".to_string()),
-            TextFont {
-                font_size: 16.0,
-                ..default()
-            },
-            TextColor(Color::srgba(0.7, 0.7, 0.7, 1.0)),
-        ))
-        .id();
+    let (station_name, station_type_label) = station_query
+        .get(docked.station)
+        .map(|s| (s.name, s.station_type.display_name()))
+        .unwrap_or(("Unknown Station", "Unknown Type"));
 
-    // Hint
-    let hint = commands
-        .spawn((
-            Text("Press E to undock".to_string()),
-            TextFont {
-                font_size: 13.0,
-                ..default()
-            },
-            TextColor(Color::srgba(0.5, 0.5, 0.5, 1.0)),
-        ))
-        .id();
-
-    commands
-        .entity(root)
-        .add_children(&[title, type_label, shop_row, repair_row, hint]);
+    build_station_ui(
+        station_name,
+        station_type_label,
+        &credits,
+        &inventory,
+        &recipes,
+        &installed,
+        &ui_state,
+        &mut commands,
+    );
 }
 
 /// Despawns all `StationUiRoot` entities when the player's `Docked` component is removed.

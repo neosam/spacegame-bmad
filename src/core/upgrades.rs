@@ -112,6 +112,16 @@ pub struct CraftingRequest {
     pub recipe_index: Option<usize>,
 }
 
+// ── Station UI State ─────────────────────────────────────────────────────
+
+/// Tracks the cursor index in the crafting recipe list shown in the station UI.
+/// Navigation systems (nav_up/nav_down) modify `selected_recipe_index`.
+/// The craft system reads it to dispatch a `CraftingRequest`.
+#[derive(Resource, Default, Debug)]
+pub struct StationUiState {
+    pub selected_recipe_index: usize,
+}
+
 // ── Pending Craft Events (B0002-safe buffer) ─────────────────────────────
 
 /// Buffer for craft events to be emitted separately (avoids MessageReader + MessageWriter conflict).
@@ -480,6 +490,48 @@ pub fn emit_craft_events(
             position,
             game_time,
         });
+    }
+}
+
+/// Navigates the station UI recipe list up/down when the player is docked.
+/// Wraps around at both ends.
+pub fn navigate_station_ui(
+    action_state: Res<crate::core::input::ActionState>,
+    player_query: Query<(), With<crate::core::station::Docked>>,
+    recipes: Res<DiscoveredRecipes>,
+    mut ui_state: ResMut<StationUiState>,
+) {
+    if player_query.is_empty() {
+        return;
+    }
+    let count = recipes.recipes.len();
+    if count == 0 {
+        return;
+    }
+    if action_state.nav_up {
+        if ui_state.selected_recipe_index == 0 {
+            ui_state.selected_recipe_index = count - 1;
+        } else {
+            ui_state.selected_recipe_index -= 1;
+        }
+    }
+    if action_state.nav_down {
+        ui_state.selected_recipe_index = (ui_state.selected_recipe_index + 1) % count;
+    }
+}
+
+/// Submits a CraftingRequest for the currently selected recipe when the player presses craft.
+pub fn handle_craft_input(
+    action_state: Res<crate::core::input::ActionState>,
+    player_query: Query<(), With<crate::core::station::Docked>>,
+    ui_state: Res<StationUiState>,
+    mut request: ResMut<CraftingRequest>,
+) {
+    if player_query.is_empty() {
+        return;
+    }
+    if action_state.craft {
+        request.recipe_index = Some(ui_state.selected_recipe_index);
     }
 }
 
