@@ -3,7 +3,6 @@
 ///
 /// Tests cover: credits awarded on asteroid/drone kill, credits awarded on
 /// first chunk discovery, no double-award on same chunk, save/load roundtrip.
-mod helpers;
 
 use bevy::ecs::message::MessageWriter;
 use bevy::ecs::system::RunSystemOnce;
@@ -11,7 +10,7 @@ use bevy::prelude::*;
 use void_drifter::core::economy::{award_credits_on_discovery, award_credits_on_kill, emit_credit_events, Credits, DiscoveredChunks, PendingCreditEvents};
 use void_drifter::infrastructure::events::EventSeverityConfig;
 use void_drifter::shared::events::{GameEvent, GameEventKind};
-use void_drifter::world::{BiomeType, ChunkCoord};
+use void_drifter::world::{BiomeType, ChunkCoord, WorldConfig};
 
 // ── Test helpers ──────────────────────────────────────────────────────────
 
@@ -23,6 +22,7 @@ fn credits_test_app() -> App {
     app.init_resource::<DiscoveredChunks>();
     app.init_resource::<PendingCreditEvents>();
     app.init_resource::<EventSeverityConfig>();
+    app.insert_resource(WorldConfig::default());
     app.add_systems(
         Update,
         (award_credits_on_kill, award_credits_on_discovery, emit_credit_events).chain(),

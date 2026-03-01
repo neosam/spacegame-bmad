@@ -8,7 +8,7 @@ use crate::core::flight::Player;
 use crate::infrastructure::events::EventSeverityConfig;
 use crate::shared::components::{MaterialDrop, MaterialType, NeedsMaterialDropVisual};
 use crate::shared::events::{GameEvent, GameEventKind};
-use crate::world::ChunkCoord;
+use crate::world::{ChunkCoord, WorldConfig, chunk::world_to_chunk};
 
 /// Player's current credit balance.
 #[derive(Resource, Default, Debug, Clone)]
@@ -48,10 +48,27 @@ pub struct PendingPickupEvents {
     pub events: Vec<(MaterialType, Vec2, f64)>, // (material, position, game_time)
 }
 
+/// Computes the distance tier (0–5) from origin based on Chebyshev distance.
+/// tier = min(max(|x|, |y|) / 5, 5)
+pub fn distance_tier(coord: ChunkCoord) -> u32 {
+    let chebyshev = coord.x.unsigned_abs().max(coord.y.unsigned_abs());
+    (chebyshev / 5).min(5)
+}
+
+/// Scales a base credit amount by the given distance tier.
+/// Returns base * (10 + tier) / 10 (floor integer division).
+pub fn scale_credits(base: u32, tier: u32) -> u32 {
+    base * (10 + tier) / 10
+}
+
 /// Pure function for testability — decides what material (if any) drops from a destroyed enemy.
-/// Takes a pre-rolled f32 in [0.0, 1.0) to allow deterministic testing.
-/// Asteroid: 80% CommonScrap. Drone: 60% CommonScrap, 30% RareAlloy, 10% EnergyCore.
-pub fn decide_material_drop(entity_type: &str, roll: f32) -> Option<MaterialType> {
+/// Takes a pre-rolled f32 in [0.0, 1.0) and the distance tier (0–5) to allow deterministic testing.
+///
+/// Asteroid: 80% CommonScrap regardless of tier.
+/// Drone tier 0–2: 60% Scrap, 30% Alloy, 10% Core.
+/// Drone tier 3–4: 40% Scrap, 45% Alloy, 15% Core.
+/// Drone tier 5+:  20% Scrap, 50% Alloy, 30% Core.
+pub fn decide_material_drop(entity_type: &str, roll: f32, tier: u32) -> Option<MaterialType> {
     match entity_type {
         "asteroid" => {
             if roll < 0.8 {
@@ -61,12 +78,18 @@ pub fn decide_material_drop(entity_type: &str, roll: f32) -> Option<MaterialType
             }
         }
         "drone" => {
-            if roll < 0.6 {
-                Some(MaterialType::CommonScrap)
-            } else if roll < 0.9 {
-                Some(MaterialType::RareAlloy)
+            if tier >= 5 {
+                if roll < 0.20 { Some(MaterialType::CommonScrap) }
+                else if roll < 0.70 { Some(MaterialType::RareAlloy) }
+                else { Some(MaterialType::EnergyCore) }
+            } else if tier >= 3 {
+                if roll < 0.40 { Some(MaterialType::CommonScrap) }
+                else if roll < 0.85 { Some(MaterialType::RareAlloy) }
+                else { Some(MaterialType::EnergyCore) }
             } else {
-                Some(MaterialType::EnergyCore)
+                if roll < 0.6 { Some(MaterialType::CommonScrap) }
+                else if roll < 0.9 { Some(MaterialType::RareAlloy) }
+                else { Some(MaterialType::EnergyCore) }
             }
         }
         _ => None,
@@ -74,19 +97,20 @@ pub fn decide_material_drop(entity_type: &str, roll: f32) -> Option<MaterialType
 }
 
 /// Awards credits when an enemy is destroyed.
-/// +2 for asteroids, +10 for drones.
+/// Base +2 for asteroids, +10 for drones, scaled by distance tier.
 /// Pushes to `PendingCreditEvents`; actual GameEvent emission happens in `emit_credit_events`.
 pub fn award_credits_on_kill(
     mut reader: MessageReader<GameEvent>,
     mut credits: ResMut<Credits>,
     mut pending: ResMut<PendingCreditEvents>,
+    config: Res<WorldConfig>,
 ) {
     for event in reader.read() {
         if let GameEventKind::EnemyDestroyed { entity_type } = &event.kind {
-            let amount = match *entity_type {
-                "drone" => 10u32,
-                _ => 2u32,
-            };
+            let coord = world_to_chunk(event.position, config.chunk_size);
+            let tier = distance_tier(coord);
+            let base = match *entity_type { "drone" => 10u32, _ => 2u32 };
+            let amount = scale_credits(base, tier);
             credits.balance += amount;
             pending.events.push((amount, event.position, event.game_time));
         }
@@ -149,11 +173,14 @@ pub fn on_player_death_deduct_credits(
 pub fn queue_material_drops(
     mut reader: MessageReader<GameEvent>,
     mut pending: ResMut<PendingDropSpawns>,
+    config: Res<WorldConfig>,
 ) {
     for event in reader.read() {
         if let GameEventKind::EnemyDestroyed { entity_type } = &event.kind {
+            let coord = world_to_chunk(event.position, config.chunk_size);
+            let tier = distance_tier(coord);
             let roll = rand::random::<f32>();
-            if let Some(material) = decide_material_drop(entity_type, roll) {
+            if let Some(material) = decide_material_drop(entity_type, roll, tier) {
                 pending.drops.push((material, event.position));
             }
         }
@@ -250,47 +277,47 @@ mod tests {
 
     #[test]
     fn decide_material_drop_asteroid_below_threshold_gives_scrap() {
-        let result = decide_material_drop("asteroid", 0.0);
+        let result = decide_material_drop("asteroid", 0.0, 0);
         assert_eq!(result, Some(MaterialType::CommonScrap));
-        let result = decide_material_drop("asteroid", 0.79);
+        let result = decide_material_drop("asteroid", 0.79, 0);
         assert_eq!(result, Some(MaterialType::CommonScrap));
     }
 
     #[test]
     fn decide_material_drop_asteroid_above_threshold_gives_none() {
-        let result = decide_material_drop("asteroid", 0.8);
+        let result = decide_material_drop("asteroid", 0.8, 0);
         assert_eq!(result, None);
-        let result = decide_material_drop("asteroid", 0.99);
+        let result = decide_material_drop("asteroid", 0.99, 0);
         assert_eq!(result, None);
     }
 
     #[test]
     fn decide_material_drop_drone_scrap_range() {
-        let result = decide_material_drop("drone", 0.0);
+        let result = decide_material_drop("drone", 0.0, 0);
         assert_eq!(result, Some(MaterialType::CommonScrap));
-        let result = decide_material_drop("drone", 0.59);
+        let result = decide_material_drop("drone", 0.59, 0);
         assert_eq!(result, Some(MaterialType::CommonScrap));
     }
 
     #[test]
     fn decide_material_drop_drone_alloy_range() {
-        let result = decide_material_drop("drone", 0.6);
+        let result = decide_material_drop("drone", 0.6, 0);
         assert_eq!(result, Some(MaterialType::RareAlloy));
-        let result = decide_material_drop("drone", 0.89);
+        let result = decide_material_drop("drone", 0.89, 0);
         assert_eq!(result, Some(MaterialType::RareAlloy));
     }
 
     #[test]
     fn decide_material_drop_drone_energy_core_range() {
-        let result = decide_material_drop("drone", 0.9);
+        let result = decide_material_drop("drone", 0.9, 0);
         assert_eq!(result, Some(MaterialType::EnergyCore));
-        let result = decide_material_drop("drone", 0.99);
+        let result = decide_material_drop("drone", 0.99, 0);
         assert_eq!(result, Some(MaterialType::EnergyCore));
     }
 
     #[test]
     fn decide_material_drop_unknown_entity_gives_none() {
-        let result = decide_material_drop("boss", 0.0);
+        let result = decide_material_drop("boss", 0.0, 0);
         assert_eq!(result, None);
     }
 

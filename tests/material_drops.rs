@@ -55,36 +55,36 @@ fn spawn_drop_at(app: &mut App, material: MaterialType, pos: Vec2) -> Entity {
 
 #[test]
 fn decide_material_drop_asteroid_low_roll_gives_scrap() {
-    let result = decide_material_drop("asteroid", 0.0);
+    let result = decide_material_drop("asteroid", 0.0, 0);
     assert_eq!(result, Some(MaterialType::CommonScrap), "Roll 0.0 → CommonScrap");
-    let result = decide_material_drop("asteroid", 0.79);
+    let result = decide_material_drop("asteroid", 0.79, 0);
     assert_eq!(result, Some(MaterialType::CommonScrap), "Roll 0.79 → CommonScrap");
 }
 
 #[test]
 fn decide_material_drop_asteroid_high_roll_gives_none() {
-    let result = decide_material_drop("asteroid", 0.8);
+    let result = decide_material_drop("asteroid", 0.8, 0);
     assert_eq!(result, None, "Roll 0.8 → no drop");
-    let result = decide_material_drop("asteroid", 0.99);
+    let result = decide_material_drop("asteroid", 0.99, 0);
     assert_eq!(result, None, "Roll 0.99 → no drop");
 }
 
 #[test]
 fn decide_material_drop_drone_full_range() {
     // Scrap range: [0.0, 0.6)
-    assert_eq!(decide_material_drop("drone", 0.0), Some(MaterialType::CommonScrap));
-    assert_eq!(decide_material_drop("drone", 0.59), Some(MaterialType::CommonScrap));
+    assert_eq!(decide_material_drop("drone", 0.0, 0), Some(MaterialType::CommonScrap));
+    assert_eq!(decide_material_drop("drone", 0.59, 0), Some(MaterialType::CommonScrap));
     // RareAlloy range: [0.6, 0.9)
-    assert_eq!(decide_material_drop("drone", 0.6), Some(MaterialType::RareAlloy));
-    assert_eq!(decide_material_drop("drone", 0.89), Some(MaterialType::RareAlloy));
+    assert_eq!(decide_material_drop("drone", 0.6, 0), Some(MaterialType::RareAlloy));
+    assert_eq!(decide_material_drop("drone", 0.89, 0), Some(MaterialType::RareAlloy));
     // EnergyCore range: [0.9, 1.0)
-    assert_eq!(decide_material_drop("drone", 0.9), Some(MaterialType::EnergyCore));
-    assert_eq!(decide_material_drop("drone", 0.99), Some(MaterialType::EnergyCore));
+    assert_eq!(decide_material_drop("drone", 0.9, 0), Some(MaterialType::EnergyCore));
+    assert_eq!(decide_material_drop("drone", 0.99, 0), Some(MaterialType::EnergyCore));
 }
 
 #[test]
 fn decide_material_drop_unknown_entity_gives_none() {
-    assert_eq!(decide_material_drop("turret", 0.0), None);
+    assert_eq!(decide_material_drop("turret", 0.0, 0), None);
 }
 
 // ── Pickup integration tests ───────────────────────────────────────────────

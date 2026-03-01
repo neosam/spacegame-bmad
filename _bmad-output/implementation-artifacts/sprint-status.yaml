@@ -91,7 +91,7 @@ development_status:
   3-4-material-drops: done
   3-5-death-credit-loss: done
   3-6-station-types: done
-  3-7-economy-scaling: backlog
+  3-7-economy-scaling: done
   epic-3-retrospective: optional
 
   # ── Epic 4: Combat Depth (Must | Dependencies: Epic 1) ──
