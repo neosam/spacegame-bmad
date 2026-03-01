@@ -130,7 +130,7 @@ fn tutorial_zone_spawns_correct_entities() {
 
 #[test]
 fn tutorial_phase_starts_as_flying() {
-    let mut app = tutorial_test_app();
+    let app = tutorial_test_app();
     let phase = app.world().resource::<State<TutorialPhase>>();
     assert_eq!(
         *phase.get(),
@@ -186,7 +186,7 @@ fn weapon_firing_blocked_in_flying_phase() {
 
 #[test]
 fn tutorial_zone_occupies_chunks() {
-    let mut app = tutorial_test_app();
+    let app = tutorial_test_app();
 
     let active_chunks = app.world().resource::<ActiveChunks>();
     let origin_coord = ChunkCoord { x: 0, y: 0 };
@@ -210,7 +210,7 @@ fn tutorial_station_is_defective() {
 
 #[test]
 fn tutorial_zone_layout_matches_seed() {
-    let mut app = tutorial_test_app();
+    let app = tutorial_test_app();
 
     let world_config = app.world().resource::<WorldConfig>();
     let seed = world_config.seed;
@@ -1421,7 +1421,7 @@ fn cascade_timer_inserted_on_generator_destroyed_phase() {
 
 #[test]
 fn cascade_timer_not_inserted_in_other_phases() {
-    let mut app = cascade_test_app();
+    let app = cascade_test_app();
 
     // Phase is Flying (default) — no cascade timer should be present
     assert!(

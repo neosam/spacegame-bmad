@@ -9,7 +9,6 @@ use helpers::{
 };
 use void_drifter::core::collision::Health;
 use void_drifter::core::input::ActionState;
-use void_drifter::core::weapons::ActiveWeapon;
 use void_drifter::infrastructure::logbook::Logbook;
 use void_drifter::shared::events::{EventSeverity, GameEventKind};
 
@@ -17,10 +16,10 @@ use void_drifter::shared::events::{EventSeverity, GameEventKind};
 #[test]
 fn enemy_destroyed_emits_game_event() {
     let mut app = test_app();
-    let player = spawn_player(&mut app);
+    let _player = spawn_player(&mut app);
 
     // Place asteroid right in front of player (player faces +Y)
-    let asteroid = spawn_asteroid(&mut app, Vec2::new(0.0, 50.0), 20.0, 5.0);
+    let _asteroid = spawn_asteroid(&mut app, Vec2::new(0.0, 50.0), 20.0, 5.0);
 
     // Fire laser at the asteroid
     app.world_mut().resource_mut::<ActionState>().fire = true;
@@ -150,7 +149,7 @@ fn weapon_fire_emits_game_event() {
 #[test]
 fn event_system_does_not_break_gameplay() {
     let mut app = test_app();
-    let player = spawn_player(&mut app);
+    let _player = spawn_player(&mut app);
 
     // Spawn asteroid, fire at it, verify asteroid takes damage
     let asteroid = spawn_asteroid(&mut app, Vec2::new(0.0, 50.0), 20.0, 100.0);

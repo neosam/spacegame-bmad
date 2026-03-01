@@ -36,6 +36,7 @@ use void_drifter::world::{
 /// Create a minimal test App with flight, weapon, collision, and damage systems.
 /// Systems run in FixedUpdate to match production scheduling.
 /// Uses fixed 1/60s time step for deterministic tests.
+#[allow(dead_code)]
 pub fn test_app() -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
@@ -164,6 +165,7 @@ pub fn run_until_loaded(app: &mut App) {
 }
 
 /// Spawn a player entity at the origin facing +Y with FireCooldown, Energy, ActiveWeapon, Health, and Collider.
+#[allow(dead_code)]
 pub fn spawn_player(app: &mut App) -> Entity {
     app.world_mut()
         .spawn((
