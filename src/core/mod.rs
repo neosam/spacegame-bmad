@@ -19,7 +19,7 @@ use self::collision::{
 use self::flight::{apply_drag, apply_rotation, apply_thrust, apply_velocity, clamp_speed, validate_speed_cap, FlightConfig};
 use self::input::{read_input, ActionState};
 use self::spawning::{
-    drift_entities, spawn_respawn_timers, tick_respawn_timers,
+    drift_entities, spawn_respawn_timers, tick_respawn_timers, update_trader_ships,
     SpawningConfig,
 };
 use self::economy::{
@@ -245,7 +245,7 @@ impl Plugin for CorePlugin {
             start_destruction_cascade,
         );
 
-        // Post-damage systems: cooldown tick, invincibility tick, respawn tick, drift
+        // Post-damage systems: cooldown tick, invincibility tick, respawn tick, drift, traders
         app.add_systems(
             FixedUpdate,
             (
@@ -253,6 +253,7 @@ impl Plugin for CorePlugin {
                 tick_invincibility,
                 tick_respawn_timers,
                 drift_entities,
+                update_trader_ships,
             )
                 .after(CoreSet::Damage),
         );

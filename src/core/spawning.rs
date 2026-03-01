@@ -55,6 +55,36 @@ pub struct NeedsHeavyCruiserVisual;
 #[derive(Component)]
 pub struct NeedsSniperVisual;
 
+// ── Story 4-10: Trader Ships ─────────────────────────────────────────────
+
+/// Marker for Trader Ship entities.
+/// Traders are Neutral faction — they don't attack but can be attacked.
+#[derive(Component, Debug, Clone)]
+pub struct TraderShip;
+
+/// A linear route for a trader ship between two world positions.
+/// The trader moves from `from` to `to`, then reverses.
+#[derive(Component, Debug, Clone)]
+pub struct TraderRoute {
+    pub from: Vec2,
+    pub to: Vec2,
+    /// Progress along the route: 0.0 = at `from`, 1.0 = at `to`.
+    pub progress: f32,
+    /// Direction: true = from→to, false = to→from.
+    pub forward: bool,
+}
+
+impl TraderRoute {
+    /// Current world position along the route.
+    pub fn current_position(&self) -> Vec2 {
+        self.from.lerp(self.to, self.progress)
+    }
+}
+
+/// Visual marker for trader ships.
+#[derive(Component, Debug)]
+pub struct NeedsTraderVisual;
+
 // ── Story 4-5: Swarms ───────────────────────────────────────────────────
 
 /// Groups a swarm entity with a unique swarm ID.
@@ -460,6 +490,42 @@ pub fn drift_entities(
     for (velocity, mut transform) in query.iter_mut() {
         transform.translation.x += velocity.0.x * dt;
         transform.translation.y += velocity.0.y * dt;
+    }
+}
+
+/// Moves trader ships along their route.
+/// When progress reaches 1.0, the direction reverses.
+pub fn update_trader_ships(
+    time: Res<Time>,
+    mut query: Query<(&mut TraderRoute, &mut Transform), With<TraderShip>>,
+) {
+    let dt = time.delta_secs();
+    const TRADER_SPEED: f32 = 50.0; // world units per second
+
+    for (mut route, mut transform) in query.iter_mut() {
+        let total_dist = route.from.distance(route.to);
+        if total_dist < f32::EPSILON {
+            continue;
+        }
+
+        // Advance progress based on speed / total distance
+        let progress_delta = (TRADER_SPEED / total_dist) * dt;
+
+        if route.forward {
+            route.progress = (route.progress + progress_delta).min(1.0);
+            if route.progress >= 1.0 {
+                route.forward = false;
+            }
+        } else {
+            route.progress = (route.progress - progress_delta).max(0.0);
+            if route.progress <= 0.0 {
+                route.forward = true;
+            }
+        }
+
+        let pos = route.current_position();
+        transform.translation.x = pos.x;
+        transform.translation.y = pos.y;
     }
 }
 
@@ -1049,6 +1115,104 @@ mod tests {
         for swarm in query.iter(app.world()) {
             assert_eq!(swarm.swarm_id, swarm_id, "All swarm members should share swarm_id {}", swarm_id);
         }
+    }
+
+    // ── Story 4-10: Trader Ship tests ──
+
+    #[test]
+    fn trader_route_current_position_at_zero_progress() {
+        let route = TraderRoute {
+            from: Vec2::new(0.0, 0.0),
+            to: Vec2::new(100.0, 0.0),
+            progress: 0.0,
+            forward: true,
+        };
+        let pos = route.current_position();
+        assert!((pos.x - 0.0).abs() < f32::EPSILON, "At progress=0 should be at from");
+    }
+
+    #[test]
+    fn trader_route_current_position_at_full_progress() {
+        let route = TraderRoute {
+            from: Vec2::new(0.0, 0.0),
+            to: Vec2::new(100.0, 0.0),
+            progress: 1.0,
+            forward: false,
+        };
+        let pos = route.current_position();
+        assert!((pos.x - 100.0).abs() < f32::EPSILON, "At progress=1 should be at to");
+    }
+
+    #[test]
+    fn trader_route_interpolates_correctly() {
+        let route = TraderRoute {
+            from: Vec2::new(0.0, 0.0),
+            to: Vec2::new(200.0, 0.0),
+            progress: 0.5,
+            forward: true,
+        };
+        let pos = route.current_position();
+        assert!((pos.x - 100.0).abs() < f32::EPSILON, "At progress=0.5 should be at midpoint (100)");
+    }
+
+    #[test]
+    fn trader_ship_moves_along_route() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0)));
+        app.add_systems(Update, update_trader_ships);
+        app.update(); // prime
+
+        let trader = app.world_mut().spawn((
+            TraderShip,
+            Transform::from_translation(Vec3::ZERO),
+            TraderRoute {
+                from: Vec2::ZERO,
+                to: Vec2::new(1000.0, 0.0),
+                progress: 0.0,
+                forward: true,
+            },
+        )).id();
+
+        app.update(); // 1 second at TRADER_SPEED=50
+
+        let transform = app.world().entity(trader).get::<Transform>()
+            .expect("Trader should have Transform");
+        assert!(
+            transform.translation.x > 0.0,
+            "Trader should have moved along route (positive X), got {}",
+            transform.translation.x
+        );
+    }
+
+    #[test]
+    fn trader_ship_reverses_at_destination() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)));
+        app.add_systems(Update, update_trader_ships);
+        app.update(); // prime
+
+        // Trader almost at destination
+        let trader = app.world_mut().spawn((
+            TraderShip,
+            Transform::from_translation(Vec3::new(99.0, 0.0, 0.0)),
+            TraderRoute {
+                from: Vec2::ZERO,
+                to: Vec2::new(100.0, 0.0),
+                progress: 0.99,
+                forward: true,
+            },
+        )).id();
+
+        // Run enough frames to arrive and start returning
+        for _ in 0..10 {
+            app.update();
+        }
+
+        let route = app.world().entity(trader).get::<TraderRoute>()
+            .expect("Trader should have TraderRoute");
+        assert!(!route.forward, "Trader should have reversed direction after reaching destination");
     }
 
     #[test]
