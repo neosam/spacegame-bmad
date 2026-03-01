@@ -11,8 +11,8 @@
 
 | Story ID | Titel | Status | Abhängigkeiten |
 |----------|-------|:------:|----------------|
-| BF-1 | Respawn an letzter Station | todo | keine |
-| BF-2 | Tutorial Zone Schutz | todo | keine |
+| BF-1 | Respawn an letzter Station | done | keine |
+| BF-2 | Tutorial Zone Schutz | done | keine |
 
 ---
 
