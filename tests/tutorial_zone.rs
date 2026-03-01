@@ -21,7 +21,7 @@ use void_drifter::core::weapons::{ActiveWeapon, Energy, FireCooldown, LaserPulse
 use void_drifter::core::input::ActionState;
 use void_drifter::core::collision::Health;
 use void_drifter::world::{ActiveChunks, WorldConfig, BiomeConfig, ChunkCoord,
-    ChunkEntityIndex, ChunkLoadState, ExploredChunks, PendingChunks};
+    ChunkEntityIndex, ChunkLoadState, ExploredChunks, PendingChunks, TutorialZoneChunks};
 use void_drifter::infrastructure::save::delta::WorldDeltas;
 
 /// Create a test app with tutorial spawn system registered BEFORE the prime frame.
@@ -39,6 +39,7 @@ fn tutorial_test_app() -> App {
     app.init_resource::<ChunkEntityIndex>();
     app.init_resource::<PendingChunks>();
     app.init_resource::<ChunkLoadState>();
+    app.init_resource::<TutorialZoneChunks>();
     app.init_resource::<WorldDeltas>();
     app.insert_resource(TutorialConfig::default());
     app.init_state::<TutorialPhase>();
@@ -2115,6 +2116,7 @@ fn full_flow_test_app() -> App {
     app.init_resource::<ChunkEntityIndex>();
     app.init_resource::<PendingChunks>();
     app.init_resource::<ChunkLoadState>();
+    app.init_resource::<TutorialZoneChunks>();
     app.init_resource::<WorldDeltas>();
     app.init_resource::<ActionState>();
     app.add_message::<void_drifter::shared::events::GameEvent>();

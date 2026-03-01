@@ -13,7 +13,7 @@ use void_drifter::shared::components::Velocity;
 use void_drifter::shared::events::GameEvent;
 use void_drifter::world::{
     ActiveChunks, BiomeConfig, BiomeType, ChunkEntity, ChunkEntityIndex, ChunkLoadState,
-    ExploredChunks, PendingChunks, WorldConfig,
+    ExploredChunks, PendingChunks, TutorialZoneChunks, WorldConfig,
 };
 
 /// Player at origin -> chunks within load_radius are populated with entities (AC: #1, #2)
@@ -265,6 +265,7 @@ fn entity_budget_enforced_across_multi_chunk_load() {
     app.init_resource::<ChunkEntityIndex>();
     app.init_resource::<PendingChunks>();
     app.init_resource::<ChunkLoadState>();
+    app.init_resource::<TutorialZoneChunks>();
     app.add_message::<GameEvent>();
     app.insert_resource(EventSeverityConfig::default());
     app.init_resource::<Logbook>();
@@ -313,6 +314,7 @@ fn entity_budget_accounts_for_non_chunk_collidable_entities() {
     app.init_resource::<ChunkEntityIndex>();
     app.init_resource::<PendingChunks>();
     app.init_resource::<ChunkLoadState>();
+    app.init_resource::<TutorialZoneChunks>();
     app.add_message::<GameEvent>();
     app.insert_resource(EventSeverityConfig::default());
     app.init_resource::<Logbook>();
@@ -557,6 +559,7 @@ fn multiple_biomes_appear_across_chunks() {
     app.init_resource::<ChunkEntityIndex>();
     app.init_resource::<PendingChunks>();
     app.init_resource::<ChunkLoadState>();
+    app.init_resource::<TutorialZoneChunks>();
     app.add_message::<GameEvent>();
     app.insert_resource(EventSeverityConfig::default());
     app.init_resource::<Logbook>();
@@ -622,6 +625,7 @@ fn entity_budget_with_high_density_biome() {
     app.init_resource::<ChunkEntityIndex>();
     app.init_resource::<PendingChunks>();
     app.init_resource::<ChunkLoadState>();
+    app.init_resource::<TutorialZoneChunks>();
     app.add_message::<GameEvent>();
     app.insert_resource(EventSeverityConfig::default());
     app.init_resource::<Logbook>();

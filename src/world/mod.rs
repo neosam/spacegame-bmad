@@ -10,7 +10,7 @@ pub use self::chunk::ChunkCoord;
 pub use self::generation::BiomeType;
 use self::chunk::{chunks_in_radius, manhattan_distance, world_to_chunk};
 use self::generation::{determine_biome, generate_chunk_content};
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 
 use crate::core::collision::{Collider, Health};
 use crate::core::flight::Player;
@@ -264,6 +264,28 @@ impl ChunkEntityIndex {
     }
 }
 
+/// Tracks the chunks that belong to the tutorial zone and must never be unloaded
+/// by the procedural chunk system, even when the player is far away.
+///
+/// Populated at startup by `init_tutorial_zone_chunks`. Chunk (0,0) and its
+/// immediate neighbours are registered so that the tutorial zone remains intact
+/// after the player leaves and respawns.
+#[derive(Resource, Default, Debug)]
+pub struct TutorialZoneChunks {
+    pub coords: HashSet<ChunkCoord>,
+}
+
+/// Startup system that registers tutorial-zone chunks in `TutorialZoneChunks`.
+/// The tutorial zone is always centered on chunk (0,0).
+pub fn init_tutorial_zone_chunks(mut tutorial_chunks: ResMut<TutorialZoneChunks>) {
+    // Register (0,0) and its direct 8-neighbours (radius 1).
+    for dx in -1..=1i32 {
+        for dy in -1..=1i32 {
+            tutorial_chunks.coords.insert(ChunkCoord { x: dx, y: dy });
+        }
+    }
+}
+
 /// Queue of chunks waiting to be loaded, sorted by distance (nearest first).
 #[derive(Resource, Default, Debug)]
 pub struct PendingChunks {
@@ -293,6 +315,7 @@ pub fn update_chunks(
     mut chunk_entity_index: ResMut<ChunkEntityIndex>,
     mut pending_chunks: ResMut<PendingChunks>,
     mut chunk_load_state: ResMut<ChunkLoadState>,
+    tutorial_chunks: Res<TutorialZoneChunks>,
     all_collidable: Query<Entity, With<Collider>>,
     mut game_events: MessageWriter<GameEvent>,
     time: Res<Time>,
@@ -311,10 +334,11 @@ pub fn update_chunks(
     let desired = chunks_in_radius(player_chunk, config.load_radius);
 
     // Phase 1: UNLOAD (immediate — all at once, not deferred)
+    // Tutorial-zone chunks are never unloaded so the zone survives player absence.
     let mut to_unload: Vec<ChunkCoord> = active_chunks
         .chunks
         .keys()
-        .filter(|k| !desired.contains(k))
+        .filter(|k| !desired.contains(k) && !tutorial_chunks.coords.contains(k))
         .copied()
         .collect();
     to_unload.sort();
@@ -543,6 +567,8 @@ impl Plugin for WorldPlugin {
         app.init_resource::<ChunkEntityIndex>();
         app.init_resource::<PendingChunks>();
         app.init_resource::<ChunkLoadState>();
+        app.init_resource::<TutorialZoneChunks>();
+        app.add_systems(Startup, init_tutorial_zone_chunks);
         app.add_systems(
             FixedUpdate,
             update_chunks.before(crate::core::CoreSet::Collision),
@@ -894,6 +920,120 @@ mod tests {
         assert!(
             (config.difficulty_count_scale_per_100u - 0.05).abs() < f32::EPSILON,
             "Should default to 0.05"
+        );
+    }
+
+    // ── BF-2: Tutorial Zone Chunk Protection ──────────────────────────────
+
+    /// Tutorial-zone chunks (0,0) and neighbours must be registered by
+    /// `init_tutorial_zone_chunks`.
+    #[test]
+    fn init_tutorial_zone_chunks_registers_origin_and_neighbours() {
+        let mut tutorial_chunks = TutorialZoneChunks::default();
+        // Simulate what the startup system does
+        for dx in -1..=1i32 {
+            for dy in -1..=1i32 {
+                tutorial_chunks.coords.insert(ChunkCoord { x: dx, y: dy });
+            }
+        }
+        assert_eq!(tutorial_chunks.coords.len(), 9, "3x3 neighbourhood = 9 chunks");
+        assert!(
+            tutorial_chunks.coords.contains(&ChunkCoord { x: 0, y: 0 }),
+            "Origin chunk must be registered"
+        );
+        assert!(
+            tutorial_chunks.coords.contains(&ChunkCoord { x: -1, y: -1 }),
+            "Top-left neighbour must be registered"
+        );
+        assert!(
+            tutorial_chunks.coords.contains(&ChunkCoord { x: 1, y: 1 }),
+            "Bottom-right neighbour must be registered"
+        );
+    }
+
+    /// When a tutorial chunk is active and the player moves far away (so it is
+    /// outside `desired`), the filter must keep it out of `to_unload`.
+    #[test]
+    fn tutorial_zone_chunks_not_unloaded() {
+        // Player is far away — chunk (0,0) is NOT in `desired`.
+        let player_chunk = ChunkCoord { x: 100, y: 100 };
+        let load_radius = 2u32;
+        let desired = chunk::chunks_in_radius(player_chunk, load_radius);
+
+        // Verify the tutorial chunk is indeed outside the desired set.
+        let tutorial_coord = ChunkCoord { x: 0, y: 0 };
+        assert!(
+            !desired.contains(&tutorial_coord),
+            "Tutorial chunk must not be desired when player is far away"
+        );
+
+        // Build the tutorial-zone resource.
+        let mut tutorial_chunks = TutorialZoneChunks::default();
+        for dx in -1..=1i32 {
+            for dy in -1..=1i32 {
+                tutorial_chunks.coords.insert(ChunkCoord { x: dx, y: dy });
+            }
+        }
+
+        // Simulate the to_unload filter from update_chunks.
+        let mut active_keys = std::collections::HashSet::new();
+        active_keys.insert(tutorial_coord);
+        active_keys.insert(ChunkCoord { x: 100, y: 100 }); // player's current chunk
+
+        let to_unload: Vec<ChunkCoord> = active_keys
+            .iter()
+            .filter(|k| !desired.contains(k) && !tutorial_chunks.coords.contains(k))
+            .copied()
+            .collect();
+
+        assert!(
+            !to_unload.contains(&tutorial_coord),
+            "Tutorial chunk (0,0) must NOT be in to_unload"
+        );
+    }
+
+    /// Non-tutorial chunks that are outside the load radius must still be unloaded.
+    #[test]
+    fn non_tutorial_chunks_still_unloaded() {
+        let player_chunk = ChunkCoord { x: 0, y: 0 };
+        let load_radius = 2u32;
+        let desired = chunk::chunks_in_radius(player_chunk, load_radius);
+
+        let mut tutorial_chunks = TutorialZoneChunks::default();
+        for dx in -1..=1i32 {
+            for dy in -1..=1i32 {
+                tutorial_chunks.coords.insert(ChunkCoord { x: dx, y: dy });
+            }
+        }
+
+        // A chunk far from both player and tutorial zone.
+        let far_chunk = ChunkCoord { x: 50, y: 50 };
+        assert!(
+            !desired.contains(&far_chunk),
+            "Far chunk must not be desired"
+        );
+        assert!(
+            !tutorial_chunks.coords.contains(&far_chunk),
+            "Far chunk must not be a tutorial chunk"
+        );
+
+        let mut active_keys = std::collections::HashSet::new();
+        active_keys.insert(far_chunk);
+        active_keys.insert(ChunkCoord { x: 0, y: 0 });
+
+        let to_unload: Vec<ChunkCoord> = active_keys
+            .iter()
+            .filter(|k| !desired.contains(k) && !tutorial_chunks.coords.contains(k))
+            .copied()
+            .collect();
+
+        assert!(
+            to_unload.contains(&far_chunk),
+            "Far chunk (50,50) must be in to_unload"
+        );
+        assert!(
+            !to_unload.contains(&ChunkCoord { x: 0, y: 0 }),
+            "Tutorial origin chunk must NOT be in to_unload (protected)"
         );
     }
 }

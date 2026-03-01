@@ -30,7 +30,7 @@ use void_drifter::infrastructure::save::delta::{track_destroyed_entities, WorldD
 use void_drifter::core::tutorial::{TutorialConfig, TutorialPhase};
 use void_drifter::world::{
     update_chunks, ActiveChunks, BiomeConfig, ChunkEntityIndex, ChunkLoadState, ExploredChunks,
-    PendingChunks, WorldConfig,
+    PendingChunks, TutorialZoneChunks, WorldConfig,
 };
 
 /// Create a minimal test App with flight, weapon, collision, and damage systems.
@@ -61,6 +61,7 @@ pub fn test_app() -> App {
     app.init_resource::<ChunkLoadState>();
     app.init_resource::<ButtonInput<KeyCode>>();
     app.init_resource::<ActiveChunks>();
+    app.init_resource::<TutorialZoneChunks>();
     app.init_resource::<WorldDeltas>();
     app.init_resource::<Credits>();
     app.init_resource::<DiscoveredChunks>();

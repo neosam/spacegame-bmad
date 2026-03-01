@@ -13,7 +13,7 @@ use void_drifter::infrastructure::save::world_save::WorldSave;
 use void_drifter::infrastructure::save::schema::SAVE_VERSION;
 use void_drifter::shared::events::GameEventKind;
 use void_drifter::infrastructure::save::delta::{ChunkDelta, SeedIndex, WorldDeltas};
-use void_drifter::world::{ActiveChunks, BiomeConfig, ChunkEntity, ChunkEntityIndex, ChunkLoadState, ExploredChunks, ChunkCoord, BiomeType, PendingChunks, WorldConfig};
+use void_drifter::world::{ActiveChunks, BiomeConfig, ChunkEntity, ChunkEntityIndex, ChunkLoadState, ExploredChunks, ChunkCoord, BiomeType, PendingChunks, TutorialZoneChunks, WorldConfig};
 
 fn cleanup_save_dir(dir: &str) {
     let _ = fs::remove_dir_all(dir);
@@ -595,6 +595,7 @@ fn destroy_entity_then_save_load_stays_destroyed() {
     app2.init_resource::<ChunkEntityIndex>();
     app2.init_resource::<PendingChunks>();
     app2.init_resource::<ChunkLoadState>();
+    app2.init_resource::<TutorialZoneChunks>();
     app2.init_resource::<WorldDeltas>();
     app2.init_resource::<void_drifter::core::economy::Credits>();
     app2.init_resource::<void_drifter::core::economy::DiscoveredChunks>();
@@ -803,6 +804,7 @@ fn e2e_damage_track_save_load_filters_entity() {
     app2.init_resource::<ChunkEntityIndex>();
     app2.init_resource::<PendingChunks>();
     app2.init_resource::<ChunkLoadState>();
+    app2.init_resource::<TutorialZoneChunks>();
     app2.init_resource::<WorldDeltas>();
     app2.init_resource::<void_drifter::core::economy::Credits>();
     app2.init_resource::<void_drifter::core::economy::DiscoveredChunks>();

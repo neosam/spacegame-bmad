@@ -11,7 +11,7 @@ use void_drifter::shared::events::GameEvent;
 use void_drifter::infrastructure::save::delta::WorldDeltas;
 use void_drifter::world::{
     ActiveChunks, BiomeConfig, ChunkEntity, ChunkEntityIndex, ChunkLoadState, ExploredChunks,
-    PendingChunks, WorldConfig,
+    PendingChunks, TutorialZoneChunks, WorldConfig,
 };
 use void_drifter::world::chunk::ChunkCoord;
 
@@ -139,6 +139,7 @@ fn staggered_loading_respects_max_per_frame() {
     app.init_resource::<ChunkEntityIndex>();
     app.init_resource::<PendingChunks>();
     app.init_resource::<ChunkLoadState>();
+    app.init_resource::<TutorialZoneChunks>();
     app.add_message::<GameEvent>();
     app.insert_resource(EventSeverityConfig::default());
     app.init_resource::<Logbook>();
@@ -196,6 +197,7 @@ fn load_priority_nearest_first() {
     app.init_resource::<ChunkEntityIndex>();
     app.init_resource::<PendingChunks>();
     app.init_resource::<ChunkLoadState>();
+    app.init_resource::<TutorialZoneChunks>();
     app.add_message::<GameEvent>();
     app.insert_resource(EventSeverityConfig::default());
     app.init_resource::<Logbook>();
@@ -314,6 +316,7 @@ fn pending_queue_refreshed_on_chunk_change() {
     app.init_resource::<ChunkEntityIndex>();
     app.init_resource::<PendingChunks>();
     app.init_resource::<ChunkLoadState>();
+    app.init_resource::<TutorialZoneChunks>();
     app.add_message::<GameEvent>();
     app.insert_resource(EventSeverityConfig::default());
     app.init_resource::<Logbook>();
