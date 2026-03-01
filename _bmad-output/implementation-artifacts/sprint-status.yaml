@@ -108,7 +108,7 @@ development_status:
   4-10-trader-ships: done
   4-11-distance-difficulty-scaling: done
   4-12-enemy-respawn: done
-  epic-4-retrospective: optional
+  epic-4-retrospective: done
 
   # ── Epic 5: Progression & Upgrades (Should | Dependencies: Epic 3) ──
   epic-5: backlog
