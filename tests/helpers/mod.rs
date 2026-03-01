@@ -25,6 +25,7 @@ use void_drifter::shared::components::Velocity;
 use void_drifter::shared::events::GameEvent;
 use void_drifter::rendering::minimap::{MinimapConfig, MinimapState};
 use void_drifter::rendering::world_map::{WorldMapConfig, WorldMapOpen, WorldMapState};
+use void_drifter::infrastructure::save::delta::{track_destroyed_entities, WorldDeltas};
 use void_drifter::world::{
     update_chunks, ActiveChunks, BiomeConfig, ChunkEntityIndex, ChunkLoadState, ExploredChunks,
     PendingChunks, WorldConfig,
@@ -56,6 +57,7 @@ pub fn test_app() -> App {
     app.init_resource::<ChunkLoadState>();
     app.init_resource::<ButtonInput<KeyCode>>();
     app.init_resource::<ActiveChunks>();
+    app.init_resource::<WorldDeltas>();
     app.add_message::<LaserFired>();
     app.add_message::<SpreadFired>();
     app.add_message::<GameEvent>();
@@ -83,6 +85,7 @@ pub fn test_app() -> App {
             check_projectile_collisions,
             check_contact_collisions,
             apply_damage,
+            track_destroyed_entities,
             handle_player_death,
             spawn_respawn_timers,
             despawn_destroyed,

@@ -16,6 +16,7 @@ use crate::core::collision::{Collider, Health};
 use crate::core::flight::Player;
 use crate::core::spawning::{Asteroid, NeedsAsteroidVisual, NeedsDroneVisual, ScoutDrone};
 use crate::infrastructure::events::EventSeverityConfig;
+use crate::infrastructure::save::delta::{SeedIndex, WorldDeltas};
 use crate::shared::components::Velocity;
 use crate::shared::events::{GameEvent, GameEventKind};
 
@@ -246,6 +247,7 @@ pub fn update_chunks(
     mut game_events: MessageWriter<GameEvent>,
     time: Res<Time>,
     severity_config: Res<EventSeverityConfig>,
+    world_deltas: Res<WorldDeltas>,
 ) {
     let Ok(player_transform) = player_query.single() else {
         return;
@@ -320,11 +322,25 @@ pub fn update_chunks(
         let blueprints =
             generate_chunk_content(config.seed, coord, config.chunk_size, biome, &biome_config);
         let remaining_budget = config.entity_budget.saturating_sub(total_entity_count);
-        let spawn_count = blueprints.len().min(remaining_budget);
 
-        let mut chunk_entities = Vec::with_capacity(spawn_count);
-        for blueprint in blueprints.into_iter().take(spawn_count) {
+        // Get destroyed indices for this chunk from WorldDeltas
+        let destroyed = world_deltas
+            .deltas
+            .get(&coord)
+            .map(|d| &d.destroyed[..])
+            .unwrap_or(&[]);
+
+        let mut chunk_entities = Vec::with_capacity(remaining_budget);
+        for (i, blueprint) in blueprints.into_iter().enumerate() {
+            if chunk_entities.len() >= remaining_budget {
+                break;
+            }
+            // Skip entities that were destroyed in a previous session
+            if destroyed.contains(&(i as u32)) {
+                continue;
+            }
             let chunk_marker = ChunkEntity { coord };
+            let seed_index = SeedIndex(i as u32);
             let entity = match blueprint.entity_type {
                 generation::BlueprintType::Asteroid => commands
                     .spawn((
@@ -341,6 +357,7 @@ pub fn update_chunks(
                         Transform::from_translation(blueprint.position.extend(0.0)),
                         chunk_marker,
                         biome,
+                        seed_index,
                     ))
                     .id(),
                 generation::BlueprintType::ScoutDrone => commands
@@ -358,13 +375,14 @@ pub fn update_chunks(
                         Transform::from_translation(blueprint.position.extend(0.0)),
                         chunk_marker,
                         biome,
+                        seed_index,
                     ))
                     .id(),
             };
             chunk_entities.push(entity);
         }
 
-        total_entity_count += spawn_count;
+        total_entity_count += chunk_entities.len();
         chunk_entity_index.chunks.insert(coord, chunk_entities);
         active_chunks.chunks.insert(coord, biome);
         explored_chunks.chunks.entry(coord).or_insert(biome);

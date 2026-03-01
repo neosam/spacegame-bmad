@@ -1,3 +1,5 @@
+pub mod delta;
+pub mod migration;
 pub mod schema;
 pub mod player_save;
 pub mod world_save;
@@ -16,6 +18,7 @@ use crate::shared::components::Velocity;
 use crate::shared::events::{GameEvent, GameEventKind};
 use crate::world::{ExploredChunks, WorldConfig};
 
+use self::delta::WorldDeltas;
 use self::player_save::PlayerSave;
 use self::world_save::WorldSave;
 
@@ -51,6 +54,7 @@ pub fn save_game(
     >,
     world_config: Res<WorldConfig>,
     explored_chunks: Res<ExploredChunks>,
+    world_deltas: Res<WorldDeltas>,
     mut game_events: MessageWriter<GameEvent>,
     time: Res<Time>,
     severity_config: Res<EventSeverityConfig>,
@@ -79,7 +83,7 @@ pub fn save_game(
     };
 
     // Build WorldSave
-    let world_save = WorldSave::from_resources(world_config.seed, &explored_chunks);
+    let world_save = WorldSave::from_resources(world_config.seed, &explored_chunks, &world_deltas);
 
     // Serialize and write
     let player_ron = match player_save.to_ron() {
@@ -130,6 +134,7 @@ pub fn load_game(
         With<Player>,
     >,
     mut explored_chunks: ResMut<ExploredChunks>,
+    mut world_deltas: ResMut<WorldDeltas>,
     mut save_state: ResMut<SaveState>,
     mut world_config: ResMut<WorldConfig>,
 ) {
@@ -167,7 +172,7 @@ pub fn load_game(
             match WorldSave::from_ron(&contents) {
                 Ok(world_save) => {
                     world_config.seed = world_save.seed;
-                    world_save.apply_to_explored(&mut explored_chunks);
+                    world_save.apply_to_world_resources(&mut explored_chunks, &mut world_deltas);
                 }
                 Err(e) => {
                     warn!("Corrupt world save file '{}': {e}. Starting fresh.", world_path.display());
@@ -187,7 +192,14 @@ impl Plugin for SavePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(SaveConfig::default());
         app.init_resource::<SaveState>();
+        app.init_resource::<WorldDeltas>();
         app.add_systems(Startup, load_game);
+        app.add_systems(
+            FixedUpdate,
+            delta::track_destroyed_entities
+                .after(crate::core::collision::apply_damage)
+                .before(crate::core::collision::despawn_destroyed),
+        );
         app.add_systems(
             FixedUpdate,
             save_game.in_set(crate::core::CoreSet::Events),

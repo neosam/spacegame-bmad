@@ -3,7 +3,7 @@ use std::fmt;
 use serde::Deserialize;
 
 /// Current save file schema version.
-pub const SAVE_VERSION: u32 = 1;
+pub const SAVE_VERSION: u32 = 2;
 
 /// Errors that can occur during save/load operations.
 #[derive(Debug)]
@@ -35,12 +35,18 @@ struct VersionHeader {
 }
 
 /// Checks the schema version in a RON string.
-/// Extracts the `schema_version` field and validates it against `SAVE_VERSION`.
+/// Accepts version 1 (needs migration) or current version.
+/// Returns the version found.
+///
+/// **Design note:** Each supported old version is listed explicitly so that
+/// bumping `SAVE_VERSION` forces the developer to add a new migration path
+/// and update this function. Do NOT use `<= SAVE_VERSION` — that would
+/// silently accept versions without a corresponding migration.
 pub fn check_version(ron_str: &str) -> Result<u32, SaveError> {
     let header: VersionHeader = ron::from_str(ron_str)
         .map_err(|e| SaveError::ParseError(format!("{e}")))?;
 
-    if header.schema_version != SAVE_VERSION {
+    if header.schema_version != SAVE_VERSION && header.schema_version != 1 {
         return Err(SaveError::VersionMismatch {
             expected: SAVE_VERSION,
             found: header.schema_version,
@@ -55,14 +61,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn save_version_is_one() {
-        assert_eq!(SAVE_VERSION, 1);
+    fn save_version_is_two() {
+        assert_eq!(SAVE_VERSION, 2);
     }
 
     #[test]
-    fn check_version_valid() {
-        let ron_str = r#"(schema_version: 1, position: (1.0, 2.0))"#;
+    fn check_version_valid_current() {
+        let ron_str = r#"(schema_version: 2, position: (1.0, 2.0))"#;
         let version = check_version(ron_str).expect("Should parse valid version");
+        assert_eq!(version, 2);
+    }
+
+    #[test]
+    fn check_version_accepts_v1() {
+        let ron_str = r#"(schema_version: 1, position: (1.0, 2.0))"#;
+        let version = check_version(ron_str).expect("Should accept v1 for migration");
         assert_eq!(version, 1);
     }
 

@@ -8,6 +8,7 @@ use void_drifter::core::collision::{Collider, Health};
 use void_drifter::core::spawning::Asteroid;
 use void_drifter::infrastructure::events::EventSeverityConfig;
 use void_drifter::infrastructure::logbook::Logbook;
+use void_drifter::infrastructure::save::delta::WorldDeltas;
 use void_drifter::shared::components::Velocity;
 use void_drifter::shared::events::GameEvent;
 use void_drifter::world::{
@@ -267,6 +268,7 @@ fn entity_budget_enforced_across_multi_chunk_load() {
     app.add_message::<GameEvent>();
     app.insert_resource(EventSeverityConfig::default());
     app.init_resource::<Logbook>();
+    app.init_resource::<WorldDeltas>();
     app.add_systems(FixedUpdate, void_drifter::world::update_chunks);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)));
     app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
@@ -314,6 +316,7 @@ fn entity_budget_accounts_for_non_chunk_collidable_entities() {
     app.add_message::<GameEvent>();
     app.insert_resource(EventSeverityConfig::default());
     app.init_resource::<Logbook>();
+    app.init_resource::<WorldDeltas>();
     app.add_systems(FixedUpdate, void_drifter::world::update_chunks);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)));
     app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
@@ -557,6 +560,7 @@ fn multiple_biomes_appear_across_chunks() {
     app.add_message::<GameEvent>();
     app.insert_resource(EventSeverityConfig::default());
     app.init_resource::<Logbook>();
+    app.init_resource::<WorldDeltas>();
     app.add_systems(FixedUpdate, void_drifter::world::update_chunks);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)));
     app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
@@ -621,6 +625,7 @@ fn entity_budget_with_high_density_biome() {
     app.add_message::<GameEvent>();
     app.insert_resource(EventSeverityConfig::default());
     app.init_resource::<Logbook>();
+    app.init_resource::<WorldDeltas>();
     app.add_systems(FixedUpdate, void_drifter::world::update_chunks);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)));
     app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
@@ -708,4 +713,41 @@ fn laser_hits_biome_tagged_asteroid() {
             // Destroyed = valid
         }
     }
+}
+
+/// Chunk-spawned entities should have a SeedIndex component (Story 1.9, AC #1)
+#[test]
+fn seed_index_assigned_during_chunk_spawn() {
+    use void_drifter::infrastructure::save::delta::SeedIndex;
+
+    let mut app = test_app();
+    spawn_player(&mut app);
+    run_until_loaded(&mut app);
+
+    // Count chunk entities with SeedIndex
+    let with_seed_count = {
+        let mut query = app
+            .world_mut()
+            .query_filtered::<Entity, (With<ChunkEntity>, With<SeedIndex>, With<Collider>)>();
+        query.iter(app.world()).count()
+    };
+
+    assert!(
+        with_seed_count > 0,
+        "Should have chunk entities with SeedIndex after loading"
+    );
+
+    // Every chunk entity with a Collider should have a SeedIndex
+    let total_chunk_entities = {
+        let mut chunk_entity_query = app
+            .world_mut()
+            .query_filtered::<Entity, (With<ChunkEntity>, With<Collider>)>();
+        chunk_entity_query.iter(app.world()).count()
+    };
+
+    assert_eq!(
+        with_seed_count,
+        total_chunk_entities,
+        "All chunk entities should have SeedIndex"
+    );
 }
