@@ -2087,6 +2087,353 @@ fn hundred_seed_validation_still_passes_after_entity_rendering() {
     }
 }
 
+// ── Full Tutorial Happy Path Integration Test ─────────────────────────────
+
+/// Build a full tutorial test app that includes all phase-transition systems.
+/// This is used for the end-to-end happy-path test.
+fn full_flow_test_app() -> App {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.add_plugins(bevy::state::app::StatesPlugin);
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
+        1.0 / 60.0,
+    )));
+    app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
+    app.insert_resource(TutorialConfig::default());
+    app.insert_resource(SpawningConfig::default());
+    app.insert_resource(void_drifter::core::flight::FlightConfig::default());
+    app.insert_resource(void_drifter::core::weapons::WeaponConfig::default());
+    app.insert_resource(WorldConfig::default());
+    app.insert_resource(BiomeConfig::default());
+    app.init_resource::<ActiveChunks>();
+    app.init_resource::<ExploredChunks>();
+    app.init_resource::<ChunkEntityIndex>();
+    app.init_resource::<PendingChunks>();
+    app.init_resource::<ChunkLoadState>();
+    app.init_resource::<WorldDeltas>();
+    app.init_resource::<ActionState>();
+    app.add_message::<void_drifter::shared::events::GameEvent>();
+    app.insert_resource(void_drifter::infrastructure::events::EventSeverityConfig::default());
+    app.init_resource::<void_drifter::infrastructure::logbook::Logbook>();
+    app.init_state::<TutorialPhase>();
+
+    // Spawn tutorial zone on Startup (creates Station, Generator, Wreck, TutorialZone resource)
+    app.add_systems(Startup, void_drifter::core::tutorial::spawn_tutorial_zone);
+
+    // Phase-transition systems: Flying → Shooting
+    app.add_systems(
+        FixedUpdate,
+        (
+            void_drifter::core::tutorial::update_weapons_lock,
+            unlock_laser_at_wreck,
+        )
+            .chain(),
+    );
+
+    // Phase-transition systems: Shooting → SpreadUnlocked
+    app.add_systems(FixedUpdate, advance_phase_on_wreck_shot);
+
+    // OnEnter(SpreadUnlocked): spawn tutorial enemy wave
+    app.add_systems(OnEnter(TutorialPhase::SpreadUnlocked), spawn_tutorial_enemies);
+
+    // Phase-transition systems: SpreadUnlocked → Complete
+    app.add_systems(FixedUpdate, check_tutorial_wave_complete);
+
+    // Phase-transition systems: Complete → StationVisited
+    app.add_systems(FixedUpdate, dock_at_station);
+
+    // Phase-transition systems: StationVisited → GeneratorDestroyed
+    app.add_systems(FixedUpdate, check_generator_destroyed);
+
+    // OnEnter(GeneratorDestroyed): insert cascade timer
+    app.add_systems(OnEnter(TutorialPhase::GeneratorDestroyed), start_destruction_cascade);
+
+    // Phase-transition systems: GeneratorDestroyed → TutorialComplete
+    app.add_systems(FixedUpdate, tick_cascade_timer);
+
+    // Prime frame: runs Startup (spawn_tutorial_zone) and establishes change-detection baseline
+    app.update();
+
+    // Spawn player at tutorial layout position (mirrors rendering/mod.rs::setup_player)
+    let player_spawn = {
+        let zone = app.world().resource::<TutorialZone>();
+        zone.layout.player_spawn
+    };
+    app.world_mut().spawn((
+        Player,
+        Velocity::default(),
+        void_drifter::core::collision::Health { current: 100.0, max: 100.0 },
+        void_drifter::core::collision::Collider { radius: 12.0 },
+        FireCooldown::default(),
+        Energy::default(),
+        ActiveWeapon::default(),
+        WeaponsLocked,
+        Transform::from_translation(player_spawn.extend(0.0)),
+    ));
+
+    app
+}
+
+/// End-to-end integration test that walks through the complete tutorial happy path:
+///   Flying → Shooting → SpreadUnlocked → Complete → StationVisited
+///   → GeneratorDestroyed → TutorialComplete
+///
+/// Each transition is triggered by directly manipulating world state (positions,
+/// components, resources) rather than simulating real physics input.  This makes
+/// the test fast, deterministic, and immediately visible when a flow bug regresses.
+#[test]
+fn tutorial_happy_path_full_flow() {
+    let mut app = full_flow_test_app();
+
+    // ── Phase 1: Verify starting state ─────────────────────────────────
+    let phase = app.world().resource::<State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::Flying,
+        "Tutorial should start in Flying phase"
+    );
+
+    // ── Step 1: Flying → Shooting ───────────────────────────────────────
+    // Move player to within wreck_dock_radius (120.0) of TutorialWreck.
+    {
+        let wreck_pos = app
+            .world_mut()
+            .query_filtered::<&Transform, With<TutorialWreck>>()
+            .single(app.world())
+            .expect("Should have one TutorialWreck")
+            .translation;
+
+        let player_entity = app
+            .world_mut()
+            .query_filtered::<Entity, With<Player>>()
+            .single(app.world())
+            .expect("Should have one Player");
+
+        // Place player 50 units from wreck — well inside wreck_dock_radius (120.0)
+        app.world_mut()
+            .entity_mut(player_entity)
+            .get_mut::<Transform>()
+            .expect("Player should have Transform")
+            .translation = wreck_pos + Vec3::new(50.0, 0.0, 0.0);
+    }
+
+    app.update(); // unlock_laser_at_wreck fires → NextState(Shooting)
+    app.update(); // Apply state transition: Flying → Shooting
+
+    let phase = app.world().resource::<State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::Shooting,
+        "Phase should advance to Shooting after player reaches wreck"
+    );
+
+    // WeaponsLocked should have been removed now that we are in Shooting phase
+    {
+        let player_entity = app
+            .world_mut()
+            .query_filtered::<Entity, With<Player>>()
+            .single(app.world())
+            .expect("Should have one Player");
+        app.update(); // update_weapons_lock runs in Shooting phase → removes WeaponsLocked
+        let has_locked = app
+            .world()
+            .entity(player_entity)
+            .get::<WeaponsLocked>()
+            .is_some();
+        assert!(
+            !has_locked,
+            "WeaponsLocked should be removed after transitioning to Shooting"
+        );
+    }
+
+    // ── Step 2: Shooting → SpreadUnlocked ──────────────────────────────
+    // Add JustDamaged to TutorialWreck to simulate a laser hit.
+    {
+        let wreck_entity = app
+            .world_mut()
+            .query_filtered::<Entity, With<TutorialWreck>>()
+            .single(app.world())
+            .expect("Should have one TutorialWreck");
+        app.world_mut()
+            .entity_mut(wreck_entity)
+            .insert(JustDamaged { amount: 10.0 });
+    }
+
+    app.update(); // advance_phase_on_wreck_shot fires → NextState(SpreadUnlocked)
+    app.update(); // Apply state transition: Shooting → SpreadUnlocked
+                  // OnEnter(SpreadUnlocked) also runs → spawn_tutorial_enemies fires
+
+    let phase = app.world().resource::<State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::SpreadUnlocked,
+        "Phase should advance to SpreadUnlocked after wreck is shot"
+    );
+
+    // WreckShotState should now be true
+    {
+        let mut query = app.world_mut().query::<&WreckShotState>();
+        let shot_state = query
+            .iter(app.world())
+            .next()
+            .expect("Should have WreckShotState");
+        assert!(
+            shot_state.has_been_shot,
+            "WreckShotState.has_been_shot should be true after shooting wreck"
+        );
+    }
+
+    // ── Step 3: SpreadUnlocked → Complete ──────────────────────────────
+    // spawn_tutorial_enemies ran on OnEnter(SpreadUnlocked).
+    // Despawn all tutorial enemies to satisfy check_tutorial_wave_complete.
+    {
+        let enemy_entities: Vec<Entity> = app
+            .world_mut()
+            .query_filtered::<Entity, With<TutorialEnemy>>()
+            .iter(app.world())
+            .collect();
+        for entity in enemy_entities {
+            app.world_mut().entity_mut(entity).despawn();
+        }
+    }
+
+    // check_tutorial_wave_complete needs TutorialEnemyWave resource (inserted by spawn_tutorial_enemies)
+    // and zero living enemies.  The wave resource should already be present from OnEnter.
+    assert!(
+        app.world().get_resource::<TutorialEnemyWave>().is_some(),
+        "TutorialEnemyWave resource should exist after entering SpreadUnlocked phase"
+    );
+
+    app.update(); // check_tutorial_wave_complete fires → NextState(Complete)
+    app.update(); // Apply state transition: SpreadUnlocked → Complete
+
+    let phase = app.world().resource::<State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::Complete,
+        "Phase should advance to Complete after all tutorial enemies are destroyed"
+    );
+
+    // ── Step 4: Complete → StationVisited ──────────────────────────────
+    // Move player to within dock_radius (150.0) of TutorialStation.
+    {
+        let station_pos = app
+            .world_mut()
+            .query_filtered::<&Transform, With<TutorialStation>>()
+            .single(app.world())
+            .expect("Should have one TutorialStation")
+            .translation;
+
+        let player_entity = app
+            .world_mut()
+            .query_filtered::<Entity, With<Player>>()
+            .single(app.world())
+            .expect("Should have one Player");
+
+        // Place player 50 units from station — well inside dock_radius (150.0)
+        app.world_mut()
+            .entity_mut(player_entity)
+            .get_mut::<Transform>()
+            .expect("Player should have Transform")
+            .translation = station_pos + Vec3::new(50.0, 0.0, 0.0);
+    }
+
+    app.update(); // dock_at_station fires → NextState(StationVisited), inserts SpreadUnlocked on player
+    app.update(); // Apply state transition: Complete → StationVisited
+
+    let phase = app.world().resource::<State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::StationVisited,
+        "Phase should advance to StationVisited after player docks at station"
+    );
+
+    // Verify: Player received SpreadUnlocked component
+    {
+        let player_entity = app
+            .world_mut()
+            .query_filtered::<Entity, With<Player>>()
+            .single(app.world())
+            .expect("Should have one Player");
+        let has_spread = app
+            .world()
+            .entity(player_entity)
+            .get::<SpreadUnlocked>()
+            .is_some();
+        assert!(
+            has_spread,
+            "Player should have SpreadUnlocked component after docking at station"
+        );
+    }
+
+    // Verify: TutorialStation.defective == false
+    {
+        let mut query = app.world_mut().query::<&TutorialStation>();
+        let station = query
+            .iter(app.world())
+            .next()
+            .expect("Should have TutorialStation");
+        assert!(
+            !station.defective,
+            "TutorialStation.defective should be false after docking"
+        );
+    }
+
+    // ── Step 5: StationVisited → GeneratorDestroyed ─────────────────────
+    // Despawn the GravityWellGenerator to trigger check_generator_destroyed.
+    {
+        let gen_entities: Vec<Entity> = app
+            .world_mut()
+            .query_filtered::<Entity, With<GravityWellGenerator>>()
+            .iter(app.world())
+            .collect();
+        for entity in gen_entities {
+            app.world_mut().entity_mut(entity).despawn();
+        }
+    }
+
+    app.update(); // check_generator_destroyed fires → NextState(GeneratorDestroyed)
+                  // OnEnter(GeneratorDestroyed) also runs → start_destruction_cascade inserts CascadeTimer
+    app.update(); // Apply state transition: StationVisited → GeneratorDestroyed
+
+    let phase = app.world().resource::<State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::GeneratorDestroyed,
+        "Phase should advance to GeneratorDestroyed after generator is despawned"
+    );
+
+    // CascadeTimer should be present after entering GeneratorDestroyed
+    assert!(
+        app.world().get_resource::<CascadeTimer>().is_some(),
+        "CascadeTimer should be inserted when entering GeneratorDestroyed phase"
+    );
+
+    // ── Step 6: GeneratorDestroyed → TutorialComplete ──────────────────
+    // Fast-forward the CascadeTimer by setting remaining to 0 to avoid waiting 2s (120 frames).
+    {
+        app.world_mut()
+            .resource_mut::<CascadeTimer>()
+            .remaining = 0.0;
+    }
+
+    app.update(); // tick_cascade_timer detects remaining <= 0 → NextState(TutorialComplete)
+    app.update(); // Apply state transition: GeneratorDestroyed → TutorialComplete
+
+    let phase = app.world().resource::<State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::TutorialComplete,
+        "Phase should advance to TutorialComplete after cascade delay expires"
+    );
+
+    // CascadeTimer should be removed after cascade fires
+    assert!(
+        app.world().get_resource::<CascadeTimer>().is_none(),
+        "CascadeTimer should be removed after cascade fires"
+    );
+}
+
 // ── Gravity Well Boundary Visual Tests (Story 2-11) ──────────────────────
 
 /// Build a minimal app with asset resources and the setup_gravity_well_boundary_visual
