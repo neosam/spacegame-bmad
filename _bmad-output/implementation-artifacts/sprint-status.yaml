@@ -172,7 +172,7 @@ development_status:
   9-3-arena-combat: done
   9-4-arena-rewards: done
   9-5-isolated-scenes: done
-  epic-9-retrospective: optional
+  epic-9-retrospective: done
 
   # ── Epic 10: Art & Audio Polish (Could | Dependencies: Core epics stable) ──
   epic-10: backlog
