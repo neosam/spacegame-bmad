@@ -21,7 +21,7 @@ use crate::infrastructure::save::delta::{SeedIndex, WorldDeltas};
 use crate::shared::components::Velocity;
 use crate::shared::events::{GameEvent, GameEventKind};
 use crate::social::enemy_ai::{AiState, ErraticOffset, EnemyFireCooldown};
-use crate::social::faction::{FactionId, AggroRange, AttackRange, FleeThreshold, PatrolRadius};
+use crate::social::faction::{faction_at_position, FactionId, AggroRange, AttackRange, FleeThreshold, PatrolRadius};
 
 // ── World Config ─────────────────────────────────────────────────────────
 
@@ -376,8 +376,12 @@ pub fn update_chunks(
                         seed_index,
                     ))
                     .insert((
-                        // Story 4-1: AI components
-                        FactionId::RogueDrones,
+                        // Story 4-1+4-7: AI components with faction-territory-based faction
+                        faction_at_position(
+                            blueprint.position.x,
+                            blueprint.position.y,
+                            config.seed as u32,
+                        ),
                         AiState::Idle,
                         AggroRange(200.0),
                         AttackRange(80.0),
