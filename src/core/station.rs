@@ -2,12 +2,23 @@ use bevy::prelude::*;
 
 // ── Types ────────────────────────────────────────────────────────────────
 
-/// Type of open-world station, determines available services.
+/// Type of open-world station, determines available services and visual appearance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StationType {
-    Trading,
-    Repair,
-    Research,
+    TradingPost,
+    RepairStation,
+    BlackMarket,
+}
+
+impl StationType {
+    /// Returns the human-readable display name for this station type.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            StationType::TradingPost => "Trading Post",
+            StationType::RepairStation => "Repair Station",
+            StationType::BlackMarket => "Black Market",
+        }
+    }
 }
 
 // ── Components ───────────────────────────────────────────────────────────
@@ -126,9 +137,16 @@ mod tests {
 
     #[test]
     fn station_type_variants_are_distinct() {
-        assert_ne!(StationType::Trading, StationType::Repair);
-        assert_ne!(StationType::Repair, StationType::Research);
-        assert_ne!(StationType::Trading, StationType::Research);
+        assert_ne!(StationType::TradingPost, StationType::RepairStation);
+        assert_ne!(StationType::RepairStation, StationType::BlackMarket);
+        assert_ne!(StationType::TradingPost, StationType::BlackMarket);
+    }
+
+    #[test]
+    fn station_type_display_names() {
+        assert_eq!(StationType::TradingPost.display_name(), "Trading Post");
+        assert_eq!(StationType::RepairStation.display_name(), "Repair Station");
+        assert_eq!(StationType::BlackMarket.display_name(), "Black Market");
     }
 
     #[test]
@@ -136,11 +154,11 @@ mod tests {
         let s = Station {
             name: "Trading Post",
             dock_radius: 120.0,
-            station_type: StationType::Trading,
+            station_type: StationType::TradingPost,
         };
         assert_eq!(s.name, "Trading Post");
         assert!((s.dock_radius - 120.0).abs() < f32::EPSILON);
-        assert_eq!(s.station_type, StationType::Trading);
+        assert_eq!(s.station_type, StationType::TradingPost);
     }
 
     #[test]

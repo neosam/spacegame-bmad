@@ -54,7 +54,7 @@ fn spawn_station_at(app: &mut App, position: Vec2, dock_radius: f32) -> Entity {
             Station {
                 name: "Test Station",
                 dock_radius,
-                station_type: StationType::Trading,
+                station_type: StationType::TradingPost,
             },
             Transform::from_translation(position.extend(0.0)),
         ))
@@ -223,9 +223,9 @@ fn station_type_trading_can_be_constructed() {
     let s = Station {
         name: "Trading Hub",
         dock_radius: 100.0,
-        station_type: StationType::Trading,
+        station_type: StationType::TradingPost,
     };
-    assert_eq!(s.station_type, StationType::Trading);
+    assert_eq!(s.station_type, StationType::TradingPost);
 }
 
 #[test]

@@ -12,7 +12,7 @@ use crate::core::economy::Credits;
 use crate::core::flight::Player;
 use crate::shared::components::{MaterialType, NeedsMaterialDropVisual};
 use crate::core::spawning::{NeedsAsteroidVisual, NeedsDroneVisual, SpawningConfig};
-use crate::core::station::{Docked, NeedsStationVisual, Station};
+use crate::core::station::{Docked, NeedsStationVisual, Station, StationType};
 use crate::core::tutorial::{generate_tutorial_zone, GravityWellBoundary, GravityWellGenerator, TutorialConfig, TutorialStation, TutorialWreck};
 use crate::core::weapons::{
     ActiveWeapon, Energy, FireCooldown, NeedsLaserVisual, NeedsProjectileVisual, WeaponConfig,
@@ -466,40 +466,52 @@ pub fn setup_gravity_well_boundary_visual(
     }
 }
 
-/// Cached mesh and material handles for open-world Station entities.
+/// Cached mesh and material handles for each open-world Station type.
 #[derive(Resource)]
-struct StationAssets {
-    mesh: Handle<Mesh>,
-    material: Handle<ColorMaterial>,
+struct StationTypeAssets {
+    trading_mesh: Handle<Mesh>,
+    trading_mat: Handle<ColorMaterial>,
+    repair_mesh: Handle<Mesh>,
+    repair_mat: Handle<ColorMaterial>,
+    black_market_mesh: Handle<Mesh>,
+    black_market_mat: Handle<ColorMaterial>,
 }
 
-/// Initialize Station visual assets once at startup.
-/// Uses a larger hexagon (radius 35) in a distinct medium-teal color
-/// so open-world stations are visually different from TutorialStation.
+/// Initialize per-type Station visual assets once at startup.
+/// TradingPost: green 40px, RepairStation: blue 35px, BlackMarket: purple 30px.
 fn setup_station_assets(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let mesh = meshes.add(generate_tutorial_station_mesh(35.0));
-    // Medium-teal: distinct from tutorial station (dim/bright teal)
-    let material = materials.add(ColorMaterial::from(Color::srgb(0.2, 0.7, 0.6)));
-    commands.insert_resource(StationAssets { mesh, material });
+    let trading_mesh = meshes.add(generate_tutorial_station_mesh(40.0));
+    let trading_mat = materials.add(ColorMaterial::from(Color::srgb(0.0, 1.0, 0.533)));
+    let repair_mesh = meshes.add(generate_tutorial_station_mesh(35.0));
+    let repair_mat = materials.add(ColorMaterial::from(Color::srgb(0.267, 0.533, 1.0)));
+    let black_market_mesh = meshes.add(generate_tutorial_station_mesh(30.0));
+    let black_market_mat = materials.add(ColorMaterial::from(Color::srgb(0.667, 0.267, 1.0)));
+    commands.insert_resource(StationTypeAssets {
+        trading_mesh, trading_mat,
+        repair_mesh, repair_mat,
+        black_market_mesh, black_market_mat,
+    });
 }
 
-/// Attaches cached mesh and material to newly spawned Station entities (NeedsStationVisual).
+/// Attaches cached mesh and material to newly spawned Station entities based on their StationType.
 fn render_stations(
     mut commands: Commands,
-    assets: Res<StationAssets>,
-    query: Query<Entity, With<NeedsStationVisual>>,
+    assets: Res<StationTypeAssets>,
+    query: Query<(Entity, &Station), With<NeedsStationVisual>>,
 ) {
-    for entity in query.iter() {
+    for (entity, station) in query.iter() {
+        let (mesh, mat) = match station.station_type {
+            StationType::TradingPost => (assets.trading_mesh.clone(), assets.trading_mat.clone()),
+            StationType::RepairStation => (assets.repair_mesh.clone(), assets.repair_mat.clone()),
+            StationType::BlackMarket => (assets.black_market_mesh.clone(), assets.black_market_mat.clone()),
+        };
         commands
             .entity(entity)
-            .insert((
-                Mesh2d(assets.mesh.clone()),
-                MeshMaterial2d(assets.material.clone()),
-            ))
+            .insert((Mesh2d(mesh), MeshMaterial2d(mat)))
             .remove::<NeedsStationVisual>();
     }
 }
@@ -561,11 +573,11 @@ pub fn spawn_station_ui(
         return;
     };
 
-    // Look up station name; fall back gracefully if station entity is missing
-    let station_name = station_query
+    // Look up station name and type in a single query; fall back gracefully if missing
+    let (station_name, station_type_label) = station_query
         .get(docked.station)
-        .map(|s| s.name)
-        .unwrap_or("Unknown Station");
+        .map(|s| (s.name, s.station_type.display_name()))
+        .unwrap_or(("Unknown Station", "Unknown Type"));
 
     // Root panel — full-width strip anchored to the bottom of the screen
     let root = commands
@@ -597,6 +609,18 @@ pub fn spawn_station_ui(
                 ..default()
             },
             TextColor(Color::WHITE),
+        ))
+        .id();
+
+    // Station type subtitle
+    let type_label = commands
+        .spawn((
+            Text(station_type_label.to_string()),
+            TextFont {
+                font_size: 16.0,
+                ..default()
+            },
+            TextColor(Color::srgba(0.7, 0.7, 0.7, 1.0)),
         ))
         .id();
 
@@ -638,7 +662,7 @@ pub fn spawn_station_ui(
 
     commands
         .entity(root)
-        .add_children(&[title, shop_row, repair_row, hint]);
+        .add_children(&[title, type_label, shop_row, repair_row, hint]);
 }
 
 /// Despawns all `StationUiRoot` entities when the player's `Docked` component is removed.

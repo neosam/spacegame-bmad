@@ -28,7 +28,7 @@ fn spawn_player_and_station(app: &mut App) -> (Entity, Entity) {
         .spawn(Station {
             name: "Test Station",
             dock_radius: 120.0,
-            station_type: StationType::Trading,
+            station_type: StationType::TradingPost,
         })
         .id();
     let player = app
@@ -134,4 +134,25 @@ fn only_one_ui_panel_per_dock() {
         1,
         "Should have exactly one UI panel after re-docking (not two)"
     );
+}
+
+#[test]
+fn station_ui_shows_station_type_label() {
+    // AC5: dock UI spawns a child Text with the station type name (e.g. "Trading Post")
+    let mut app = station_ui_test_app();
+    let (player, station) = spawn_player_and_station(&mut app);
+
+    dock_player(&mut app, player, station);
+    app.update();
+
+    // The UI root should have been spawned
+    assert_eq!(count_station_ui_roots(&mut app), 1, "UI root must exist");
+
+    // Verify that at least one Text child contains the station type display name
+    let type_text_exists = app
+        .world_mut()
+        .query::<&Text>()
+        .iter(app.world())
+        .any(|t| t.0 == StationType::TradingPost.display_name());
+    assert!(type_text_exists, "UI should contain a Text with the station type label 'Trading Post'");
 }

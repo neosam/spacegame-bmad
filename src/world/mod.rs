@@ -379,20 +379,27 @@ pub fn update_chunks(
                         seed_index,
                     ))
                     .id(),
-                generation::BlueprintType::Station => commands
-                    .spawn((
-                        Station {
-                            name: "Trading Post",
-                            dock_radius: 120.0,
-                            station_type: StationType::Trading,
-                        },
-                        NeedsStationVisual,
-                        Transform::from_translation(blueprint.position.extend(0.0)),
-                        chunk_marker,
-                        biome,
-                        seed_index,
-                    ))
-                    .id(),
+                generation::BlueprintType::Station => {
+                    let station_type = match rand::random::<u8>() % 3 {
+                        0 => StationType::TradingPost,
+                        1 => StationType::RepairStation,
+                        _ => StationType::BlackMarket,
+                    };
+                    commands
+                        .spawn((
+                            Station {
+                                name: station_type.display_name(),
+                                dock_radius: 120.0,
+                                station_type,
+                            },
+                            NeedsStationVisual,
+                            Transform::from_translation(blueprint.position.extend(0.0)),
+                            chunk_marker,
+                            biome,
+                            seed_index,
+                        ))
+                        .id()
+                },
             };
             chunk_entities.push(entity);
         }
