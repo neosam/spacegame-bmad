@@ -141,6 +141,7 @@ fn credits_save_load_roundtrip() {
         inventory_common_scrap: 0,
         inventory_rare_alloy: 0,
         inventory_energy_core: 0,
+        ..Default::default()
     };
 
     // Serialize and deserialize

@@ -291,18 +291,13 @@ mod tests {
 
     #[test]
     fn world_save_corrupt_deltas_recovers_core_fields() {
-        // Valid core fields but malformed chunk_deltas
-        let ron_str = r#"(
-            schema_version: 4,
-            seed: 42,
-            explored_chunks: [
-                ((0, 0), "DeepSpace"),
-                ((1, 0), "AsteroidField"),
-            ],
-            chunk_deltas: "NOT_A_VALID_DELTA_LIST",
-        )"#;
+        // Valid core fields but malformed chunk_deltas (uses current SAVE_VERSION)
+        let ron_str = format!(
+            "(schema_version: {}, seed: 42, explored_chunks: [((0, 0), \"DeepSpace\"), ((1, 0), \"AsteroidField\")], chunk_deltas: \"NOT_A_VALID_DELTA_LIST\")",
+            SAVE_VERSION
+        );
 
-        let save = WorldSave::from_ron(ron_str)
+        let save = WorldSave::from_ron(&ron_str)
             .expect("Should recover core fields despite corrupt deltas");
         assert_eq!(save.schema_version, SAVE_VERSION);
         assert_eq!(save.seed, 42);

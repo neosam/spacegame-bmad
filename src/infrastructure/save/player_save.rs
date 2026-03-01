@@ -4,6 +4,7 @@ use serde::{Serialize, Deserialize};
 use crate::core::collision::Health;
 use crate::core::economy::{Credits, PlayerInventory};
 use crate::core::flight::Player;
+use crate::core::upgrades::{InstalledUpgrades, ShipSystem, WeaponSystem};
 use crate::core::weapons::{ActiveWeapon, Energy};
 use crate::shared::components::{MaterialType, Velocity};
 
@@ -33,6 +34,66 @@ pub struct PlayerSave {
     /// Inventory: EnergyCore count. Defaults to 0 for backward compatibility.
     #[serde(default)]
     pub inventory_energy_core: u32,
+    /// Upgrade tiers — default 0 for backward compatibility with v1–v4 saves.
+    #[serde(default)]
+    pub upgrade_ship_thrust: u8,
+    #[serde(default)]
+    pub upgrade_ship_max_speed: u8,
+    #[serde(default)]
+    pub upgrade_ship_rotation: u8,
+    #[serde(default)]
+    pub upgrade_ship_energy_capacity: u8,
+    #[serde(default)]
+    pub upgrade_ship_energy_regen: u8,
+    #[serde(default)]
+    pub upgrade_ship_scanner_range: u8,
+    #[serde(default)]
+    pub upgrade_ship_hull_strength: u8,
+    #[serde(default)]
+    pub upgrade_ship_cargo_capacity: u8,
+    #[serde(default)]
+    pub upgrade_weapon_laser_damage: u8,
+    #[serde(default)]
+    pub upgrade_weapon_laser_fire_rate: u8,
+    #[serde(default)]
+    pub upgrade_weapon_spread_damage: u8,
+    #[serde(default)]
+    pub upgrade_weapon_spread_fire_rate: u8,
+    #[serde(default)]
+    pub upgrade_weapon_energy_efficiency: u8,
+}
+
+impl Default for PlayerSave {
+    fn default() -> Self {
+        Self {
+            schema_version: SAVE_VERSION,
+            position: (0.0, 0.0),
+            rotation: 0.0,
+            velocity: (0.0, 0.0),
+            health_current: 100.0,
+            health_max: 100.0,
+            active_weapon: "Laser".to_string(),
+            energy_current: 100.0,
+            energy_max: 100.0,
+            credits: 0,
+            inventory_common_scrap: 0,
+            inventory_rare_alloy: 0,
+            inventory_energy_core: 0,
+            upgrade_ship_thrust: 0,
+            upgrade_ship_max_speed: 0,
+            upgrade_ship_rotation: 0,
+            upgrade_ship_energy_capacity: 0,
+            upgrade_ship_energy_regen: 0,
+            upgrade_ship_scanner_range: 0,
+            upgrade_ship_hull_strength: 0,
+            upgrade_ship_cargo_capacity: 0,
+            upgrade_weapon_laser_damage: 0,
+            upgrade_weapon_laser_fire_rate: 0,
+            upgrade_weapon_spread_damage: 0,
+            upgrade_weapon_spread_fire_rate: 0,
+            upgrade_weapon_energy_efficiency: 0,
+        }
+    }
 }
 
 impl PlayerSave {
@@ -63,6 +124,19 @@ impl PlayerSave {
             inventory_common_scrap: 0,
             inventory_rare_alloy: 0,
             inventory_energy_core: 0,
+            upgrade_ship_thrust: 0,
+            upgrade_ship_max_speed: 0,
+            upgrade_ship_rotation: 0,
+            upgrade_ship_energy_capacity: 0,
+            upgrade_ship_energy_regen: 0,
+            upgrade_ship_scanner_range: 0,
+            upgrade_ship_hull_strength: 0,
+            upgrade_ship_cargo_capacity: 0,
+            upgrade_weapon_laser_damage: 0,
+            upgrade_weapon_laser_fire_rate: 0,
+            upgrade_weapon_spread_damage: 0,
+            upgrade_weapon_spread_fire_rate: 0,
+            upgrade_weapon_energy_efficiency: 0,
         }
     }
 
@@ -111,6 +185,21 @@ impl PlayerSave {
             save.inventory_rare_alloy = inv.items.get(&MaterialType::RareAlloy).copied().unwrap_or(0);
             save.inventory_energy_core = inv.items.get(&MaterialType::EnergyCore).copied().unwrap_or(0);
         }
+        if let Some(installed) = world.get_resource::<InstalledUpgrades>() {
+            save.upgrade_ship_thrust = installed.ship_tier(ShipSystem::Thrust);
+            save.upgrade_ship_max_speed = installed.ship_tier(ShipSystem::MaxSpeed);
+            save.upgrade_ship_rotation = installed.ship_tier(ShipSystem::Rotation);
+            save.upgrade_ship_energy_capacity = installed.ship_tier(ShipSystem::EnergyCapacity);
+            save.upgrade_ship_energy_regen = installed.ship_tier(ShipSystem::EnergyRegen);
+            save.upgrade_ship_scanner_range = installed.ship_tier(ShipSystem::ScannerRange);
+            save.upgrade_ship_hull_strength = installed.ship_tier(ShipSystem::HullStrength);
+            save.upgrade_ship_cargo_capacity = installed.ship_tier(ShipSystem::CargoCapacity);
+            save.upgrade_weapon_laser_damage = installed.weapon_tier(WeaponSystem::LaserDamage);
+            save.upgrade_weapon_laser_fire_rate = installed.weapon_tier(WeaponSystem::LaserFireRate);
+            save.upgrade_weapon_spread_damage = installed.weapon_tier(WeaponSystem::SpreadDamage);
+            save.upgrade_weapon_spread_fire_rate = installed.weapon_tier(WeaponSystem::SpreadFireRate);
+            save.upgrade_weapon_energy_efficiency = installed.weapon_tier(WeaponSystem::EnergyEfficiency);
+        }
         Some(save)
     }
 
@@ -152,6 +241,24 @@ impl PlayerSave {
                 inv.items.insert(MaterialType::EnergyCore, self.inventory_energy_core);
             }
         }
+        // Restore upgrade tiers
+        if let Some(mut installed) = world.get_resource_mut::<InstalledUpgrades>() {
+            installed.ship.clear();
+            installed.weapon.clear();
+            if self.upgrade_ship_thrust > 0 { installed.ship.insert(ShipSystem::Thrust, self.upgrade_ship_thrust); }
+            if self.upgrade_ship_max_speed > 0 { installed.ship.insert(ShipSystem::MaxSpeed, self.upgrade_ship_max_speed); }
+            if self.upgrade_ship_rotation > 0 { installed.ship.insert(ShipSystem::Rotation, self.upgrade_ship_rotation); }
+            if self.upgrade_ship_energy_capacity > 0 { installed.ship.insert(ShipSystem::EnergyCapacity, self.upgrade_ship_energy_capacity); }
+            if self.upgrade_ship_energy_regen > 0 { installed.ship.insert(ShipSystem::EnergyRegen, self.upgrade_ship_energy_regen); }
+            if self.upgrade_ship_scanner_range > 0 { installed.ship.insert(ShipSystem::ScannerRange, self.upgrade_ship_scanner_range); }
+            if self.upgrade_ship_hull_strength > 0 { installed.ship.insert(ShipSystem::HullStrength, self.upgrade_ship_hull_strength); }
+            if self.upgrade_ship_cargo_capacity > 0 { installed.ship.insert(ShipSystem::CargoCapacity, self.upgrade_ship_cargo_capacity); }
+            if self.upgrade_weapon_laser_damage > 0 { installed.weapon.insert(WeaponSystem::LaserDamage, self.upgrade_weapon_laser_damage); }
+            if self.upgrade_weapon_laser_fire_rate > 0 { installed.weapon.insert(WeaponSystem::LaserFireRate, self.upgrade_weapon_laser_fire_rate); }
+            if self.upgrade_weapon_spread_damage > 0 { installed.weapon.insert(WeaponSystem::SpreadDamage, self.upgrade_weapon_spread_damage); }
+            if self.upgrade_weapon_spread_fire_rate > 0 { installed.weapon.insert(WeaponSystem::SpreadFireRate, self.upgrade_weapon_spread_fire_rate); }
+            if self.upgrade_weapon_energy_efficiency > 0 { installed.weapon.insert(WeaponSystem::EnergyEfficiency, self.upgrade_weapon_energy_efficiency); }
+        }
     }
 
     /// Serializes to pretty-printed RON.
@@ -189,6 +296,19 @@ mod tests {
             inventory_common_scrap: 0,
             inventory_rare_alloy: 0,
             inventory_energy_core: 0,
+            upgrade_ship_thrust: 0,
+            upgrade_ship_max_speed: 0,
+            upgrade_ship_rotation: 0,
+            upgrade_ship_energy_capacity: 0,
+            upgrade_ship_energy_regen: 0,
+            upgrade_ship_scanner_range: 0,
+            upgrade_ship_hull_strength: 0,
+            upgrade_ship_cargo_capacity: 0,
+            upgrade_weapon_laser_damage: 0,
+            upgrade_weapon_laser_fire_rate: 0,
+            upgrade_weapon_spread_damage: 0,
+            upgrade_weapon_spread_fire_rate: 0,
+            upgrade_weapon_energy_efficiency: 0,
         }
     }
 

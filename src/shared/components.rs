@@ -41,3 +41,9 @@ pub struct ContactDamageCooldown {
 pub struct Invincible {
     pub timer: f32,
 }
+
+/// Marker component added to the player entity when InstalledUpgrades changes.
+/// The rendering layer reads this to update ship color/appearance based on hull tier,
+/// then removes the marker. Core never touches rendering.
+#[derive(Component, Debug)]
+pub struct NeedsShipUpgradeVisual;

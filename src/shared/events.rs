@@ -55,6 +55,8 @@ pub enum GameEventKind {
     CreditsEarned { amount: u32 },
     /// Player picked up a material drop.
     MaterialCollected { material: MaterialType },
+    /// Player crafted or bought an upgrade at a station.
+    UpgradeCrafted { system_name: String, tier: u8 },
 }
 
 /// A game event emitted as a Bevy message by gameplay systems.

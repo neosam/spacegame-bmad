@@ -10,7 +10,8 @@ use crate::core::camera::camera_follow_player;
 use crate::core::collision::{Collider, Health};
 use crate::core::economy::Credits;
 use crate::core::flight::Player;
-use crate::shared::components::{MaterialType, NeedsMaterialDropVisual};
+use crate::core::upgrades::InstalledUpgrades;
+use crate::shared::components::{MaterialType, NeedsMaterialDropVisual, NeedsShipUpgradeVisual};
 use crate::core::spawning::{
     NeedsAsteroidVisual, NeedsDroneVisual, NeedsFighterVisual, NeedsHeavyCruiserVisual,
     NeedsSniperVisual, NeedsTraderVisual, SpawningConfig,
@@ -141,6 +142,9 @@ impl Plugin for RenderingPlugin {
                 trigger_damage_flash,
             ),
         );
+
+        // Ship upgrade visual: update player color based on hull upgrade tier
+        app.add_systems(Update, update_ship_upgrade_visual);
 
         // Station Shop UI: spawn on dock, despawn on undock
         app.add_systems(
@@ -927,5 +931,37 @@ pub fn attach_material_drop_visual(
             .entity(entity)
             .insert((Mesh2d(mesh.clone()), MeshMaterial2d(mat.clone())))
             .remove::<NeedsMaterialDropVisual>();
+    }
+}
+
+// ── Epic 5: Ship Upgrade Visual ──────────────────────────────────────────
+
+/// Updates the player ship's mesh material color based on the HullStrength upgrade tier.
+/// Triggered by the NeedsShipUpgradeVisual marker (set by core when InstalledUpgrades changes).
+///
+/// Color tiers:
+/// - Tier 0: Standard gold/yellow
+/// - Tier 1–2: Blue tone
+/// - Tier 3–4: Gold tone (brighter)
+/// - Tier 5: Silver/chrome
+fn update_ship_upgrade_visual(
+    mut commands: Commands,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    query: Query<(Entity, &MeshMaterial2d<ColorMaterial>), (With<Player>, With<NeedsShipUpgradeVisual>)>,
+    installed: Res<InstalledUpgrades>,
+) {
+    use crate::core::upgrades::ShipSystem;
+    let hull_tier = installed.ship_tier(ShipSystem::HullStrength);
+    let color = match hull_tier {
+        0 => Color::srgb(1.0, 0.85, 0.2),   // standard gold/yellow
+        1 | 2 => Color::srgb(0.3, 0.6, 1.0), // blue tone
+        3 | 4 => Color::srgb(1.0, 0.75, 0.1), // bright gold
+        _ => Color::srgb(0.85, 0.92, 1.0),   // silver/chrome (tier 5+)
+    };
+    for (entity, mat_handle) in query.iter() {
+        if let Some(material) = materials.get_mut(&mat_handle.0) {
+            material.color = color;
+        }
+        commands.entity(entity).remove::<NeedsShipUpgradeVisual>();
     }
 }

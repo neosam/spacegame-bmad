@@ -40,6 +40,7 @@ fn save_then_load_restores_player_position() {
         inventory_common_scrap: 0,
         inventory_rare_alloy: 0,
         inventory_energy_core: 0,
+        ..Default::default()
     };
     let ron_str = player_save.to_ron().expect("Should serialize");
     fs::write(format!("{save_dir}player.ron"), &ron_str).expect("Should write");
@@ -122,6 +123,7 @@ fn save_then_load_restores_explored_chunks() {
         inventory_common_scrap: 0,
         inventory_rare_alloy: 0,
         inventory_energy_core: 0,
+        ..Default::default()
     };
     fs::write(format!("{save_dir}player.ron"), player_save.to_ron().expect("Should serialize"))
         .expect("Should write");
@@ -259,6 +261,7 @@ fn load_restores_world_seed() {
         inventory_common_scrap: 0,
         inventory_rare_alloy: 0,
         inventory_energy_core: 0,
+        ..Default::default()
     };
     fs::write(format!("{save_dir}player.ron"), player_save.to_ron().expect("Should serialize"))
         .expect("Should write");
@@ -380,6 +383,7 @@ fn v1_save_loads_with_empty_deltas() {
         inventory_common_scrap: 0,
         inventory_rare_alloy: 0,
         inventory_energy_core: 0,
+        ..Default::default()
     };
     fs::write(format!("{save_dir}player.ron"), player_save.to_ron().expect("Should serialize"))
         .expect("Should write");
@@ -437,6 +441,7 @@ fn save_preserves_deltas_across_sessions() {
         inventory_common_scrap: 0,
         inventory_rare_alloy: 0,
         inventory_energy_core: 0,
+        ..Default::default()
     };
     fs::write(format!("{save_dir}player.ron"), player_save.to_ron().expect("Should serialize"))
         .expect("Should write");
@@ -491,6 +496,7 @@ fn empty_deltas_same_as_no_deltas() {
         inventory_common_scrap: 0,
         inventory_rare_alloy: 0,
         inventory_energy_core: 0,
+        ..Default::default()
     };
     fs::write(format!("{save_dir}player.ron"), player_save.to_ron().expect("Should serialize"))
         .expect("Should write");

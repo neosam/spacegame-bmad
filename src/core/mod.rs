@@ -6,6 +6,7 @@ pub mod input;
 pub mod spawning;
 pub mod station;
 pub mod tutorial;
+pub mod upgrades;
 pub mod weapons;
 
 use bevy::prelude::*;
@@ -30,6 +31,11 @@ use self::economy::{
     PlayerInventory, PendingDropSpawns, PendingPickupEvents,
 };
 use self::station::{update_docking, update_undocking};
+use self::upgrades::{
+    apply_upgrade_effects, emit_craft_events, init_base_stats, mark_player_needs_upgrade_visual,
+    process_crafting_request, CraftingRequest, DiscoveredRecipes, InstalledUpgrades,
+    PendingCraftEvents,
+};
 use self::tutorial::{
     advance_phase_on_wreck_shot, apply_gravity_well, check_generator_destroyed,
     check_tutorial_wave_complete, dock_at_station, spawn_tutorial_enemies, spawn_tutorial_zone,
@@ -314,6 +320,26 @@ impl Plugin for CorePlugin {
         app.add_systems(
             FixedUpdate,
             (queue_material_drops, spawn_material_drops, collect_material_drops, emit_pickup_events)
+                .chain()
+                .after(CoreSet::Events),
+        );
+
+        // Upgrade system: resources and base-stat initialization
+        app.init_resource::<InstalledUpgrades>();
+        app.init_resource::<DiscoveredRecipes>();
+        app.init_resource::<CraftingRequest>();
+        app.init_resource::<PendingCraftEvents>();
+        // BaseStats must be initialized AFTER FlightConfig + WeaponConfig are inserted
+        app.add_systems(Startup, init_base_stats);
+        // Upgrade effect application and event emission run after all economy events
+        app.add_systems(
+            FixedUpdate,
+            (
+                process_crafting_request,
+                apply_upgrade_effects,
+                mark_player_needs_upgrade_visual,
+                emit_craft_events,
+            )
                 .chain()
                 .after(CoreSet::Events),
         );

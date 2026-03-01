@@ -177,6 +177,7 @@ fn inventory_save_load_roundtrip() {
         inventory_common_scrap: 5,
         inventory_rare_alloy: 3,
         inventory_energy_core: 1,
+        ..Default::default()
     };
 
     let ron_str = save.to_ron().expect("Should serialize inventory save");

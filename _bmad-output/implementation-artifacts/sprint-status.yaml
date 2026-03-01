@@ -111,13 +111,13 @@ development_status:
   epic-4-retrospective: done
 
   # ── Epic 5: Progression & Upgrades (Should | Dependencies: Epic 3) ──
-  epic-5: backlog
-  5-1-craft-upgrades: backlog
-  5-2-upgrade-tiers: backlog
-  5-3-weapon-upgrades: backlog
-  5-4-recipe-discovery: backlog
-  5-5-visual-ship-changes: backlog
-  5-6-craft-buy-distinction: backlog
+  epic-5: done
+  5-1-craft-upgrades: done
+  5-2-upgrade-tiers: done
+  5-3-weapon-upgrades: done
+  5-4-recipe-discovery: done
+  5-5-visual-ship-changes: done
+  5-6-craft-buy-distinction: done
   epic-5-retrospective: optional
 
   # ── Epic 6a: Companion Core (Should | Dependencies: Epic 3, 4) ──
