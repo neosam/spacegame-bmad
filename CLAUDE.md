@@ -10,6 +10,7 @@
 2. **Happy-Path-Test besteht** — `tutorial_happy_path_full_flow` läuft durch (belegt dass der Tutorial-Spielfluss intakt ist)
 3. **Sichtbarkeit** — Jede neue Entity, mit der der Spieler interagieren soll, hat ein Mesh (kein unsichtbares Gameplay-Objekt)
 4. **Spielfluss** — Nach der Story kann der Spieler immer noch: fliegen, schießen, und mit dem neuen Feature interagieren
+5. **Playtest** — Neue Gameplay-Mechaniken manuell spielen und prüfen ob sie sich korrekt anfühlen (Balance, Feedback, Sichtbarkeit im Spiel)
 
 ### Architektur-Regeln
 

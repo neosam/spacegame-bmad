@@ -155,7 +155,7 @@ development_status:
   7-3-faction-bosses: done
   7-4-boss-loot: done
   7-5-boss-flee: done
-  epic-7-retrospective: optional
+  epic-7-retrospective: done
 
   # ── Epic 8: Logbook UI (Should | Dependencies: Epic 6a) ──
   epic-8: backlog
