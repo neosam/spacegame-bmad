@@ -1,3 +1,31 @@
+# Sprint Report — Epic 6b: Companion Personality
+
+**Datum:** 2026-02-28
+**Epic:** 6b — Companion Personality
+**Status:** ✅ Abgeschlossen
+**Tests:** 681 (vorher 659, +22)
+
+---
+
+## Stories
+
+| Story | Titel | Status |
+|-------|-------|--------|
+| 6b-1 | Companion Barks | ✅ done |
+| 6b-2 | Player Opinion | ✅ done |
+| 6b-3 | Companion-to-Companion Opinions | ✅ done |
+| 6b-4 | Personality Combat Behavior | ✅ done |
+
+## Highlights
+
+- **Persönlichkeiten:** Brave / Cautious / Sarcastic / Loyal — je nach Fraktion zugewiesen (Piraten → Sarcastic, Militär → Loyal, Aliens → Cautious, RogueDrones → Brave)
+- **Bark-System:** 16 Bark-Texte (4 Persönlichkeiten × 4 Trigger), HUD zeigt aktiven Bark 4 Sekunden oben auf dem Bildschirm
+- **Spieler-Opinion:** Companions bewerten den Spieler (−100 bis 100) basierend auf Kills (+2), Tod (−5), Station anlaufen (+1)
+- **Peer-Opinions:** Companions gewinnen/verlieren gegenseitig Opinion basierend auf geteilten Kampferlebnissen
+- **Kampfverhalten:** Brave fliegt nah ran, Cautious hält Abstand, Sarcastic variiert Geschwindigkeit, Loyal folgt perfekt
+
+---
+
 # Sprint Report — Epic 6a: Companion Core
 
 **Datum:** 2026-02-28

@@ -19,6 +19,7 @@ use crate::core::spawning::{
 use crate::core::station::{Docked, NeedsStationVisual, Station, StationType};
 use crate::core::tutorial::{generate_tutorial_zone, GravityWellBoundary, GravityWellGenerator, TutorialConfig, TutorialStation, TutorialWreck};
 use crate::social::companion::{CompanionData, NeedsCompanionVisual};
+use crate::social::companion_personality::BarkDisplay;
 use crate::social::faction::FactionId;
 use crate::core::weapons::{
     ActiveWeapon, Energy, FireCooldown, NeedsLaserVisual, NeedsProjectileVisual, WeaponConfig,
@@ -96,6 +97,10 @@ impl Plugin for RenderingPlugin {
         // Vitals HUD (Health + Energy bars)
         app.add_systems(Startup, spawn_vitals_hud);
         app.add_systems(Update, update_vitals_hud);
+
+        // Bark HUD (companion one-liners)
+        app.add_systems(Startup, spawn_bark_hud);
+        app.add_systems(Update, update_bark_hud);
 
         // Material drop assets + visual attach
         app.init_resource::<MaterialDropAssets>();
@@ -1379,5 +1384,50 @@ fn render_companions(
                 MeshMaterial2d(material),
             ))
             .remove::<NeedsCompanionVisual>();
+    }
+}
+
+// ── Bark HUD (Epic 6b-1) ─────────────────────────────────────────────────
+
+/// Marker for the bark HUD text node.
+#[derive(Component, Debug)]
+pub struct BarkHudMarker;
+
+/// Spawns the bark HUD: a centered text node at the top of the screen.
+pub fn spawn_bark_hud(mut commands: Commands) {
+    commands.spawn((
+        BarkHudMarker,
+        Text::new(""),
+        TextFont {
+            font_size: 16.0,
+            ..default()
+        },
+        TextColor(Color::srgba(1.0, 0.95, 0.7, 1.0)),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(8.0),
+            left: Val::Percent(50.0),
+            ..default()
+        },
+        Visibility::Hidden,
+    ));
+}
+
+/// Updates bark HUD visibility and text from the `BarkDisplay` resource.
+pub fn update_bark_hud(
+    bark_display: Res<BarkDisplay>,
+    mut query: Query<(&mut Text, &mut Visibility), With<BarkHudMarker>>,
+) {
+    let Ok((mut text, mut visibility)) = query.single_mut() else {
+        return;
+    };
+    match &bark_display.current {
+        Some((name, bark)) => {
+            text.0 = format!("{name}: \"{bark}\"");
+            *visibility = Visibility::Visible;
+        }
+        None => {
+            *visibility = Visibility::Hidden;
+        }
     }
 }

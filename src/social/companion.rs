@@ -12,6 +12,7 @@ use crate::core::station::{Docked, Station};
 use crate::infrastructure::events::EventSeverityConfig;
 use crate::shared::components::Velocity;
 use crate::shared::events::{GameEvent, GameEventKind};
+use crate::social::companion_personality::personality_for_faction;
 use crate::social::faction::FactionId;
 
 // ── Components ────────────────────────────────────────────────────────────
@@ -191,6 +192,7 @@ pub fn handle_recruit_companion(
     let name = format!("Wing-{}", roster.companions.len() + 1);
     let faction = FactionId::Neutral;
 
+    let personality = personality_for_faction(&faction);
     let entity = commands
         .spawn((
             Companion,
@@ -200,6 +202,7 @@ pub fn handle_recruit_companion(
             },
             CompanionFollowAI::default(),
             WingmanCommand::Defend,
+            personality,
             NeedsCompanionVisual,
             Velocity::default(),
             Transform::from_translation(companion_pos.extend(0.0)),

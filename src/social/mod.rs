@@ -1,7 +1,9 @@
 /// Social systems: enemy AI, factions, neutral entities, companions.
 /// Epic 4: Combat Depth stories will register systems here.
 /// Epic 6a: Companion Core systems registered here.
+/// Epic 6b: Companion Personality, barks, opinions registered here.
 pub mod companion;
+pub mod companion_personality;
 pub mod enemy_ai;
 pub mod faction;
 
@@ -11,6 +13,11 @@ use self::companion::{
     CompanionRoster, handle_recruit_companion, handle_wingman_commands,
     update_companion_follow, update_companion_positions,
     handle_companion_survival, update_retreating_companions,
+};
+use self::companion_personality::{
+    BarkDisplay, PlayerOpinions, PeerOpinions,
+    emit_barks_on_game_events, emit_bark_on_command_change, tick_bark_display,
+    update_player_opinions, update_peer_opinions, update_personality_behavior,
 };
 use self::enemy_ai::{
     update_enemy_facing, update_fighter_ai, update_heavy_cruiser_ai, update_scout_drone_ai,
@@ -51,5 +58,22 @@ impl Plugin for SocialPlugin {
         // Story 6a-5: Companion survival (retreat to station on player death)
         app.add_systems(Update, handle_companion_survival);
         app.add_systems(Update, update_retreating_companions.after(handle_companion_survival));
+
+        // Story 6b-1: Companion barks
+        app.init_resource::<BarkDisplay>();
+        app.add_systems(Update, emit_barks_on_game_events);
+        app.add_systems(Update, emit_bark_on_command_change);
+        app.add_systems(Update, tick_bark_display);
+
+        // Story 6b-2: Player opinions
+        app.init_resource::<PlayerOpinions>();
+        app.add_systems(Update, update_player_opinions);
+
+        // Story 6b-3: Peer opinions
+        app.init_resource::<PeerOpinions>();
+        app.add_systems(Update, update_peer_opinions);
+
+        // Story 6b-4: Personality combat behavior
+        app.add_systems(Update, update_personality_behavior.before(update_companion_follow));
     }
 }
