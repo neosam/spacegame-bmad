@@ -370,6 +370,10 @@ pub fn blink_invincible(
 // ── Thruster Trail ──────────────────────────────────────────────────────────
 
 /// Maximum number of thruster particles allowed at once.
+/// Under WASM: reduced to 5 to improve browser performance.
+#[cfg(target_arch = "wasm32")]
+const MAX_THRUSTER_PARTICLES: usize = 5;
+#[cfg(not(target_arch = "wasm32"))]
 const MAX_THRUSTER_PARTICLES: usize = 20;
 
 /// Speed threshold below which no particles are spawned.

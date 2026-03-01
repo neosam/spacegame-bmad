@@ -23,7 +23,7 @@ use self::flight::{apply_drag, apply_rotation, apply_thrust, apply_velocity, cla
 use self::input::{read_input, ActionState};
 use self::spawning::{
     drift_entities, spawn_respawn_timers, tick_respawn_timers, update_trader_ships,
-    SpawningConfig,
+    SpawningConfig, WasmSpawningConfig,
 };
 use self::economy::{
     award_credits_on_discovery, award_credits_on_kill, emit_credit_events,
@@ -131,6 +131,9 @@ impl Plugin for CorePlugin {
             }
         };
         app.insert_resource(spawning_config);
+
+        // Load WasmSpawningConfig: under WASM loads wasm_spawning.ron, otherwise uses native defaults
+        app.insert_resource(WasmSpawningConfig::load());
 
         // Load TutorialConfig from RON file with graceful fallback to defaults
         let tutorial_config_path = "assets/config/tutorial.ron";

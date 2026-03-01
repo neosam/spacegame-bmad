@@ -1,0 +1,6 @@
+(
+    chunk_radius: 2,
+    max_asteroids_per_chunk: 4,
+    max_enemies_per_chunk: 2,
+    trader_interval_secs: 60.0,
+)

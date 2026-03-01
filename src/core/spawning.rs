@@ -314,6 +314,58 @@ impl SpawningConfig {
     }
 }
 
+// ── WASM Spawning Override ───────────────────────────────────────────────
+
+/// WASM-specific spawn limits loaded from `assets/config/wasm_spawning.ron`.
+/// Overrides spawn density under WASM to reduce entity counts for browser performance.
+/// This resource is only meaningful under `#[cfg(target_arch = "wasm32")]` but is
+/// always available so non-WASM code can reference it without cfg-guards.
+#[derive(Resource, Deserialize, Clone, Debug)]
+pub struct WasmSpawningConfig {
+    /// Number of chunks in each direction to keep loaded (smaller = fewer entities).
+    pub chunk_radius: u32,
+    /// Maximum asteroids spawned per chunk.
+    pub max_asteroids_per_chunk: u32,
+    /// Maximum enemies spawned per chunk.
+    pub max_enemies_per_chunk: u32,
+    /// Seconds between trader ship spawns.
+    pub trader_interval_secs: f32,
+}
+
+impl Default for WasmSpawningConfig {
+    fn default() -> Self {
+        Self {
+            chunk_radius: 4,
+            max_asteroids_per_chunk: 8,
+            max_enemies_per_chunk: 4,
+            trader_interval_secs: 30.0,
+        }
+    }
+}
+
+impl WasmSpawningConfig {
+    /// Load config from RON string.
+    pub fn from_ron(ron_str: &str) -> Result<Self, ron::error::SpannedError> {
+        ron::from_str(ron_str)
+    }
+
+    /// Returns the WASM-appropriate config under wasm32, or native defaults otherwise.
+    pub fn load() -> Self {
+        #[cfg(target_arch = "wasm32")]
+        {
+            std::fs::read_to_string("assets/config/wasm_spawning.ron")
+                .ok()
+                .and_then(|s| Self::from_ron(&s).ok())
+                .unwrap_or_default()
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // On native, return defaults (chunk_radius=4 etc.)
+            Self::default()
+        }
+    }
+}
+
 // ── Systems ─────────────────────────────────────────────────────────────
 
 /// Generates a random velocity vector with magnitude between min and max.

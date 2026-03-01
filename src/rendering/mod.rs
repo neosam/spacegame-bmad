@@ -60,6 +60,10 @@ impl Plugin for RenderingPlugin {
         app.init_resource::<ScreenShake>();
         app.init_resource::<JuiceSettings>();
         app.init_resource::<StarfieldConfig>();
+        // Under WASM: disable nebula background to reduce GPU load
+        #[cfg(target_arch = "wasm32")]
+        app.insert_resource(NebulaConfig { enabled: false, base_alpha: 0.05 });
+        #[cfg(not(target_arch = "wasm32"))]
         app.init_resource::<NebulaConfig>();
         app.init_resource::<MinimapState>();
 
