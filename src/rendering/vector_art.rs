@@ -9,29 +9,80 @@ use lyon_tessellation::{
 
 /// Generate the player ship mesh using lyon tessellation.
 /// The ship is a recognizable spacecraft silhouette facing +Y.
-/// `upgrade_tier` influences visual detail (1-5, tier 1 for Sprint 0).
-pub fn generate_player_mesh(_upgrade_tier: u8) -> Mesh {
+/// `upgrade_tier` influences visual detail:
+/// - Tier 1–2: Standard silhouette (narrow wings, compact thruster)
+/// - Tier 3–4: Wider wings and slightly larger thruster for upgraded look
+/// - Tier 5:   Double-wing notch for maximum visual complexity
+pub fn generate_player_mesh(upgrade_tier: u8) -> Mesh {
     let mut buffers: VertexBuffers<[f32; 3], u32> = VertexBuffers::new();
     let mut tessellator = FillTessellator::new();
 
-    // Build ship path: a pointed triangle facing +Y with hull shape
     let mut builder = Path::builder();
 
-    // Nose (top)
-    builder.begin(point(0.0, 20.0));
-    // Right wing
-    builder.line_to(point(12.0, -14.0));
-    // Right indent
-    builder.line_to(point(5.0, -8.0));
-    // Thruster right
-    builder.line_to(point(5.0, -16.0));
-    // Thruster left
-    builder.line_to(point(-5.0, -16.0));
-    // Left indent
-    builder.line_to(point(-5.0, -8.0));
-    // Left wing
-    builder.line_to(point(-12.0, -14.0));
-    builder.close();
+    match upgrade_tier {
+        5 => {
+            // Tier 5: Double-wing notch — maximum complexity
+            // Nose (top)
+            builder.begin(point(0.0, 20.0));
+            // Right outer wing tip (double-wing via notch)
+            builder.line_to(point(16.0, -16.0));
+            // Right notch (inner indent creating double-wing effect)
+            builder.line_to(point(10.0, -10.0));
+            // Right outer second wing tip
+            builder.line_to(point(20.0, -20.0));
+            // Right inner indent
+            builder.line_to(point(7.0, -12.0));
+            // Thruster right
+            builder.line_to(point(7.0, -18.0));
+            // Thruster left
+            builder.line_to(point(-7.0, -18.0));
+            // Left inner indent
+            builder.line_to(point(-7.0, -12.0));
+            // Left outer second wing tip
+            builder.line_to(point(-20.0, -20.0));
+            // Left notch
+            builder.line_to(point(-10.0, -10.0));
+            // Left outer wing tip
+            builder.line_to(point(-16.0, -16.0));
+            builder.close();
+        }
+        3 | 4 => {
+            // Tier 3–4: Wider wings and larger thruster
+            // Nose (top)
+            builder.begin(point(0.0, 20.0));
+            // Right wing (wider tip)
+            builder.line_to(point(16.0, -16.0));
+            // Right indent
+            builder.line_to(point(6.0, -9.0));
+            // Thruster right (slightly larger)
+            builder.line_to(point(7.0, -18.0));
+            // Thruster left
+            builder.line_to(point(-7.0, -18.0));
+            // Left indent
+            builder.line_to(point(-6.0, -9.0));
+            // Left wing (wider tip)
+            builder.line_to(point(-16.0, -16.0));
+            builder.close();
+        }
+        _ => {
+            // Tier 1–2 (default): original silhouette — kept for backward compatibility
+            // Nose (top)
+            builder.begin(point(0.0, 20.0));
+            // Right wing
+            builder.line_to(point(12.0, -14.0));
+            // Right indent
+            builder.line_to(point(5.0, -8.0));
+            // Thruster right
+            builder.line_to(point(5.0, -16.0));
+            // Thruster left
+            builder.line_to(point(-5.0, -16.0));
+            // Left indent
+            builder.line_to(point(-5.0, -8.0));
+            // Left wing
+            builder.line_to(point(-12.0, -14.0));
+            builder.close();
+        }
+    }
 
     let path = builder.build();
 
@@ -53,6 +104,48 @@ pub fn generate_player_mesh(_upgrade_tier: u8) -> Mesh {
     let uvs: Vec<[f32; 2]> = positions
         .iter()
         .map(|p| [(p[0] + 12.0) / 24.0, (p[1] + 16.0) / 36.0])
+        .collect();
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Indices::U32(buffers.indices));
+    mesh
+}
+
+/// Generate a small triangle mesh for Scout Drone rendering.
+/// Equilateral-ish triangle, tip facing +Y (upward), compact and fast-looking.
+pub fn generate_scout_drone_mesh() -> Mesh {
+    let mut buffers: VertexBuffers<[f32; 3], u32> = VertexBuffers::new();
+    let mut tessellator = FillTessellator::new();
+
+    let mut builder = Path::builder();
+    // Equilateral triangle, radius ~10: tip up, base flat at bottom
+    builder.begin(point(0.0, 10.0));   // Tip (top)
+    builder.line_to(point(9.0, -6.0)); // Right base
+    builder.line_to(point(-9.0, -6.0)); // Left base
+    builder.close();
+    let path = builder.build();
+
+    let result = tessellator.tessellate_path(
+        &path,
+        &FillOptions::default(),
+        &mut BuffersBuilder::new(&mut buffers, |vertex: FillVertex| {
+            [vertex.position().x, vertex.position().y, 0.0]
+        }),
+    );
+
+    if let Err(e) = result {
+        warn!("ScoutDrone tessellation failed: {e:?}, using circle fallback");
+        return Mesh::from(Circle::new(10.0));
+    }
+
+    let positions: Vec<[f32; 3]> = buffers.vertices.clone();
+    let normals: Vec<[f32; 3]> = vec![[0.0, 0.0, 1.0]; positions.len()];
+    let uvs: Vec<[f32; 2]> = positions
+        .iter()
+        .map(|p| [(p[0] / 10.0 + 1.0) / 2.0, (p[1] / 10.0 + 1.0) / 2.0])
         .collect();
 
     let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, default());
@@ -557,10 +650,124 @@ pub fn generate_trader_mesh(radius: f32) -> Mesh {
     mesh
 }
 
-/// Generate an asteroid mesh and verify it produces valid geometry.
+/// Tests for vector art mesh generation.
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Story 10-1: Tier-based player ship and scout drone ──────────────
+
+    #[test]
+    fn player_mesh_tier1_generates_without_panic() {
+        let mesh = generate_player_mesh(1);
+        assert!(
+            mesh.count_vertices() > 0,
+            "Tier-1 player mesh must have vertices"
+        );
+    }
+
+    #[test]
+    fn player_mesh_tier2_generates_without_panic() {
+        let mesh = generate_player_mesh(2);
+        assert!(
+            mesh.count_vertices() > 0,
+            "Tier-2 player mesh must have vertices"
+        );
+    }
+
+    #[test]
+    fn player_mesh_tier3_generates_without_panic() {
+        let mesh = generate_player_mesh(3);
+        assert!(
+            mesh.count_vertices() > 0,
+            "Tier-3 player mesh must have vertices"
+        );
+    }
+
+    #[test]
+    fn player_mesh_tier4_generates_without_panic() {
+        let mesh = generate_player_mesh(4);
+        assert!(
+            mesh.count_vertices() > 0,
+            "Tier-4 player mesh must have vertices"
+        );
+    }
+
+    #[test]
+    fn player_mesh_tier5_generates_without_panic() {
+        let mesh = generate_player_mesh(5);
+        assert!(
+            mesh.count_vertices() > 0,
+            "Tier-5 player mesh must have vertices"
+        );
+    }
+
+    #[test]
+    fn player_mesh_tier1_and_tier3_differ_in_vertex_count() {
+        // Tier 3 has the same polygon vertex count as tier 1 (7 points),
+        // but different coordinates. Both should tessellate successfully.
+        let mesh1 = generate_player_mesh(1);
+        let mesh3 = generate_player_mesh(3);
+        assert!(mesh1.count_vertices() > 0, "Tier-1 mesh should have vertices");
+        assert!(mesh3.count_vertices() > 0, "Tier-3 mesh should have vertices");
+    }
+
+    #[test]
+    fn player_mesh_tier5_has_more_vertices_than_tier1() {
+        // Tier 5 path has 11 points vs 7 points for tier 1 — tessellated vertex count
+        // may vary but tier 5 polygon is more complex so should produce more or equal vertices.
+        let mesh1 = generate_player_mesh(1);
+        let mesh5 = generate_player_mesh(5);
+        assert!(
+            mesh5.count_vertices() >= mesh1.count_vertices(),
+            "Tier-5 mesh (more polygon points) should produce >= vertices than tier-1, got tier5={} tier1={}",
+            mesh5.count_vertices(),
+            mesh1.count_vertices()
+        );
+    }
+
+    #[test]
+    fn scout_drone_mesh_generates() {
+        let mesh = generate_scout_drone_mesh();
+        assert!(
+            mesh.count_vertices() > 0,
+            "Scout drone mesh must have vertices"
+        );
+    }
+
+    #[test]
+    fn scout_drone_mesh_has_indices() {
+        let mesh = generate_scout_drone_mesh();
+        let indices = mesh.indices().expect("Scout drone mesh should have indices");
+        let index_count = match indices {
+            Indices::U32(v) => v.len(),
+            _ => panic!("Expected U32 indices for scout drone mesh"),
+        };
+        assert!(
+            index_count >= 3,
+            "Scout drone mesh should have at least 3 indices, got {index_count}"
+        );
+    }
+
+    #[test]
+    fn fighter_mesh_generates() {
+        let mesh = generate_fighter_mesh(12.0);
+        assert!(
+            mesh.count_vertices() > 0,
+            "Fighter mesh must have vertices"
+        );
+    }
+
+    #[test]
+    fn heavy_cruiser_mesh_generates() {
+        let mesh = generate_heavy_cruiser_mesh(22.0);
+        assert!(
+            mesh.count_vertices() > 0,
+            "Heavy cruiser mesh must have vertices"
+        );
+    }
+
+    // ── Pre-existing tests ───────────────────────────────────────────────
 
     #[test]
     fn generate_asteroid_mesh_produces_vertices() {

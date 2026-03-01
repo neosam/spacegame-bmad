@@ -1,3 +1,4 @@
+pub mod audio;
 pub mod events;
 pub mod logbook;
 pub mod save;
@@ -6,6 +7,7 @@ use bevy::prelude::*;
 
 use crate::core::CoreSet;
 use crate::shared::events::GameEvent;
+use self::audio::AudioInfrastructurePlugin;
 use self::events::{record_game_events, EventSeverityConfig};
 use self::logbook::Logbook;
 
@@ -38,5 +40,6 @@ impl Plugin for InfrastructurePlugin {
         // that Tier1/2 events emitted in CoreSet::Events or after it are captured.
         app.add_systems(Update, record_game_events);
         app.add_plugins(save::SavePlugin);
+        app.add_plugins(AudioInfrastructurePlugin);
     }
 }

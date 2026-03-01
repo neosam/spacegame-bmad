@@ -33,13 +33,14 @@ use crate::shared::components::Velocity;
 use crate::world::WorldConfig;
 
 use self::effects::{
-    apply_screen_shake, blink_invincible, remove_just_damaged_without_material,
+    apply_screen_shake, blink_invincible, load_juice_settings, remove_just_damaged_without_material,
     setup_destruction_assets, setup_flash_materials, setup_impact_flash_assets,
-    spawn_destruction_effects, spawn_laser_impact_flash, trigger_damage_flash,
-    trigger_screen_shake, update_damage_flash, update_destruction_effects, update_impact_flashes,
+    setup_thruster_assets, spawn_destruction_effects, spawn_laser_impact_flash,
+    spawn_thruster_particles, trigger_damage_flash, trigger_screen_shake, update_damage_flash,
+    update_destruction_effects, update_impact_flashes, update_thruster_particles, JuiceSettings,
     ScreenShake,
 };
-use self::background::{setup_starfield, update_starfield, StarfieldConfig};
+use self::background::{setup_nebula_background, setup_starfield, update_starfield, NebulaConfig, StarfieldConfig};
 use self::minimap::{setup_minimap, update_minimap_blips, MinimapConfig, MinimapState};
 use self::world_map::{toggle_world_map, update_world_map, WorldMapConfig, WorldMapOpen, WorldMapState};
 use self::vector_art::{
@@ -56,7 +57,9 @@ impl Plugin for RenderingPlugin {
     fn build(&self, app: &mut App) {
         // Initialize resources
         app.init_resource::<ScreenShake>();
+        app.init_resource::<JuiceSettings>();
         app.init_resource::<StarfieldConfig>();
+        app.init_resource::<NebulaConfig>();
         app.init_resource::<MinimapState>();
 
         // Load MinimapConfig from RON file with graceful fallback to defaults
@@ -159,6 +162,12 @@ impl Plugin for RenderingPlugin {
                 setup_minimap,
             ),
         );
+        // Nebula background — registered separately to stay within Bevy's 20-item tuple limit
+        app.add_systems(Startup, setup_nebula_background);
+        // Thruster trail assets — registered separately to stay within tuple limit
+        app.add_systems(Startup, setup_thruster_assets);
+        // Story 10-3: Juice settings — load from RON, overrides init_resource default
+        app.add_systems(Startup, load_juice_settings);
 
         // Update systems: visual setup for entities
         app.add_systems(
@@ -214,6 +223,12 @@ impl Plugin for RenderingPlugin {
                 (toggle_world_map, update_world_map).chain(),
             ),
         );
+        // Thruster trail — registered separately to stay within tuple limit
+        app.add_systems(
+            Update,
+            spawn_thruster_particles.before(update_thruster_particles),
+        );
+        app.add_systems(Update, update_thruster_particles);
 
         // PostUpdate systems: camera effects (after camera_follow_player)
         app.add_systems(PostUpdate, apply_screen_shake.after(camera_follow_player));

@@ -2,7 +2,42 @@ use bevy::prelude::*;
 
 use crate::core::collision::{DestroyedPositions, LaserHitPositions};
 use crate::core::flight::Player;
-use crate::shared::components::{Invincible, JustDamaged};
+use crate::shared::components::{Invincible, JustDamaged, Velocity};
+
+// ── Juice Settings ───────────────────────────────────────────────────────────
+
+/// Player-configurable visual effect toggles and multipliers.
+/// Loaded from `assets/config/juice.ron` at startup, with graceful fallback to defaults.
+#[derive(Resource, serde::Deserialize, Clone, Debug)]
+pub struct JuiceSettings {
+    pub screen_shake_enabled: bool,
+    pub screen_shake_multiplier: f32,
+    pub thruster_trail_enabled: bool,
+    pub destruction_particles_enabled: bool,
+    pub laser_impact_flash_enabled: bool,
+}
+
+impl Default for JuiceSettings {
+    fn default() -> Self {
+        Self {
+            screen_shake_enabled: true,
+            screen_shake_multiplier: 1.0,
+            thruster_trail_enabled: true,
+            destruction_particles_enabled: true,
+            laser_impact_flash_enabled: true,
+        }
+    }
+}
+
+/// Loads `JuiceSettings` from `assets/config/juice.ron`.
+/// Falls back to `JuiceSettings::default()` if the file is missing or unparseable.
+pub fn load_juice_settings(mut commands: Commands) {
+    let settings = std::fs::read_to_string("assets/config/juice.ron")
+        .ok()
+        .and_then(|s| ron::from_str::<JuiceSettings>(&s).ok())
+        .unwrap_or_default();
+    commands.insert_resource(settings);
+}
 
 /// Camera shake using trauma model.
 /// Offset = max_offset * trauma² * oscillation_direction.
@@ -52,29 +87,36 @@ pub fn trigger_screen_shake(
 }
 
 /// Applies screen shake to camera transform in PostUpdate (after camera_follow_player).
+/// Early-returns if `screen_shake_enabled` is false. Applies `screen_shake_multiplier` to offset.
 pub fn apply_screen_shake(
     time: Res<Time>,
     mut screen_shake: ResMut<ScreenShake>,
     mut camera_query: Query<&mut Transform, With<Camera2d>>,
+    juice: Res<JuiceSettings>,
 ) {
+    // Decay trauma even when disabled so it doesn't accumulate silently
+    let dt = time.delta_secs();
+    screen_shake.trauma = (screen_shake.trauma - screen_shake.decay_rate * dt).max(0.0);
+
+    if !juice.screen_shake_enabled {
+        return;
+    }
+
     let Ok(mut camera_transform) = camera_query.single_mut() else {
         return;
     };
 
     // Calculate shake amount using quadratic formula for better feel
     let shake_amount = screen_shake.trauma * screen_shake.trauma;
-    
+
     // Use time-based oscillation for pseudo-random shake direction
     let t = time.elapsed_secs();
-    let offset_x = (t * 113.0).sin() * shake_amount * screen_shake.max_offset;
-    let offset_y = (t * 191.7).cos() * shake_amount * screen_shake.max_offset;
-    
+    let max_offset = screen_shake.max_offset * juice.screen_shake_multiplier;
+    let offset_x = (t * 113.0).sin() * shake_amount * max_offset;
+    let offset_y = (t * 191.7).cos() * shake_amount * max_offset;
+
     camera_transform.translation.x += offset_x;
     camera_transform.translation.y += offset_y;
-    
-    // Decay trauma
-    let dt = time.delta_secs();
-    screen_shake.trauma = (screen_shake.trauma - screen_shake.decay_rate * dt).max(0.0);
 }
 
 // ── Damage Flash System ────────────────────────────────────────────────────
@@ -191,11 +233,18 @@ pub fn setup_destruction_assets(
 }
 
 /// Spawns destruction effects at positions from DestroyedPositions.
+/// Skipped entirely if `destruction_particles_enabled` is false (positions still drained).
 pub fn spawn_destruction_effects(
     mut commands: Commands,
     destruction_assets: Res<DestructionAssets>,
     mut destroyed_positions: ResMut<DestroyedPositions>,
+    juice: Res<JuiceSettings>,
 ) {
+    if !juice.destruction_particles_enabled {
+        destroyed_positions.positions.drain(..);
+        return;
+    }
+
     for position in destroyed_positions.positions.drain(..) {
         commands.spawn((
             DestructionEffect {
@@ -260,11 +309,18 @@ pub fn setup_impact_flash_assets(
 }
 
 /// Spawns laser impact flashes at positions from LaserHitPositions.
+/// Skipped entirely if `laser_impact_flash_enabled` is false (positions still drained).
 pub fn spawn_laser_impact_flash(
     mut commands: Commands,
     impact_flash_assets: Res<ImpactFlashAssets>,
     mut laser_hit_positions: ResMut<LaserHitPositions>,
+    juice: Res<JuiceSettings>,
 ) {
+    if !juice.laser_impact_flash_enabled {
+        laser_hit_positions.positions.drain(..);
+        return;
+    }
+
     for position in laser_hit_positions.positions.drain(..) {
         commands.spawn((
             ImpactFlash {
@@ -311,6 +367,108 @@ pub fn blink_invincible(
     }
 }
 
+// ── Thruster Trail ──────────────────────────────────────────────────────────
+
+/// Maximum number of thruster particles allowed at once.
+const MAX_THRUSTER_PARTICLES: usize = 20;
+
+/// Speed threshold below which no particles are spawned.
+const THRUSTER_SPEED_THRESHOLD: f32 = 10.0;
+
+/// Kurzlebiges Partikel hinter dem Spieler-Schiff.
+#[derive(Component)]
+pub struct ThrusterParticle {
+    pub lifetime: f32,     // Startet bei 0.15, zählt runter
+    pub initial_alpha: f32,
+}
+
+/// Pre-created thruster particle assets, initialized once at startup.
+#[derive(Resource)]
+pub struct ThrusterAssets {
+    pub mesh: Handle<Mesh>,
+}
+
+/// Initialize thruster particle assets at startup.
+pub fn setup_thruster_assets(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
+    let mesh = meshes.add(Circle::new(3.0));
+    commands.insert_resource(ThrusterAssets { mesh });
+}
+
+/// Spawns thruster trail particles behind the player when they are moving.
+/// Early-returns if `thruster_trail_enabled` is false.
+pub fn spawn_thruster_particles(
+    mut commands: Commands,
+    thruster_assets: Res<ThrusterAssets>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    player_query: Query<(&Transform, &Velocity), With<Player>>,
+    particle_query: Query<(), With<ThrusterParticle>>,
+    juice: Res<JuiceSettings>,
+) {
+    if !juice.thruster_trail_enabled {
+        return;
+    }
+
+    // Guard: max particle budget
+    let current_count = particle_query.iter().count();
+    if current_count >= MAX_THRUSTER_PARTICLES {
+        return;
+    }
+
+    let Ok((transform, velocity)) = player_query.single() else {
+        return;
+    };
+
+    if velocity.0.length() <= THRUSTER_SPEED_THRESHOLD {
+        return;
+    }
+
+    // Spawn up to 2 particles per frame, respecting the budget.
+    let spawn_count = (MAX_THRUSTER_PARTICLES - current_count).min(2);
+
+    // Offset to rear of ship (local -Y is the back of the ship)
+    let rear_offset = transform.rotation * Vec3::new(0.0, -18.0, 0.0);
+    let spawn_position = transform.translation + rear_offset;
+
+    for _ in 0..spawn_count {
+        let material = materials.add(ColorMaterial::from(Color::srgba(1.0, 0.6, 0.1, 0.7)));
+        commands.spawn((
+            ThrusterParticle {
+                lifetime: 0.15,
+                initial_alpha: 0.7,
+            },
+            Mesh2d(thruster_assets.mesh.clone()),
+            MeshMaterial2d(material),
+            Transform::from_translation(spawn_position.truncate().extend(-0.5)),
+        ));
+    }
+}
+
+/// Fades and despawns thruster particles over time.
+pub fn update_thruster_particles(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut particle_query: Query<(Entity, &mut ThrusterParticle, &MeshMaterial2d<ColorMaterial>)>,
+) {
+    let dt = time.delta_secs();
+
+    for (entity, mut particle, material_handle) in particle_query.iter_mut() {
+        particle.lifetime -= dt;
+
+        if particle.lifetime <= 0.0 {
+            commands.entity(entity).despawn();
+        } else {
+            let alpha = particle.initial_alpha * (particle.lifetime / 0.15);
+            if let Some(mat) = materials.get_mut(&material_handle.0) {
+                mat.color = Color::srgba(1.0, 0.6, 0.1, alpha);
+            }
+        }
+    }
+}
+
 // ── Unit tests ──────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -324,6 +482,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
         app.init_resource::<ScreenShake>();
+        app.init_resource::<JuiceSettings>();
         app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(0.1)));
         app.insert_resource(Time::<Fixed>::from_seconds(0.1));
         
@@ -430,6 +589,7 @@ mod tests {
         app.insert_resource(materials);
 
         app.insert_resource(DestructionAssets { mesh, material });
+        app.init_resource::<JuiceSettings>();
 
         // Add destroyed position
         let mut destroyed_positions = DestroyedPositions::default();
@@ -495,6 +655,7 @@ mod tests {
         app.insert_resource(materials);
 
         app.insert_resource(ImpactFlashAssets { mesh, material });
+        app.init_resource::<JuiceSettings>();
 
         // Add laser hit position
         let mut laser_hit_positions = LaserHitPositions::default();
@@ -535,6 +696,263 @@ mod tests {
         assert!(
             app.world().get_entity(entity).is_err(),
             "Impact flash entity should be despawned after timer expires"
+        );
+    }
+
+    #[test]
+    fn thruster_particle_lifetime_decreases() {
+        let mut particle = ThrusterParticle { lifetime: 0.15, initial_alpha: 0.7 };
+        particle.lifetime -= 0.05;
+        assert!(particle.lifetime < 0.15, "Lifetime should have decreased");
+        assert!(particle.lifetime > 0.0, "Lifetime should still be positive");
+    }
+
+    #[test]
+    fn thruster_particle_alpha_calculation() {
+        let particle = ThrusterParticle { lifetime: 0.075, initial_alpha: 0.7 };
+        let alpha = particle.initial_alpha * (particle.lifetime / 0.15);
+        assert!((alpha - 0.35).abs() < 0.001, "Alpha at half lifetime should be ~0.35, got {alpha}");
+    }
+
+    #[test]
+    fn thruster_particle_spawned_when_moving() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+
+        let mut meshes = Assets::<Mesh>::default();
+        let mesh = meshes.add(Circle::new(3.0));
+        app.insert_resource(meshes);
+        app.insert_resource(Assets::<ColorMaterial>::default());
+
+        app.insert_resource(ThrusterAssets { mesh });
+        app.init_resource::<JuiceSettings>();
+
+        // Spawn player with velocity above threshold
+        app.world_mut().spawn((
+            Player,
+            Transform::default(),
+            Velocity(Vec2::new(100.0, 0.0)),
+        ));
+
+        app.add_systems(Update, spawn_thruster_particles);
+        app.update();
+
+        let mut query = app.world_mut().query::<&ThrusterParticle>();
+        let count = query.iter(app.world()).count();
+        assert!(count > 0, "Should spawn thruster particles when moving fast");
+    }
+
+    #[test]
+    fn thruster_particle_not_spawned_when_slow() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+
+        let mut meshes = Assets::<Mesh>::default();
+        let mesh = meshes.add(Circle::new(3.0));
+        app.insert_resource(meshes);
+        app.insert_resource(Assets::<ColorMaterial>::default());
+
+        app.insert_resource(ThrusterAssets { mesh });
+        app.init_resource::<JuiceSettings>();
+
+        // Spawn player with velocity below threshold
+        app.world_mut().spawn((
+            Player,
+            Transform::default(),
+            Velocity(Vec2::new(5.0, 0.0)),
+        ));
+
+        app.add_systems(Update, spawn_thruster_particles);
+        app.update();
+
+        let mut query = app.world_mut().query::<&ThrusterParticle>();
+        let count = query.iter(app.world()).count();
+        assert_eq!(count, 0, "Should not spawn thruster particles when moving slowly");
+    }
+
+    // ── JuiceSettings tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn juice_settings_default_all_enabled() {
+        let settings = JuiceSettings::default();
+        assert!(settings.screen_shake_enabled, "screen_shake_enabled should default to true");
+        assert!(settings.thruster_trail_enabled, "thruster_trail_enabled should default to true");
+        assert!(settings.destruction_particles_enabled, "destruction_particles_enabled should default to true");
+        assert!(settings.laser_impact_flash_enabled, "laser_impact_flash_enabled should default to true");
+        assert!(
+            (settings.screen_shake_multiplier - 1.0).abs() < f32::EPSILON,
+            "screen_shake_multiplier should default to 1.0"
+        );
+    }
+
+    #[test]
+    fn juice_settings_deserialize_from_ron() {
+        let ron_str = r#"(
+            screen_shake_enabled: false,
+            screen_shake_multiplier: 0.5,
+            thruster_trail_enabled: true,
+            destruction_particles_enabled: true,
+            laser_impact_flash_enabled: false,
+        )"#;
+        let settings: JuiceSettings = ron::from_str(ron_str).expect("deserialize juice settings");
+        assert!(!settings.screen_shake_enabled, "screen_shake_enabled should be false");
+        assert!((settings.screen_shake_multiplier - 0.5).abs() < f32::EPSILON, "multiplier should be 0.5");
+        assert!(settings.thruster_trail_enabled, "thruster_trail_enabled should be true");
+        assert!(settings.destruction_particles_enabled, "destruction_particles_enabled should be true");
+        assert!(!settings.laser_impact_flash_enabled, "laser_impact_flash_enabled should be false");
+    }
+
+    #[test]
+    fn juice_settings_deserialize_all_disabled() {
+        let ron_str = r#"(
+            screen_shake_enabled: false,
+            screen_shake_multiplier: 0.0,
+            thruster_trail_enabled: false,
+            destruction_particles_enabled: false,
+            laser_impact_flash_enabled: false,
+        )"#;
+        let settings: JuiceSettings = ron::from_str(ron_str).expect("deserialize all-disabled juice settings");
+        assert!(!settings.screen_shake_enabled, "screen_shake_enabled should be false");
+        assert!(!settings.thruster_trail_enabled, "thruster_trail_enabled should be false");
+        assert!(!settings.destruction_particles_enabled, "destruction_particles_enabled should be false");
+        assert!(!settings.laser_impact_flash_enabled, "laser_impact_flash_enabled should be false");
+        assert!((settings.screen_shake_multiplier - 0.0).abs() < f32::EPSILON, "multiplier should be 0.0");
+    }
+
+    #[test]
+    fn spawn_thruster_particles_skipped_when_disabled() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+
+        let mut meshes = Assets::<Mesh>::default();
+        let mesh = meshes.add(Circle::new(3.0));
+        app.insert_resource(meshes);
+        app.insert_resource(Assets::<ColorMaterial>::default());
+        app.insert_resource(ThrusterAssets { mesh });
+
+        // Disable thruster trail via JuiceSettings
+        app.insert_resource(JuiceSettings {
+            thruster_trail_enabled: false,
+            ..Default::default()
+        });
+
+        // Spawn player with velocity above threshold
+        app.world_mut().spawn((
+            Player,
+            Transform::default(),
+            Velocity(Vec2::new(100.0, 0.0)),
+        ));
+
+        app.add_systems(Update, spawn_thruster_particles);
+        app.update();
+
+        let mut query = app.world_mut().query::<&ThrusterParticle>();
+        let count = query.iter(app.world()).count();
+        assert_eq!(count, 0, "Should NOT spawn thruster particles when thruster_trail_enabled=false");
+    }
+
+    #[test]
+    fn spawn_destruction_effects_skipped_when_disabled() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+
+        let mut meshes = Assets::<Mesh>::default();
+        let mesh = meshes.add(Circle::new(5.0));
+        app.insert_resource(meshes);
+        let mut materials = Assets::<ColorMaterial>::default();
+        let material = materials.add(ColorMaterial::from(Color::srgb(1.0, 0.7, 0.1)));
+        app.insert_resource(materials);
+        app.insert_resource(DestructionAssets { mesh, material });
+
+        // Disable destruction particles via JuiceSettings
+        app.insert_resource(JuiceSettings {
+            destruction_particles_enabled: false,
+            ..Default::default()
+        });
+
+        let mut destroyed_positions = DestroyedPositions::default();
+        destroyed_positions.positions.push(Vec2::new(100.0, 200.0));
+        app.insert_resource(destroyed_positions);
+
+        app.add_systems(Update, spawn_destruction_effects);
+        app.update();
+
+        let mut query = app.world_mut().query::<&DestructionEffect>();
+        let count = query.iter(app.world()).count();
+        assert_eq!(count, 0, "Should NOT spawn destruction effects when destruction_particles_enabled=false");
+
+        // Positions should still be drained even when disabled
+        let positions = app.world().resource::<DestroyedPositions>();
+        assert!(positions.positions.is_empty(), "Positions should be drained even when disabled");
+    }
+
+    #[test]
+    fn spawn_laser_impact_flash_skipped_when_disabled() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+
+        let mut meshes = Assets::<Mesh>::default();
+        let mesh = meshes.add(Circle::new(3.0));
+        app.insert_resource(meshes);
+        let mut materials = Assets::<ColorMaterial>::default();
+        let material = materials.add(ColorMaterial::from(Color::srgb(0.4, 0.9, 1.0)));
+        app.insert_resource(materials);
+        app.insert_resource(ImpactFlashAssets { mesh, material });
+
+        // Disable laser impact flash via JuiceSettings
+        app.insert_resource(JuiceSettings {
+            laser_impact_flash_enabled: false,
+            ..Default::default()
+        });
+
+        let mut laser_hit_positions = LaserHitPositions::default();
+        laser_hit_positions.positions.push(Vec2::new(30.0, 40.0));
+        app.insert_resource(laser_hit_positions);
+
+        app.add_systems(Update, spawn_laser_impact_flash);
+        app.update();
+
+        let mut query = app.world_mut().query::<&ImpactFlash>();
+        let count = query.iter(app.world()).count();
+        assert_eq!(count, 0, "Should NOT spawn laser impact flashes when laser_impact_flash_enabled=false");
+
+        // Positions should still be drained even when disabled
+        let positions = app.world().resource::<LaserHitPositions>();
+        assert!(positions.positions.is_empty(), "Positions should be drained even when disabled");
+    }
+
+    #[test]
+    fn thruster_particle_budget_respected() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+
+        let mut meshes = Assets::<Mesh>::default();
+        let mesh = meshes.add(Circle::new(3.0));
+        app.insert_resource(meshes);
+        app.insert_resource(Assets::<ColorMaterial>::default());
+
+        app.insert_resource(ThrusterAssets { mesh });
+        app.init_resource::<JuiceSettings>();
+
+        // Spawn player with high velocity
+        app.world_mut().spawn((
+            Player,
+            Transform::default(),
+            Velocity(Vec2::new(500.0, 0.0)),
+        ));
+
+        app.add_systems(Update, spawn_thruster_particles);
+
+        // Run many frames to accumulate particles (no update_thruster_particles to drain them)
+        for _ in 0..30 {
+            app.update();
+        }
+
+        let mut query = app.world_mut().query::<&ThrusterParticle>();
+        let count = query.iter(app.world()).count();
+        assert!(
+            count <= MAX_THRUSTER_PARTICLES,
+            "Should not exceed MAX_THRUSTER_PARTICLES ({MAX_THRUSTER_PARTICLES}), got {count}"
         );
     }
 

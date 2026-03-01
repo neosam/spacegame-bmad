@@ -2,6 +2,22 @@ use bevy::prelude::*;
 
 // ── Types ──────────────────────────────────────────────────────────
 
+/// Configuration for nebula background clouds.
+#[derive(Resource)]
+pub struct NebulaConfig {
+    pub enabled: bool,
+    pub base_alpha: f32,
+}
+
+impl Default for NebulaConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            base_alpha: 0.05,
+        }
+    }
+}
+
 /// Configuration for a single star parallax layer.
 #[derive(Clone)]
 pub struct StarLayerConfig {
@@ -46,6 +62,15 @@ impl Default for StarfieldConfig {
                     cell_size: 300.0,
                     stars_per_cell: 2,
                     z_depth: -10.0,
+                },
+                // Layer 4: very distant, very dim micro-stars for extra depth
+                StarLayerConfig {
+                    parallax_factor: 0.005,
+                    star_radius: 0.3,
+                    brightness: 0.08,
+                    cell_size: 800.0,
+                    stars_per_cell: 4,
+                    z_depth: -13.0,
                 },
             ],
         }
@@ -196,6 +221,63 @@ pub fn update_starfield(
                 *visibility = Visibility::Hidden;
             }
         }
+    }
+}
+
+/// Spawns large semi-transparent nebula cloud entities at static world positions.
+/// These act as a decorative deep background layer (z: -13.5).
+pub fn setup_nebula_background(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    config: Res<NebulaConfig>,
+) {
+    if !config.enabled {
+        return;
+    }
+
+    let base_alpha = config.base_alpha;
+
+    // Each tuple: (position, radius, color)
+    let nebulae: &[(Vec3, f32, Color)] = &[
+        // 2x deep-blue/purple
+        (
+            Vec3::new(-2000.0, 1500.0, -13.5),
+            900.0,
+            Color::srgba(0.1, 0.0, 0.3, base_alpha),
+        ),
+        (
+            Vec3::new(1200.0, -2800.0, -13.5),
+            700.0,
+            Color::srgba(0.1, 0.0, 0.3, base_alpha),
+        ),
+        // 2x orange-red
+        (
+            Vec3::new(3000.0, -800.0, -13.5),
+            1200.0,
+            Color::srgba(0.4, 0.1, 0.0, base_alpha * 0.8),
+        ),
+        (
+            Vec3::new(-3500.0, -1200.0, -13.5),
+            800.0,
+            Color::srgba(0.4, 0.1, 0.0, base_alpha * 0.8),
+        ),
+        // 1x cyan-green
+        (
+            Vec3::new(500.0, 2500.0, -13.5),
+            400.0,
+            Color::srgba(0.0, 0.2, 0.2, base_alpha * 0.6),
+        ),
+    ];
+
+    for (position, radius, color) in nebulae {
+        let mesh = meshes.add(Circle::new(*radius));
+        let material = materials.add(ColorMaterial::from(*color));
+        commands.spawn((
+            Mesh2d(mesh),
+            MeshMaterial2d(material),
+            Transform::from_translation(*position),
+        ));
     }
 }
 

@@ -1,0 +1,7 @@
+(
+    screen_shake_enabled: true,
+    screen_shake_multiplier: 1.0,
+    thruster_trail_enabled: true,
+    destruction_particles_enabled: true,
+    laser_impact_flash_enabled: true,
+)
