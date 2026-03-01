@@ -461,18 +461,20 @@ pub fn fire_companion_weapon(
             continue;
         }
 
-        // Fire a spread projectile toward the target
+        // Fire a spread projectile toward the target.
+        // Offset spawn position past the companion collider to avoid self-hit.
         let direction = (target_pos - companion_pos).normalize_or_zero();
+        let spawn_pos = companion_pos + direction * 20.0;
         commands.spawn((
             SpreadProjectile {
-                origin: companion_pos,
+                origin: spawn_pos,
                 direction,
                 speed: 420.0,
                 damage: weapon.damage,
                 timer: 1.4,
             },
             NeedsProjectileVisual,
-            Transform::from_translation(companion_pos.extend(0.0)),
+            Transform::from_translation(spawn_pos.extend(0.0)),
         ));
 
         weapon.timer = weapon.cooldown_secs;

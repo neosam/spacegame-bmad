@@ -293,7 +293,7 @@ pub fn update_companion_rotation(
     target_transforms: Query<&Transform, Without<Companion>>,
     mut companion_query: Query<
         (
-            &Transform,
+            &mut Transform,
             &CompanionFollowAI,
             &WingmanCommand,
             &CompanionTarget,
@@ -309,7 +309,7 @@ pub fn update_companion_rotation(
     let player_pos = player_transform.translation.truncate();
     let dt = time.delta_secs();
 
-    for (companion_transform, follow_ai, command, target, mut flight) in
+    for (mut companion_transform, follow_ai, command, target, mut flight) in
         companion_query.iter_mut()
     {
         let companion_pos = companion_transform.translation.truncate();
@@ -331,8 +331,8 @@ pub fn update_companion_rotation(
         let desired_angle = angle_toward(companion_pos, desired_pos);
         flight.angle = rotate_toward_angle(flight.angle, desired_angle, flight.turn_rate * dt);
 
-        // Update visual rotation to match facing
-        // Companion transform uses same convention as player: Quat::from_rotation_z
+        // Apply rotation to Transform so the mesh visually rotates
+        companion_transform.rotation = Quat::from_rotation_z(flight.angle);
     }
 }
 

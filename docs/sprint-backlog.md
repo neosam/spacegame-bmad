@@ -11,11 +11,11 @@
 
 | Story ID | Titel | Status | Abhängigkeiten |
 |----------|-------|:------:|----------------|
-| 6c-1 | Companion Ship Flight | todo | keine |
-| 6c-2 | Companion Weapon | todo | 6c-1 |
-| 6c-3 | Target Acquisition | todo | 6c-1 |
-| 6c-4 | DamageTaken Bark | todo | 6c-1, 6c-2 |
-| 6c-5 | Opinion HUD | todo | keine |
+| 6c-1 | Companion Ship Flight | done | keine |
+| 6c-2 | Companion Weapon | done | 6c-1 |
+| 6c-3 | Target Acquisition | done | 6c-1 |
+| 6c-4 | DamageTaken Bark | done | 6c-1, 6c-2 |
+| 6c-5 | Opinion HUD | done | keine |
 
 ---
 
