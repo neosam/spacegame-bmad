@@ -11,7 +11,9 @@ use crate::core::collision::{Collider, Health};
 use crate::core::economy::Credits;
 use crate::core::flight::Player;
 use crate::core::upgrades::InstalledUpgrades;
+use crate::infrastructure::logbook::Logbook;
 use crate::shared::components::{MaterialType, NeedsMaterialDropVisual, NeedsShipUpgradeVisual};
+use crate::shared::events::EventSeverity;
 use crate::core::spawning::{
     NeedsAsteroidVisual, NeedsBossVisual, NeedsDroneVisual, NeedsFighterVisual,
     NeedsHeavyCruiserVisual, NeedsSniperVisual, NeedsTraderVisual, SpawningConfig,
@@ -111,6 +113,16 @@ impl Plugin for RenderingPlugin {
         // Story 7-5: Boss retreat HUD
         app.add_systems(Startup, spawn_boss_retreat_hud);
         app.add_systems(Update, update_boss_retreat_hud);
+
+        // Epic 8: Logbook UI
+        app.init_resource::<LogbookUiOpen>();
+        app.init_resource::<LogbookFilter>();
+        app.init_resource::<LogbookMilestones>();
+        app.add_systems(Update, (
+            toggle_logbook_ui,
+            update_logbook_milestones,
+            (spawn_logbook_ui, update_logbook_ui, despawn_logbook_ui).chain(),
+        ));
 
         // Material drop assets + visual attach
         app.init_resource::<MaterialDropAssets>();
@@ -1594,6 +1606,266 @@ pub fn update_boss_warning_visual(
         mat.color = Color::srgb(0.8, 0.1, 0.1);
     }
     let _ = time; // used implicitly via timer tick in update_boss_telegraphing
+}
+
+// ── Epic 8: Logbook UI ───────────────────────────────────────────────────
+
+/// Whether the logbook overlay is currently open.
+#[derive(Resource, Default, Debug)]
+pub struct LogbookUiOpen(pub bool);
+
+/// Filter level for the logbook display.
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogbookFilter {
+    #[default]
+    ImportantOnly, // Tier1 + Tier2
+    All,           // Tier1 + Tier2 + Tier3
+}
+
+/// Milestone flags tracked for chapter headings.
+#[derive(Resource, Default, Debug)]
+pub struct LogbookMilestones {
+    pub tutorial_complete: bool,
+    pub first_boss_destroyed: bool,
+    pub first_companion_recruited: bool,
+    pub first_station_docked: bool,
+}
+
+/// Marker for the logbook UI root entity.
+#[derive(Component, Debug)]
+pub struct LogbookUiRoot;
+
+/// Marker for the logbook UI text content node (rebuilt on each refresh).
+#[derive(Component, Debug)]
+pub struct LogbookContentNode;
+
+/// Toggles the logbook on L key press. Tab cycles filter when open.
+pub fn toggle_logbook_ui(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut logbook_open: ResMut<LogbookUiOpen>,
+    mut filter: ResMut<LogbookFilter>,
+) {
+    if keyboard.just_pressed(KeyCode::KeyL) {
+        logbook_open.0 = !logbook_open.0;
+    }
+    if logbook_open.0 && keyboard.just_pressed(KeyCode::Tab) {
+        *filter = match *filter {
+            LogbookFilter::ImportantOnly => LogbookFilter::All,
+            LogbookFilter::All => LogbookFilter::ImportantOnly,
+        };
+    }
+}
+
+/// Reads GameEvents to track milestones (Story 8-3).
+pub fn update_logbook_milestones(
+    mut milestones: ResMut<LogbookMilestones>,
+    logbook: Res<Logbook>,
+) {
+    use crate::shared::events::GameEventKind;
+    for entry in logbook.entries().iter() {
+        match &entry.kind {
+            GameEventKind::TutorialComplete => milestones.tutorial_complete = true,
+            GameEventKind::BossDestroyed { .. } => milestones.first_boss_destroyed = true,
+            GameEventKind::CompanionRecruited { .. } => milestones.first_companion_recruited = true,
+            GameEventKind::StationDocked => milestones.first_station_docked = true,
+            _ => {}
+        }
+    }
+}
+
+/// Returns a chapter heading label for a milestone event, if applicable.
+fn milestone_heading_for(entry_idx: usize, logbook: &Logbook) -> Option<&'static str> {
+    use crate::shared::events::GameEventKind;
+    let entries: Vec<_> = logbook.entries().iter().collect();
+    let Some(entry) = entries.get(entry_idx) else {
+        return None;
+    };
+    match &entry.kind {
+        GameEventKind::TutorialComplete => Some("— Tutorial abgeschlossen —"),
+        GameEventKind::BossDestroyed { .. } => {
+            // Only on the first BossDestroyed entry
+            let is_first = entries[..entry_idx]
+                .iter()
+                .all(|e| !matches!(&e.kind, GameEventKind::BossDestroyed { .. }));
+            if is_first { Some("— Erster Boss besiegt —") } else { None }
+        }
+        GameEventKind::CompanionRecruited { .. } => {
+            let is_first = entries[..entry_idx]
+                .iter()
+                .all(|e| !matches!(&e.kind, GameEventKind::CompanionRecruited { .. }));
+            if is_first { Some("— Erster Begleiter rekrutiert —") } else { None }
+        }
+        GameEventKind::StationDocked => {
+            let is_first = entries[..entry_idx]
+                .iter()
+                .all(|e| !matches!(&e.kind, GameEventKind::StationDocked));
+            if is_first { Some("— Erste Station angedockt —") } else { None }
+        }
+        _ => None,
+    }
+}
+
+/// Spawns the logbook UI overlay when `LogbookUiOpen` becomes true.
+pub fn spawn_logbook_ui(
+    logbook_open: Res<LogbookUiOpen>,
+    filter: Res<LogbookFilter>,
+    logbook: Res<Logbook>,
+    existing: Query<Entity, With<LogbookUiRoot>>,
+    mut commands: Commands,
+) {
+    if !logbook_open.is_changed() && !filter.is_changed() && !logbook.is_changed() {
+        return;
+    }
+    // Despawn existing UI before rebuilding
+    for entity in existing.iter() {
+        commands.entity(entity).despawn();
+    }
+    if !logbook_open.0 {
+        return;
+    }
+
+    let filter_label = match *filter {
+        LogbookFilter::ImportantOnly => "Important",
+        LogbookFilter::All => "All",
+    };
+    let header_text = format!("LOGBUCH  [Filter: {}]  L=Schließen  Tab=Filter", filter_label);
+
+    // Collect visible entries (filtered, last 30)
+    let all_entries: Vec<_> = logbook.entries().iter().enumerate().collect();
+    let visible: Vec<_> = all_entries
+        .iter()
+        .filter(|(_, e)| match *filter {
+            LogbookFilter::ImportantOnly => e.severity != EventSeverity::Tier3,
+            LogbookFilter::All => true,
+        })
+        .rev()
+        .take(30)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .cloned()
+        .collect();
+
+    // Root panel — centered modal
+    let root = commands
+        .spawn((
+            LogbookUiRoot,
+            Node {
+                width: Val::Percent(80.0),
+                height: Val::Percent(70.0),
+                position_type: PositionType::Absolute,
+                top: Val::Percent(15.0),
+                left: Val::Percent(10.0),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::FlexStart,
+                padding: UiRect::all(Val::Px(16.0)),
+                row_gap: Val::Px(4.0),
+                overflow: Overflow::clip(),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.04, 0.04, 0.12, 0.93)),
+            GlobalZIndex(100),
+        ))
+        .id();
+
+    // Header
+    let header = commands
+        .spawn((
+            LogbookContentNode,
+            Text(header_text),
+            TextFont { font_size: 17.0, ..default() },
+            TextColor(Color::srgb(0.5, 0.8, 1.0)),
+        ))
+        .id();
+    commands.entity(root).add_child(header);
+
+    // Separator
+    let sep = commands
+        .spawn((
+            LogbookContentNode,
+            Text("─────────────────────────────────────────────────────".to_string()),
+            TextFont { font_size: 12.0, ..default() },
+            TextColor(Color::srgba(0.3, 0.3, 0.5, 1.0)),
+        ))
+        .id();
+    commands.entity(root).add_child(sep);
+
+    if visible.is_empty() {
+        let empty = commands
+            .spawn((
+                LogbookContentNode,
+                Text("(Keine Einträge)".to_string()),
+                TextFont { font_size: 14.0, ..default() },
+                TextColor(Color::srgba(0.5, 0.5, 0.5, 1.0)),
+            ))
+            .id();
+        commands.entity(root).add_child(empty);
+    } else {
+        for (orig_idx, entry) in &visible {
+            // Chapter heading if applicable (Story 8-3)
+            if let Some(heading) = milestone_heading_for(*orig_idx, &logbook) {
+                let heading_node = commands
+                    .spawn((
+                        LogbookContentNode,
+                        Text(heading.to_string()),
+                        TextFont { font_size: 13.0, ..default() },
+                        TextColor(Color::srgb(1.0, 0.85, 0.3)),
+                    ))
+                    .id();
+                commands.entity(root).add_child(heading_node);
+            }
+
+            let (color, severity_icon) = match entry.severity {
+                EventSeverity::Tier1 => (Color::srgb(1.0, 0.95, 0.95), "★★★"),
+                EventSeverity::Tier2 => (Color::srgb(1.0, 0.9, 0.6), "★★ "),
+                EventSeverity::Tier3 => (Color::srgba(0.65, 0.65, 0.65, 1.0), "★  "),
+            };
+            let line = format!("[{:.1}s] {} {}", entry.game_time, severity_icon, entry.kind_label);
+            let row = commands
+                .spawn((
+                    LogbookContentNode,
+                    Text(line),
+                    TextFont { font_size: 13.0, ..default() },
+                    TextColor(color),
+                ))
+                .id();
+            commands.entity(root).add_child(row);
+        }
+    }
+}
+
+/// Rebuilds logbook UI if logbook data changed while open.
+pub fn update_logbook_ui(
+    logbook_open: Res<LogbookUiOpen>,
+    logbook: Res<Logbook>,
+    filter: Res<LogbookFilter>,
+    existing: Query<Entity, With<LogbookUiRoot>>,
+    mut commands: Commands,
+) {
+    if !logbook_open.0 {
+        return;
+    }
+    if logbook.is_changed() || filter.is_changed() {
+        for entity in existing.iter() {
+            commands.entity(entity).despawn();
+        }
+        // spawn_logbook_ui will rebuild on next frame because logbook_open doesn't change
+        // We mark it changed via a dummy — instead just leave despawn and let spawn handle it
+        // Actually spawn_logbook_ui checks logbook.is_changed() so it will run.
+    }
+}
+
+/// Despawns logbook UI when closed.
+pub fn despawn_logbook_ui(
+    logbook_open: Res<LogbookUiOpen>,
+    existing: Query<Entity, With<LogbookUiRoot>>,
+    mut commands: Commands,
+) {
+    if logbook_open.is_changed() && !logbook_open.0 {
+        for entity in existing.iter() {
+            commands.entity(entity).despawn();
+        }
+    }
 }
 
 // ── Story 7-5: Boss Retreat HUD ──────────────────────────────────────────

@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use serde::Deserialize;
 use std::collections::HashMap;
 
-use crate::shared::events::{EventSeverity, GameEvent, GameEventKind};
+use crate::shared::events::{event_kind_label, EventSeverity, GameEvent, GameEventKind};
 use super::logbook::{Logbook, LogbookEntry};
 
 /// Maps `GameEventKind` variant names to severity tiers.
@@ -123,8 +123,10 @@ pub fn record_game_events(
     mut logbook: ResMut<Logbook>,
 ) {
     for event in events.read() {
+        let label = event_kind_label(&event.kind);
         logbook.push(LogbookEntry {
             kind: event.kind.clone(),
+            kind_label: label,
             severity: event.severity,
             game_time: event.game_time,
             position: event.position,
@@ -223,6 +225,9 @@ mod tests {
         assert_eq!(entries.len(), 2, "Logbook should have 2 entries");
         assert_eq!(entries[0].severity, EventSeverity::Tier1);
         assert_eq!(entries[1].severity, EventSeverity::Tier2);
+        // Labels should be computed
+        assert!(!entries[0].kind_label.is_empty());
+        assert!(!entries[1].kind_label.is_empty());
     }
 
     #[test]

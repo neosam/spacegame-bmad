@@ -8,6 +8,9 @@ use crate::shared::events::{EventSeverity, GameEventKind};
 #[derive(Clone, Debug)]
 pub struct LogbookEntry {
     pub kind: GameEventKind,
+    /// Human-readable display label, computed once on creation.
+    /// For entries restored from save: holds the saved label string.
+    pub kind_label: String,
     pub severity: EventSeverity,
     pub game_time: f64,
     pub position: Vec2,
@@ -64,8 +67,11 @@ mod tests {
     use super::*;
 
     fn make_entry(kind: GameEventKind, severity: EventSeverity) -> LogbookEntry {
+        use crate::shared::events::event_kind_label;
+        let label = event_kind_label(&kind);
         LogbookEntry {
             kind,
+            kind_label: label,
             severity,
             game_time: 0.0,
             position: Vec2::ZERO,
@@ -142,6 +148,7 @@ mod tests {
         for i in 0..5 {
             logbook.push(LogbookEntry {
                 kind: GameEventKind::PlayerRespawned,
+                kind_label: "Player respawned".to_string(),
                 severity: EventSeverity::Tier2,
                 game_time: i as f64,
                 position: Vec2::ZERO,

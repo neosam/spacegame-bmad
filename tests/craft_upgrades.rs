@@ -170,6 +170,7 @@ fn upgrade_save_load_roundtrip() {
         upgrade_weapon_spread_fire_rate: 0,
         upgrade_weapon_energy_efficiency: 1,
         companions: Vec::new(),
+        logbook_entries: Vec::new(),
     };
 
     let ron_str = save.to_ron().expect("Should serialize to RON");

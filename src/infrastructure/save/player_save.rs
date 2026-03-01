@@ -7,12 +7,64 @@ use crate::core::flight::Player;
 use crate::core::upgrades::{InstalledUpgrades, ShipSystem, WeaponSystem};
 use crate::core::weapons::{ActiveWeapon, Energy};
 use crate::shared::components::{MaterialType, Velocity};
+use crate::shared::events::EventSeverity;
+use crate::infrastructure::logbook::{Logbook, LogbookEntry};
 use crate::social::companion::{
     Companion, CompanionData, CompanionFollowAI, CompanionRoster, CompanionSaveEntry,
     NeedsCompanionVisual, WingmanCommand, str_to_faction_id,
 };
 
 use super::schema::{check_version, SaveError, SAVE_VERSION};
+
+/// Compact serializable snapshot of a logbook entry.
+/// Only saves kind_name (string) and metadata — avoids re-importing GameEventKind enum.
+/// Tier3 events are excluded to avoid save file bloat.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LogbookEntrySave {
+    pub kind_name: String,
+    /// 1 = Tier1, 2 = Tier2 (Tier3 not saved)
+    pub severity: u8,
+    pub game_time: f64,
+    pub pos_x: f32,
+    pub pos_y: f32,
+}
+
+impl LogbookEntrySave {
+    /// Converts a logbook entry to its saveable form.
+    /// Returns `None` for Tier3 entries (too noisy to persist).
+    pub fn from_entry(entry: &LogbookEntry) -> Option<Self> {
+        let severity = match entry.severity {
+            EventSeverity::Tier1 => 1,
+            EventSeverity::Tier2 => 2,
+            EventSeverity::Tier3 => return None,
+        };
+        Some(Self {
+            kind_name: entry.kind_label.clone(),
+            severity,
+            game_time: entry.game_time,
+            pos_x: entry.position.x,
+            pos_y: entry.position.y,
+        })
+    }
+
+    /// Restores a saved entry to a LogbookEntry with kind_label from the saved kind_name.
+    pub fn to_entry(&self) -> LogbookEntry {
+        use crate::shared::events::GameEventKind;
+        let severity = match self.severity {
+            1 => EventSeverity::Tier1,
+            2 => EventSeverity::Tier2,
+            _ => EventSeverity::Tier3,
+        };
+        LogbookEntry {
+            // Use a placeholder kind — only kind_label is used for display of restored entries
+            kind: GameEventKind::EnemyDestroyed { entity_type: "restored" },
+            kind_label: self.kind_name.clone(),
+            severity,
+            game_time: self.game_time,
+            position: Vec2::new(self.pos_x, self.pos_y),
+        }
+    }
+}
 
 /// Serializable snapshot of player state.
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -69,6 +121,10 @@ pub struct PlayerSave {
     /// Defaults to empty for backward compatibility with v1–v5 saves.
     #[serde(default)]
     pub companions: Vec<CompanionSaveEntry>,
+    /// Logbook entries (Tier1+Tier2 only, max 100).
+    /// Defaults to empty for backward compatibility with v1–v6 saves.
+    #[serde(default)]
+    pub logbook_entries: Vec<LogbookEntrySave>,
 }
 
 impl Default for PlayerSave {
@@ -101,6 +157,7 @@ impl Default for PlayerSave {
             upgrade_weapon_spread_fire_rate: 0,
             upgrade_weapon_energy_efficiency: 0,
             companions: Vec::new(),
+            logbook_entries: Vec::new(),
         }
     }
 }
@@ -147,6 +204,7 @@ impl PlayerSave {
             upgrade_weapon_spread_fire_rate: 0,
             upgrade_weapon_energy_efficiency: 0,
             companions: Vec::new(),
+            logbook_entries: Vec::new(),
         }
     }
 
@@ -216,6 +274,19 @@ impl PlayerSave {
             .iter(world)
             .map(|(data, transform)| CompanionSaveEntry::from_components(data, transform))
             .collect();
+        // Save logbook (Story 8-4): persist Tier1+Tier2 entries, max 100
+        if let Some(logbook) = world.get_resource::<Logbook>() {
+            save.logbook_entries = logbook
+                .entries()
+                .iter()
+                .filter_map(LogbookEntrySave::from_entry)
+                .rev()
+                .take(100)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+        }
         Some(save)
     }
 
@@ -274,6 +345,12 @@ impl PlayerSave {
             if self.upgrade_weapon_spread_damage > 0 { installed.weapon.insert(WeaponSystem::SpreadDamage, self.upgrade_weapon_spread_damage); }
             if self.upgrade_weapon_spread_fire_rate > 0 { installed.weapon.insert(WeaponSystem::SpreadFireRate, self.upgrade_weapon_spread_fire_rate); }
             if self.upgrade_weapon_energy_efficiency > 0 { installed.weapon.insert(WeaponSystem::EnergyEfficiency, self.upgrade_weapon_energy_efficiency); }
+        }
+        // Restore logbook (Story 8-4): push saved entries back into the Logbook resource
+        if let Some(mut logbook) = world.get_resource_mut::<Logbook>() {
+            for saved_entry in &self.logbook_entries {
+                logbook.push(saved_entry.to_entry());
+            }
         }
         // Restore companion roster (Story 6a-6)
         if let Some(mut roster) = world.get_resource_mut::<CompanionRoster>() {
@@ -349,7 +426,85 @@ mod tests {
             upgrade_weapon_spread_fire_rate: 0,
             upgrade_weapon_energy_efficiency: 0,
             companions: Vec::new(),
+            logbook_entries: Vec::new(),
         }
+    }
+
+    #[test]
+    fn logbook_entry_save_roundtrip() {
+        let entry = LogbookEntrySave {
+            kind_name: "Player death".to_string(),
+            severity: 1,
+            game_time: 42.5,
+            pos_x: 100.0,
+            pos_y: -50.0,
+        };
+        // Verify to_entry() produces correct fields
+        let restored = entry.to_entry();
+        assert_eq!(restored.kind_label, "Player death");
+        assert_eq!(restored.severity, EventSeverity::Tier1);
+        assert!((restored.game_time - 42.5).abs() < f64::EPSILON);
+        assert!((restored.position.x - 100.0).abs() < f32::EPSILON);
+        assert!((restored.position.y - (-50.0)).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn logbook_entry_save_from_entry_skips_tier3() {
+        use crate::shared::events::GameEventKind;
+        use crate::infrastructure::logbook::LogbookEntry;
+        let entry = LogbookEntry {
+            kind: GameEventKind::EnemyDestroyed { entity_type: "drone" },
+            kind_label: "Enemy destroyed (drone)".to_string(),
+            severity: EventSeverity::Tier3,
+            game_time: 1.0,
+            position: Vec2::ZERO,
+        };
+        let saved = LogbookEntrySave::from_entry(&entry);
+        assert!(saved.is_none(), "Tier3 entries should not be saved");
+    }
+
+    #[test]
+    fn logbook_entry_save_from_entry_keeps_tier1_and_tier2() {
+        use crate::shared::events::GameEventKind;
+        use crate::infrastructure::logbook::LogbookEntry;
+        let tier1 = LogbookEntry {
+            kind: GameEventKind::PlayerDeath,
+            kind_label: "Player death".to_string(),
+            severity: EventSeverity::Tier1,
+            game_time: 5.0,
+            position: Vec2::new(1.0, 2.0),
+        };
+        let tier2 = LogbookEntry {
+            kind: GameEventKind::PlayerRespawned,
+            kind_label: "Player respawned".to_string(),
+            severity: EventSeverity::Tier2,
+            game_time: 6.0,
+            position: Vec2::new(3.0, 4.0),
+        };
+        let saved1 = LogbookEntrySave::from_entry(&tier1).expect("Tier1 should be saved");
+        let saved2 = LogbookEntrySave::from_entry(&tier2).expect("Tier2 should be saved");
+        assert_eq!(saved1.severity, 1);
+        assert_eq!(saved2.severity, 2);
+        assert_eq!(saved1.kind_name, "Player death");
+    }
+
+    #[test]
+    fn player_save_with_logbook_entries_roundtrip() {
+        let mut save = sample_player_save();
+        save.logbook_entries = vec![
+            LogbookEntrySave {
+                kind_name: "Boss destroyed (Pirates)".to_string(),
+                severity: 1,
+                game_time: 99.0,
+                pos_x: 5000.0,
+                pos_y: 0.0,
+            },
+        ];
+        let ron_str = save.to_ron().expect("Should serialize");
+        let restored = PlayerSave::from_ron(&ron_str).expect("Should deserialize");
+        assert_eq!(restored.logbook_entries.len(), 1);
+        assert_eq!(restored.logbook_entries[0].kind_name, "Boss destroyed (Pirates)");
+        assert_eq!(restored.logbook_entries[0].severity, 1);
     }
 
     #[test]

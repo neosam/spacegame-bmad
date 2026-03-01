@@ -75,6 +75,41 @@ pub struct GameEvent {
     pub game_time: f64,
 }
 
+/// Returns a human-readable display label for a `GameEventKind`.
+/// Used in Logbook UI and save serialization.
+pub fn event_kind_label(kind: &GameEventKind) -> String {
+    match kind {
+        GameEventKind::EnemyDestroyed { entity_type } => format!("Enemy destroyed ({})", entity_type),
+        GameEventKind::PlayerDeath => "Player death".to_string(),
+        GameEventKind::PlayerRespawned => "Player respawned".to_string(),
+        GameEventKind::ChunkLoaded { coord, biome } => {
+            format!("Chunk ({},{}) loaded [{:?}]", coord.x, coord.y, biome)
+        }
+        GameEventKind::ChunkUnloaded { coord } => {
+            format!("Chunk ({},{}) unloaded", coord.x, coord.y)
+        }
+        GameEventKind::WeaponFired { weapon } => format!("Weapon fired ({:?})", weapon),
+        GameEventKind::WeaponSwitched { from, to } => {
+            format!("Weapon switched {:?} → {:?}", from, to)
+        }
+        GameEventKind::GameSaved => "Game saved".to_string(),
+        GameEventKind::TutorialZoneSpawned => "Tutorial zone spawned".to_string(),
+        GameEventKind::StationDocked => "Station docked".to_string(),
+        GameEventKind::GeneratorDestroyed => "Generator destroyed".to_string(),
+        GameEventKind::TutorialComplete => "Tutorial complete".to_string(),
+        GameEventKind::CreditsEarned { amount } => format!("Credits earned (+{})", amount),
+        GameEventKind::MaterialCollected { material } => {
+            format!("Material collected ({:?})", material)
+        }
+        GameEventKind::UpgradeCrafted { system_name, tier } => {
+            format!("Upgrade crafted: {} tier {}", system_name, tier)
+        }
+        GameEventKind::CompanionRecruited { name } => format!("Companion recruited: {}", name),
+        GameEventKind::BossSpawned { faction } => format!("Boss spawned ({:?})", faction),
+        GameEventKind::BossDestroyed { faction, .. } => format!("Boss destroyed ({:?})", faction),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

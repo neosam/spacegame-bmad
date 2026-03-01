@@ -481,7 +481,7 @@ fn faction_id_str_roundtrip_all_variants() {
 }
 
 #[test]
-fn save_version_is_six() {
+fn save_version_is_seven() {
     use void_drifter::infrastructure::save::schema::SAVE_VERSION;
-    assert_eq!(SAVE_VERSION, 6, "SAVE_VERSION should be 6 after Epic 6a");
+    assert_eq!(SAVE_VERSION, 7, "SAVE_VERSION should be 7 after Epic 8");
 }
