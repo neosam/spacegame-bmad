@@ -11,7 +11,7 @@ use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use void_drifter::core::flight::Player;
 use void_drifter::core::input::ActionState;
-use void_drifter::core::station::{Docked, NeedsStationVisual, Station, StationType};
+use void_drifter::core::station::{Docked, LastDockedStation, NeedsStationVisual, Station, StationType};
 use void_drifter::core::station::{update_docking, update_undocking};
 use void_drifter::infrastructure::events::{record_game_events, EventSeverityConfig};
 use void_drifter::infrastructure::logbook::Logbook;
@@ -27,6 +27,7 @@ fn station_test_app() -> App {
     )));
     app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
     app.init_resource::<ActionState>();
+    app.init_resource::<LastDockedStation>();
     app.insert_resource(EventSeverityConfig::default());
     app.init_resource::<Logbook>();
     app.add_message::<GameEvent>();

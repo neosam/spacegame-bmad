@@ -55,6 +55,14 @@ pub struct DiscoveredStations {
     pub positions: Vec<Vec2>,
 }
 
+/// Records the world position of the last station the player successfully docked at.
+/// Used by `handle_player_death` to respawn the player at their last safe harbor
+/// instead of the world origin.
+#[derive(Resource, Default, Debug)]
+pub struct LastDockedStation {
+    pub position: Vec2,
+}
+
 // ── Systems ──────────────────────────────────────────────────────────────
 
 /// Records newly spawned Station positions into `DiscoveredStations`.
@@ -88,6 +96,7 @@ pub fn update_docking(
     mut game_events: bevy::ecs::message::MessageWriter<crate::shared::events::GameEvent>,
     time: Res<Time>,
     severity_config: Res<crate::infrastructure::events::EventSeverityConfig>,
+    mut last_docked: ResMut<LastDockedStation>,
 ) {
     if !action_state.interact {
         return;
@@ -102,6 +111,8 @@ pub fn update_docking(
         let distance = (station_pos - player_pos).length();
         if distance <= station.dock_radius {
             commands.entity(player_entity).insert(Docked { station: station_entity });
+            // Record last docked position for respawn
+            last_docked.position = station_pos;
             // Consume interact so update_undocking (chained next) does not immediately undock
             action_state.interact = false;
             let kind = crate::shared::events::GameEventKind::StationDocked;

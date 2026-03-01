@@ -30,7 +30,7 @@ use self::economy::{
     Credits, DiscoveredChunks, PendingCreditEvents,
     PlayerInventory, PendingDropSpawns, PendingPickupEvents,
 };
-use self::station::{record_discovered_stations, update_docking, update_undocking, DiscoveredStations};
+use self::station::{record_discovered_stations, update_docking, update_undocking, DiscoveredStations, LastDockedStation};
 use self::upgrades::{
     apply_upgrade_effects, emit_craft_events, handle_craft_input, init_base_stats,
     mark_player_needs_upgrade_visual, navigate_station_ui, process_crafting_request, CraftingRequest,
@@ -274,6 +274,7 @@ impl Plugin for CorePlugin {
 
         // Record station positions as they are spawned (persists across chunk unloads)
         app.init_resource::<DiscoveredStations>();
+        app.init_resource::<LastDockedStation>();
         app.add_systems(Update, record_discovered_stations);
 
         // Flying → Shooting trigger: runs in CoreSet::Events, fires once when player reaches wreck

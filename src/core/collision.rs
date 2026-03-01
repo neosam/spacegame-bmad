@@ -273,6 +273,7 @@ pub fn tick_contact_cooldown(
 /// Handles player death: resets health/position/velocity, triggers destruction effect,
 /// grants invincibility, and emits `PlayerDeath` + `PlayerRespawned` events.
 /// Runs AFTER apply_damage and BEFORE despawn_destroyed.
+/// Respawns the player at the last docked station position, or Vec3::ZERO if never docked.
 pub fn handle_player_death(
     mut commands: Commands,
     mut query: Query<(Entity, &mut Health, &mut Transform, &mut Velocity), With<Player>>,
@@ -280,6 +281,7 @@ pub fn handle_player_death(
     mut game_events: MessageWriter<GameEvent>,
     time: Res<Time>,
     severity_config: Res<EventSeverityConfig>,
+    last_docked: Option<Res<super::station::LastDockedStation>>,
 ) {
     let Ok((entity, mut health, mut transform, mut velocity)) = query.single_mut() else {
         return;
@@ -300,9 +302,15 @@ pub fn handle_player_death(
             game_time: time.elapsed_secs_f64(),
         });
 
+        // Determine respawn position: last docked station or world origin
+        let respawn_pos = last_docked
+            .as_ref()
+            .map(|r| r.position.extend(0.0))
+            .unwrap_or(Vec3::ZERO);
+
         // Reset player state
         health.current = health.max;
-        transform.translation = Vec3::ZERO;
+        transform.translation = respawn_pos;
         velocity.0 = Vec2::ZERO;
 
         // Grant invincibility and clear cooldown
@@ -318,7 +326,7 @@ pub fn handle_player_death(
         game_events.write(GameEvent {
             severity: severity_config.severity_for(&respawn_kind),
             kind: respawn_kind,
-            position: Vec2::ZERO,
+            position: respawn_pos.truncate(),
             game_time: time.elapsed_secs_f64(),
         });
     }
@@ -475,6 +483,89 @@ mod tests {
             10.0,
         );
         assert!(!result, "Circles should not overlap");
+    }
+
+    // ── LastDockedStation respawn ──
+
+    #[test]
+    fn player_respawns_at_last_docked_station() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<DestroyedPositions>();
+        app.add_message::<GameEvent>();
+        app.insert_resource(EventSeverityConfig::default());
+        // Insert a LastDockedStation at a non-zero position
+        app.insert_resource(crate::core::station::LastDockedStation {
+            position: Vec2::new(300.0, 400.0),
+        });
+        app.add_systems(Update, handle_player_death);
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                Player,
+                Health { current: 0.0, max: 100.0 },
+                Transform::from_translation(Vec3::new(50.0, 50.0, 0.0)),
+                Velocity(Vec2::new(5.0, 5.0)),
+            ))
+            .id();
+
+        app.update();
+
+        let transform = app
+            .world()
+            .entity(entity)
+            .get::<Transform>()
+            .expect("Player should have Transform after death");
+        assert!(
+            (transform.translation.x - 300.0).abs() < f32::EPSILON,
+            "Respawn x should be 300.0, got {}",
+            transform.translation.x
+        );
+        assert!(
+            (transform.translation.y - 400.0).abs() < f32::EPSILON,
+            "Respawn y should be 400.0, got {}",
+            transform.translation.y
+        );
+        assert!(
+            transform.translation.z.abs() < f32::EPSILON,
+            "Respawn z should be 0.0, got {}",
+            transform.translation.z
+        );
+    }
+
+    #[test]
+    fn player_respawns_at_origin_if_never_docked() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<DestroyedPositions>();
+        app.add_message::<GameEvent>();
+        app.insert_resource(EventSeverityConfig::default());
+        // No LastDockedStation inserted — Option<Res<LastDockedStation>> will be None
+        app.add_systems(Update, handle_player_death);
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                Player,
+                Health { current: 0.0, max: 100.0 },
+                Transform::from_translation(Vec3::new(50.0, 50.0, 0.0)),
+                Velocity(Vec2::new(5.0, 5.0)),
+            ))
+            .id();
+
+        app.update();
+
+        let transform = app
+            .world()
+            .entity(entity)
+            .get::<Transform>()
+            .expect("Player should have Transform after death");
+        assert!(
+            transform.translation.distance(Vec3::ZERO) < f32::EPSILON,
+            "Respawn should be at Vec3::ZERO when never docked, got {:?}",
+            transform.translation
+        );
     }
 
     // ── contact damage ──
