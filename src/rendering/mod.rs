@@ -18,6 +18,8 @@ use crate::core::spawning::{
 };
 use crate::core::station::{Docked, NeedsStationVisual, Station, StationType};
 use crate::core::tutorial::{generate_tutorial_zone, GravityWellBoundary, GravityWellGenerator, TutorialConfig, TutorialStation, TutorialWreck};
+use crate::social::companion::{CompanionData, NeedsCompanionVisual};
+use crate::social::faction::FactionId;
 use crate::core::weapons::{
     ActiveWeapon, Energy, FireCooldown, NeedsLaserVisual, NeedsProjectileVisual, WeaponConfig,
 };
@@ -35,8 +37,8 @@ use self::background::{setup_starfield, update_starfield, StarfieldConfig};
 use self::minimap::{setup_minimap, update_minimap_blips, MinimapConfig, MinimapState};
 use self::world_map::{toggle_world_map, update_world_map, WorldMapConfig, WorldMapOpen, WorldMapState};
 use self::vector_art::{
-    generate_asteroid_mesh, generate_circle_outline_mesh, generate_drone_mesh,
-    generate_fighter_mesh, generate_heavy_cruiser_mesh, generate_laser_mesh,
+    generate_asteroid_mesh, generate_circle_outline_mesh, generate_companion_mesh,
+    generate_drone_mesh, generate_fighter_mesh, generate_heavy_cruiser_mesh, generate_laser_mesh,
     generate_material_drop_mesh, generate_player_mesh, generate_projectile_mesh,
     generate_sniper_mesh, generate_trader_mesh, generate_tutorial_generator_mesh,
     generate_tutorial_station_mesh, generate_tutorial_wreck_mesh,
@@ -145,6 +147,10 @@ impl Plugin for RenderingPlugin {
 
         // Ship upgrade visual: update player color based on hull upgrade tier
         app.add_systems(Update, update_ship_upgrade_visual);
+
+        // Story 6a-4: Companion visuals — setup assets and attach on spawn
+        app.add_systems(Startup, setup_companion_assets);
+        app.add_systems(Update, render_companions);
 
         // Station Shop UI: spawn on dock, update while docked, despawn on undock
         app.add_systems(
@@ -1139,5 +1145,64 @@ fn update_ship_upgrade_visual(
             material.color = color;
         }
         commands.entity(entity).remove::<NeedsShipUpgradeVisual>();
+    }
+}
+
+// ── Story 6a-4: Companion Visuals ─────────────────────────────────────────
+
+/// Cached mesh and per-faction color material handles for companion ships.
+#[derive(Resource)]
+struct CompanionAssets {
+    mesh: Handle<Mesh>,
+    material_neutral: Handle<ColorMaterial>,
+    material_pirates: Handle<ColorMaterial>,
+    material_military: Handle<ColorMaterial>,
+    material_aliens: Handle<ColorMaterial>,
+    material_rogue_drones: Handle<ColorMaterial>,
+}
+
+/// Initialize companion visual assets once at startup.
+fn setup_companion_assets(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let mesh = meshes.add(generate_companion_mesh());
+    commands.insert_resource(CompanionAssets {
+        mesh,
+        // Neutral: cyan
+        material_neutral: materials.add(ColorMaterial::from(Color::srgb(0.3, 0.9, 0.9))),
+        // Pirates: red-orange
+        material_pirates: materials.add(ColorMaterial::from(Color::srgb(0.9, 0.3, 0.1))),
+        // Military: blue-green
+        material_military: materials.add(ColorMaterial::from(Color::srgb(0.2, 0.7, 0.4))),
+        // Aliens: purple
+        material_aliens: materials.add(ColorMaterial::from(Color::srgb(0.7, 0.2, 0.9))),
+        // Rogue Drones: orange-yellow
+        material_rogue_drones: materials.add(ColorMaterial::from(Color::srgb(0.9, 0.65, 0.1))),
+    });
+}
+
+/// Attaches companion mesh and faction-specific material to newly spawned companion entities.
+fn render_companions(
+    mut commands: Commands,
+    assets: Res<CompanionAssets>,
+    query: Query<(Entity, &CompanionData), With<NeedsCompanionVisual>>,
+) {
+    for (entity, companion_data) in query.iter() {
+        let material = match companion_data.faction {
+            FactionId::Neutral => assets.material_neutral.clone(),
+            FactionId::Pirates => assets.material_pirates.clone(),
+            FactionId::Military => assets.material_military.clone(),
+            FactionId::Aliens => assets.material_aliens.clone(),
+            FactionId::RogueDrones => assets.material_rogue_drones.clone(),
+        };
+        commands
+            .entity(entity)
+            .insert((
+                Mesh2d(assets.mesh.clone()),
+                MeshMaterial2d(material),
+            ))
+            .remove::<NeedsCompanionVisual>();
     }
 }

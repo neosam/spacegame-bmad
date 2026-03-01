@@ -57,6 +57,8 @@ pub enum GameEventKind {
     MaterialCollected { material: MaterialType },
     /// Player crafted or bought an upgrade at a station.
     UpgradeCrafted { system_name: String, tier: u8 },
+    /// Player recruited a companion at a station.
+    CompanionRecruited { name: String },
 }
 
 /// A game event emitted as a Bevy message by gameplay systems.

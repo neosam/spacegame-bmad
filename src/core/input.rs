@@ -21,6 +21,8 @@ pub struct ActionState {
     pub nav_up: bool,
     /// T key — navigate recipe list downward (when docked)
     pub nav_down: bool,
+    /// H key — recruit a companion at current station (when docked)
+    pub recruit: bool,
 }
 
 /// Reads keyboard and gamepad input, writes to `ActionState` resource.
@@ -78,6 +80,16 @@ pub fn read_input(
     // Keyboard: navigate recipe list down — T key (conflict-free with thrust/rotation)
     if keyboard.just_pressed(KeyCode::KeyT) {
         action_state.nav_down = true;
+    }
+
+    // Keyboard: wingman command cycle — G key
+    if keyboard.just_pressed(KeyCode::KeyG) {
+        action_state.wingman_command = true;
+    }
+
+    // Keyboard: recruit companion at station — H key (when docked)
+    if keyboard.just_pressed(KeyCode::KeyH) {
+        action_state.recruit = true;
     }
 
     // Clamp rotation

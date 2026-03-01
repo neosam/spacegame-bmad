@@ -7,6 +7,10 @@ use crate::core::flight::Player;
 use crate::core::upgrades::{InstalledUpgrades, ShipSystem, WeaponSystem};
 use crate::core::weapons::{ActiveWeapon, Energy};
 use crate::shared::components::{MaterialType, Velocity};
+use crate::social::companion::{
+    Companion, CompanionData, CompanionFollowAI, CompanionRoster, CompanionSaveEntry,
+    NeedsCompanionVisual, WingmanCommand, str_to_faction_id,
+};
 
 use super::schema::{check_version, SaveError, SAVE_VERSION};
 
@@ -61,6 +65,10 @@ pub struct PlayerSave {
     pub upgrade_weapon_spread_fire_rate: u8,
     #[serde(default)]
     pub upgrade_weapon_energy_efficiency: u8,
+    /// Companion roster — saved companions with their position and faction.
+    /// Defaults to empty for backward compatibility with v1–v5 saves.
+    #[serde(default)]
+    pub companions: Vec<CompanionSaveEntry>,
 }
 
 impl Default for PlayerSave {
@@ -92,6 +100,7 @@ impl Default for PlayerSave {
             upgrade_weapon_spread_damage: 0,
             upgrade_weapon_spread_fire_rate: 0,
             upgrade_weapon_energy_efficiency: 0,
+            companions: Vec::new(),
         }
     }
 }
@@ -137,6 +146,7 @@ impl PlayerSave {
             upgrade_weapon_spread_damage: 0,
             upgrade_weapon_spread_fire_rate: 0,
             upgrade_weapon_energy_efficiency: 0,
+            companions: Vec::new(),
         }
     }
 
@@ -200,6 +210,12 @@ impl PlayerSave {
             save.upgrade_weapon_spread_fire_rate = installed.weapon_tier(WeaponSystem::SpreadFireRate);
             save.upgrade_weapon_energy_efficiency = installed.weapon_tier(WeaponSystem::EnergyEfficiency);
         }
+        // Save companion roster (Story 6a-6)
+        let mut companion_query = world.query_filtered::<(&CompanionData, &Transform), With<Companion>>();
+        save.companions = companion_query
+            .iter(world)
+            .map(|(data, transform)| CompanionSaveEntry::from_components(data, transform))
+            .collect();
         Some(save)
     }
 
@@ -259,6 +275,29 @@ impl PlayerSave {
             if self.upgrade_weapon_spread_fire_rate > 0 { installed.weapon.insert(WeaponSystem::SpreadFireRate, self.upgrade_weapon_spread_fire_rate); }
             if self.upgrade_weapon_energy_efficiency > 0 { installed.weapon.insert(WeaponSystem::EnergyEfficiency, self.upgrade_weapon_energy_efficiency); }
         }
+        // Restore companion roster (Story 6a-6)
+        if let Some(mut roster) = world.get_resource_mut::<CompanionRoster>() {
+            roster.companions.clear();
+        }
+        for entry in &self.companions {
+            let pos = Vec2::new(entry.x, entry.y);
+            let faction = str_to_faction_id(&entry.faction);
+            let entity = world.spawn((
+                Companion,
+                CompanionData {
+                    name: entry.name.clone(),
+                    faction,
+                },
+                CompanionFollowAI::default(),
+                WingmanCommand::Defend,
+                NeedsCompanionVisual,
+                Velocity::default(),
+                Transform::from_translation(pos.extend(0.0)),
+            )).id();
+            if let Some(mut roster) = world.get_resource_mut::<CompanionRoster>() {
+                roster.companions.push(entity);
+            }
+        }
     }
 
     /// Serializes to pretty-printed RON.
@@ -309,6 +348,7 @@ mod tests {
             upgrade_weapon_spread_damage: 0,
             upgrade_weapon_spread_fire_rate: 0,
             upgrade_weapon_energy_efficiency: 0,
+            companions: Vec::new(),
         }
     }
 

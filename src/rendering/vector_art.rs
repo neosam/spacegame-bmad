@@ -764,6 +764,35 @@ pub fn generate_circle_outline_mesh(radius: f32, stroke_width: f32) -> Mesh {
     mesh
 }
 
+/// Generate a companion ship mesh — a smaller, distinct triangle silhouette facing +Y.
+/// Slightly smaller than the player ship to be recognizable as a wingman.
+pub fn generate_companion_mesh() -> Mesh {
+    // Simple compact triangle, ~60% player size, distinct shape
+    let positions = vec![
+        [0.0, 14.0, 0.0],   // Nose (top)
+        [9.0, -10.0, 0.0],  // Right wing
+        [3.0, -6.0, 0.0],   // Right indent
+        [3.0, -12.0, 0.0],  // Right thruster
+        [-3.0, -12.0, 0.0], // Left thruster
+        [-3.0, -6.0, 0.0],  // Left indent
+        [-9.0, -10.0, 0.0], // Left wing
+    ];
+    // Simple triangle fan triangulation from center
+    let indices: Vec<u32> = vec![0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5, 0, 5, 6, 0, 6, 1];
+    let normals = vec![[0.0, 0.0, 1.0]; positions.len()];
+    let uvs: Vec<[f32; 2]> = positions
+        .iter()
+        .map(|p| [(p[0] + 9.0) / 18.0, (p[1] + 12.0) / 26.0])
+        .collect();
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Indices::U32(indices));
+    mesh
+}
+
 /// Fallback mesh if lyon tessellation fails (graceful degradation).
 fn generate_fallback_mesh() -> Mesh {
     let positions = vec![

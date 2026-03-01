@@ -1,3 +1,81 @@
+# Sprint Report — Epic 6a: Companion Core
+
+**Datum:** 2026-02-28
+**Epic:** 6a — Companion Core
+**Status:** ✅ Abgeschlossen
+**Tests:** 657 (vorher 622, +35)
+
+---
+
+## Stories
+
+| Story | Titel | Status |
+|-------|-------|--------|
+| 6a-1 | Recruit Companion | ✅ done |
+| 6a-2 | Companion Follow | ✅ done |
+| 6a-3 | Wingman Commands | ✅ done |
+| 6a-4 | Companion Visuals | ✅ done |
+| 6a-5 | Companion Survival | ✅ done |
+| 6a-6 | Companion Save | ✅ done |
+
+---
+
+## Implementierte Features
+
+### Core (`src/social/companion.rs`)
+- `Companion`, `CompanionData`, `CompanionFollowAI`, `WingmanCommand`, `NeedsCompanionVisual`, `CompanionRetreating`, `CompanionRoster`, `CompanionSaveEntry`
+- Pure Function: `companion_follow_velocity()` — follow-Logik vollständig testbar
+- `faction_id_to_str` / `str_to_faction_id` — stabile String-Serialisierung
+- Systeme: `handle_recruit_companion`, `update_companion_follow`, `update_companion_positions`, `handle_wingman_commands`, `handle_companion_survival`, `update_retreating_companions`
+
+### Input (src/core/input.rs)
+- `H`-Taste → `recruit` (Companion rekrutieren)
+- `G`-Taste → `wingman_command` (Befehl wechseln: Attack → Defend → Retreat → Attack)
+
+### Rendering (src/rendering/)
+- `CompanionAssets` — per-Fraktion farbige Materialien (Neutral=Cyan, Pirates=Rot, Military=Blau, Aliens=Lila, RogueDrones=Orange)
+- `generate_companion_mesh()` — 7-Punkt-Schiff-Silhouette (~60% Spielergröße)
+
+### Events (src/shared/events.rs)
+- `GameEventKind::CompanionRecruited { name }` — Tier1 Severity
+- EventSeverityConfig: 15 → 16 Mappings
+
+### Save/Load
+- `SAVE_VERSION` 5 → 6
+- `PlayerSave.companions: Vec<CompanionSaveEntry>` mit `#[serde(default)]` für v5-Migration
+- `from_world` serialisiert alle Companion-Entities
+- `apply_to_world` spawnt Companions aus Speicherdaten neu
+
+---
+
+## Architektur-Entscheidungen
+
+- **Core/Rendering-Trennung** konsequent eingehalten: `NeedsCompanionVisual` Marker
+- **Pure Functions** für testbare Follow-Logik
+- **String-basierte FactionId-Serialisierung** für Vorwärtskompatibilität
+- **`#[serde(default)]`** ermöglicht transparente v5→v6 Migration
+
+---
+
+## Bugfix (Vorgänger-Commit)
+- `STATION_SPAWN_CHANCE` war auf 0.4 gesetzt (Experiment) — zurückgesetzt auf 0.05
+
+---
+
+## Commit
+
+```
+feat(6a-1..6a-6): Companion Core — recruit, follow AI, wingman commands, visuals, survival, save. 657 tests.
+```
+
+---
+
+## Nächster Sprint
+
+**Epic 6b: Companion AI** (Dependencies: Epic 6a ✅)
+
+---
+
 # Sprint Report — Epic 5: Progression & Upgrades
 
 **Datum:** 2026-02-28
