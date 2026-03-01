@@ -18,5 +18,7 @@
         "CompanionRecruited": Tier1,
         "BossSpawned": Tier1,
         "BossDestroyed": Tier1,
+        "WormholeEntered": Tier1,
+        "WormholeCleared": Tier1,
     },
 )

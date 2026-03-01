@@ -63,6 +63,10 @@ pub enum GameEventKind {
     BossSpawned { faction: crate::social::faction::FactionId },
     /// A Boss enemy was destroyed (Story 7-1).
     BossDestroyed { faction: crate::social::faction::FactionId, position: Vec2 },
+    /// Player entered a wormhole (Story 9-1).
+    WormholeEntered { coord: ChunkCoord },
+    /// Player cleared a wormhole arena (Story 9-1).
+    WormholeCleared { coord: ChunkCoord },
 }
 
 /// A game event emitted as a Bevy message by gameplay systems.
@@ -107,6 +111,12 @@ pub fn event_kind_label(kind: &GameEventKind) -> String {
         GameEventKind::CompanionRecruited { name } => format!("Companion recruited: {}", name),
         GameEventKind::BossSpawned { faction } => format!("Boss spawned ({:?})", faction),
         GameEventKind::BossDestroyed { faction, .. } => format!("Boss destroyed ({:?})", faction),
+        GameEventKind::WormholeEntered { coord } => {
+            format!("Wormhole entered ({},{})", coord.x, coord.y)
+        }
+        GameEventKind::WormholeCleared { coord } => {
+            format!("Wormhole cleared ({},{})", coord.x, coord.y)
+        }
     }
 }
 

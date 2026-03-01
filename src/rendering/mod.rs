@@ -19,6 +19,7 @@ use crate::core::spawning::{
     NeedsHeavyCruiserVisual, NeedsSniperVisual, NeedsTraderVisual, SpawningConfig,
 };
 use crate::core::station::{Docked, NeedsStationVisual, Station, StationType};
+use crate::core::wormhole::{NeedsWormholeVisual, Wormhole};
 use crate::core::tutorial::{generate_tutorial_zone, GravityWellBoundary, GravityWellGenerator, TutorialConfig, TutorialStation, TutorialWreck};
 use crate::social::companion::{CompanionData, NeedsCompanionVisual};
 use crate::social::companion_personality::{BarkDisplay, PlayerOpinions, format_opinion_score};
@@ -127,6 +128,10 @@ impl Plugin for RenderingPlugin {
         app.init_resource::<MaterialDropAssets>();
         app.add_systems(Startup, setup_material_drop_assets);
         app.add_systems(Update, attach_material_drop_visual);
+
+        // Story 9-1: Wormhole assets + visual attach
+        app.add_systems(Startup, setup_wormhole_assets);
+        app.add_systems(Update, attach_wormhole_visual);
 
         // Startup systems
         app.add_systems(
@@ -1861,5 +1866,53 @@ pub fn update_boss_retreat_hud(
         *visibility = Visibility::Visible;
     } else {
         *visibility = Visibility::Hidden;
+    }
+}
+
+// ── Story 9-1: Wormhole Visuals ──────────────────────────────────────────
+
+/// Cached mesh and material handles for wormhole entities.
+#[derive(Resource)]
+pub struct WormholeAssets {
+    pub mesh: Handle<Mesh>,
+    pub material_active: Handle<ColorMaterial>,
+    pub material_cleared: Handle<ColorMaterial>,
+}
+
+/// Initialize wormhole visual assets once at startup.
+fn setup_wormhole_assets(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let mesh = meshes.add(Circle::new(40.0));
+    let material_active = materials.add(ColorMaterial::from(Color::srgba(0.0, 0.8, 1.0, 0.7)));
+    let material_cleared = materials.add(ColorMaterial::from(Color::srgba(0.3, 0.3, 0.3, 0.4)));
+    commands.insert_resource(WormholeAssets {
+        mesh,
+        material_active,
+        material_cleared,
+    });
+}
+
+/// Attaches cached mesh and material to newly spawned wormhole entities.
+fn attach_wormhole_visual(
+    query: Query<(Entity, &Wormhole), With<NeedsWormholeVisual>>,
+    mut commands: Commands,
+    assets: Res<WormholeAssets>,
+) {
+    for (entity, wormhole) in query.iter() {
+        let material = if wormhole.cleared {
+            assets.material_cleared.clone()
+        } else {
+            assets.material_active.clone()
+        };
+        commands
+            .entity(entity)
+            .insert((
+                Mesh2d(assets.mesh.clone()),
+                MeshMaterial2d(material),
+            ))
+            .remove::<NeedsWormholeVisual>();
     }
 }

@@ -16,6 +16,7 @@ use crate::core::collision::{Collider, Health};
 use crate::core::flight::Player;
 use crate::core::spawning::{Asteroid, BossEnemy, NeedsAsteroidVisual, NeedsBossVisual, NeedsDroneVisual, ScoutDrone};
 use crate::core::station::{NeedsStationVisual, Station, StationType};
+use crate::core::wormhole::{NeedsWormholeVisual, Wormhole, should_spawn_wormhole};
 use crate::infrastructure::events::EventSeverityConfig;
 use crate::infrastructure::save::delta::{SeedIndex, WorldDeltas};
 use crate::shared::components::Velocity;
@@ -562,6 +563,23 @@ pub fn update_chunks(
         chunk_entity_index.chunks.insert(coord, chunk_entities);
         active_chunks.chunks.insert(coord, biome);
         explored_chunks.chunks.entry(coord).or_insert(biome);
+
+        // Story 9-1: Spawn a Wormhole entity for eligible chunks
+        if should_spawn_wormhole(coord, config.seed) {
+            let chunk_center = chunk::chunk_to_world_center(coord, config.chunk_size);
+            let wormhole_entity = commands.spawn((
+                Wormhole { coord, cleared: false },
+                NeedsWormholeVisual,
+                Transform::from_translation(chunk_center.extend(0.0)),
+                ChunkEntity { coord },
+            )).id();
+            // Register with chunk index so it is despawned on chunk unload
+            chunk_entity_index
+                .chunks
+                .entry(coord)
+                .or_default()
+                .push(wormhole_entity);
+        }
 
         let kind = GameEventKind::ChunkLoaded { coord, biome };
         game_events.write(GameEvent {

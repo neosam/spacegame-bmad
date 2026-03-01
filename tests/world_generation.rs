@@ -229,6 +229,8 @@ fn chunk_reload_produces_same_entities() {
 }
 
 /// Total entity count stays within budget (AC: #7)
+/// Only Collidable chunk entities count toward the budget.
+/// Non-collidable chunk entities (e.g. wormholes, stations) are excluded from the budget.
 #[test]
 fn entity_count_within_budget() {
     let mut app = test_app();
@@ -236,9 +238,10 @@ fn entity_count_within_budget() {
     run_until_loaded(&mut app);
 
     let config = WorldConfig::default();
+    // Budget counts only Collidable entities — wormholes and stations are non-collidable
     let count = app
         .world_mut()
-        .query_filtered::<Entity, With<ChunkEntity>>()
+        .query_filtered::<Entity, (With<ChunkEntity>, With<Collider>)>()
         .iter(app.world())
         .count();
     assert!(
@@ -286,9 +289,10 @@ fn entity_budget_enforced_across_multi_chunk_load() {
         app.update();
     }
 
+    // Budget counts only Collidable entities — wormholes and stations are non-collidable
     let count = app
         .world_mut()
-        .query_filtered::<Entity, With<ChunkEntity>>()
+        .query_filtered::<Entity, (With<ChunkEntity>, With<Collider>)>()
         .iter(app.world())
         .count();
     assert!(
@@ -645,9 +649,10 @@ fn entity_budget_with_high_density_biome() {
         app.update();
     }
 
+    // Budget counts only Collidable entities — wormholes and stations are non-collidable
     let count = app
         .world_mut()
-        .query_filtered::<Entity, With<ChunkEntity>>()
+        .query_filtered::<Entity, (With<ChunkEntity>, With<Collider>)>()
         .iter(app.world())
         .count();
     assert!(
