@@ -175,13 +175,13 @@ development_status:
   epic-9-retrospective: done
 
   # ── Epic 10: Art & Audio Polish (Could | Dependencies: Core epics stable) ──
-  epic-10: backlog
-  10-1-vector-art: backlog
-  10-2-visual-audio-juice: backlog
-  10-3-juice-settings: backlog
-  10-4-atmospheric-background: backlog
-  10-5-music-crossfade: backlog
-  10-6-ambient-audio: backlog
+  epic-10: in-progress
+  10-1-vector-art: ready-for-dev
+  10-2-visual-audio-juice: ready-for-dev
+  10-3-juice-settings: ready-for-dev
+  10-4-atmospheric-background: ready-for-dev
+  10-5-music-crossfade: ready-for-dev
+  10-6-ambient-audio: ready-for-dev
   epic-10-retrospective: optional
 
   # ── Epic 11: Platform & Release (Could | Dependencies: All MVP epics) ──

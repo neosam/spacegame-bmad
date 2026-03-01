@@ -11,6 +11,7 @@
 3. **Sichtbarkeit** — Jede neue Entity, mit der der Spieler interagieren soll, hat ein Mesh (kein unsichtbares Gameplay-Objekt)
 4. **Spielfluss** — Nach der Story kann der Spieler immer noch: fliegen, schießen, und mit dem neuen Feature interagieren
 5. **Playtest** — Neue Gameplay-Mechaniken manuell spielen und prüfen ob sie sich korrekt anfühlen (Balance, Feedback, Sichtbarkeit im Spiel)
+   - **Epic 10 (Art & Audio Polish):** Simon's Playtest-Feedback ist das primäre Acceptance Criteria. Eine Story ist erst done wenn Simon nach dem Spielen grünes Licht gibt.
 
 ### Architektur-Regeln
 
