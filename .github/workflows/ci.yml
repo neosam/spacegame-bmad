@@ -32,7 +32,7 @@ jobs:
             --out-dir dist/wasm \
             --target web \
             target/wasm32-unknown-unknown/release/void_drifter.wasm
-          cp dist/index.html dist/index.html 2>/dev/null || true
+          cp assets/web/index.html dist/index.html
       - name: Upload WASM artifact
         uses: actions/upload-artifact@v4
         with:
