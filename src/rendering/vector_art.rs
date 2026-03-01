@@ -227,11 +227,17 @@ pub fn generate_drone_mesh(radius: f32) -> Mesh {
     let mut tessellator = FillTessellator::new();
 
     let mut builder = Path::builder();
-    // Diamond shape: 4 points
-    builder.begin(point(0.0, radius));           // Top
-    builder.line_to(point(radius * 0.6, 0.0));   // Right
-    builder.line_to(point(0.0, -radius));         // Bottom
-    builder.line_to(point(-radius * 0.6, 0.0));  // Left
+    // Scout ship: compact swept-wing interceptor facing +Y
+    let r = radius;
+    builder.begin(point(0.0, r));               // Nose
+    builder.line_to(point(r * 0.7, r * 0.1));  // Right cockpit shoulder
+    builder.line_to(point(r * 0.9, -r * 0.3)); // Right wing tip
+    builder.line_to(point(r * 0.4, -r * 0.2)); // Right wing root
+    builder.line_to(point(r * 0.3, -r * 0.8)); // Right engine
+    builder.line_to(point(-r * 0.3, -r * 0.8));// Left engine
+    builder.line_to(point(-r * 0.4, -r * 0.2));// Left wing root
+    builder.line_to(point(-r * 0.9, -r * 0.3));// Left wing tip
+    builder.line_to(point(-r * 0.7, r * 0.1)); // Left cockpit shoulder
     builder.close();
     let path = builder.build();
 
@@ -460,14 +466,19 @@ pub fn generate_fighter_mesh(radius: f32) -> Mesh {
     let mut tessellator = FillTessellator::new();
 
     let mut builder = Path::builder();
-    // Bold arrowhead: wide base, sharp nose
-    let h = radius;
-    let w = radius * 0.9;
-    builder.begin(point(0.0, h));           // Nose (top)
-    builder.line_to(point(w, -h * 0.5));    // Right base
-    builder.line_to(point(w * 0.3, -h * 0.1)); // Right notch
-    builder.line_to(point(-w * 0.3, -h * 0.1)); // Left notch
-    builder.line_to(point(-w, -h * 0.5));   // Left base
+    // Fighter: aggressive interceptor with swept delta wings and engine pods
+    let r = radius;
+    builder.begin(point(0.0, r));               // Nose tip
+    builder.line_to(point(r * 0.25, r * 0.4)); // Right fuselage
+    builder.line_to(point(r * 1.1, -r * 0.2)); // Right wing tip (swept back)
+    builder.line_to(point(r * 0.7, -r * 0.5)); // Right wing trailing edge
+    builder.line_to(point(r * 0.35, -r * 0.4));// Right engine pod outer
+    builder.line_to(point(r * 0.35, -r));       // Right engine nozzle
+    builder.line_to(point(-r * 0.35, -r));      // Left engine nozzle
+    builder.line_to(point(-r * 0.35, -r * 0.4));// Left engine pod outer
+    builder.line_to(point(-r * 0.7, -r * 0.5));// Left wing trailing edge
+    builder.line_to(point(-r * 1.1, -r * 0.2));// Left wing tip
+    builder.line_to(point(-r * 0.25, r * 0.4));// Left fuselage
     builder.close();
     let path = builder.build();
 
@@ -499,28 +510,34 @@ pub fn generate_fighter_mesh(radius: f32) -> Mesh {
     mesh
 }
 
-/// Generate a large octagon mesh for Heavy Cruiser rendering.
-/// Large and imposing — clearly the biggest enemy type.
+/// Generate a heavy warship mesh for Heavy Cruiser rendering.
+/// Wide, bulky hull with weapon sponsons — clearly the biggest enemy type.
 pub fn generate_heavy_cruiser_mesh(radius: f32) -> Mesh {
-    let vertex_count = 8u32;
-    let angle_step = std::f32::consts::TAU / vertex_count as f32;
-    // Rotate 22.5° so flat sides face up/down (more imposing silhouette)
-    let offset = std::f32::consts::PI / 8.0;
-
     let mut buffers: VertexBuffers<[f32; 3], u32> = VertexBuffers::new();
     let mut tessellator = FillTessellator::new();
     let mut builder = Path::builder();
 
-    for i in 0..vertex_count {
-        let angle = angle_step * i as f32 + offset;
-        let x = angle.cos() * radius;
-        let y = angle.sin() * radius;
-        if i == 0 {
-            builder.begin(point(x, y));
-        } else {
-            builder.line_to(point(x, y));
-        }
-    }
+    // Heavy warship: wide blunt hull, weapon sponsons on sides, dual engine block
+    let r = radius;
+    builder.begin(point(0.0, r * 0.9));          // Bow center
+    builder.line_to(point(r * 0.4, r * 0.7));    // Bow right shoulder
+    builder.line_to(point(r * 0.9, r * 0.3));    // Right sponson front
+    builder.line_to(point(r * 1.0, 0.0));         // Right sponson tip
+    builder.line_to(point(r * 0.9, -r * 0.3));   // Right sponson aft
+    builder.line_to(point(r * 0.7, -r * 0.5));   // Right hull waist
+    builder.line_to(point(r * 0.5, -r * 0.6));   // Right engine block outer
+    builder.line_to(point(r * 0.5, -r));           // Right engine nozzle
+    builder.line_to(point(r * 0.15, -r));          // Right inner nozzle
+    builder.line_to(point(r * 0.15, -r * 0.7));   // Center engine gap
+    builder.line_to(point(-r * 0.15, -r * 0.7));  // Center engine gap mirror
+    builder.line_to(point(-r * 0.15, -r));         // Left inner nozzle
+    builder.line_to(point(-r * 0.5, -r));          // Left engine nozzle
+    builder.line_to(point(-r * 0.5, -r * 0.6));   // Left engine block outer
+    builder.line_to(point(-r * 0.7, -r * 0.5));   // Left hull waist
+    builder.line_to(point(-r * 0.9, -r * 0.3));   // Left sponson aft
+    builder.line_to(point(-r * 1.0, 0.0));         // Left sponson tip
+    builder.line_to(point(-r * 0.9, r * 0.3));    // Left sponson front
+    builder.line_to(point(-r * 0.4, r * 0.7));    // Bow left shoulder
     builder.close();
     let path = builder.build();
 
