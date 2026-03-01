@@ -609,8 +609,12 @@ pub fn dock_at_station(
     mut game_events: bevy::ecs::message::MessageWriter<crate::shared::events::GameEvent>,
     time: Res<Time>,
     severity_config: Res<crate::infrastructure::events::EventSeverityConfig>,
+    action_state: Res<crate::core::input::ActionState>,
 ) {
     if *phase.get() != TutorialPhase::Complete {
+        return;
+    }
+    if !action_state.interact {
         return;
     }
     let Ok((player_entity, player_transform)) = player_query.single() else {

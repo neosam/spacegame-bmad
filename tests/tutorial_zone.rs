@@ -923,6 +923,7 @@ fn station_docking_test_app() -> App {
     app.add_message::<void_drifter::shared::events::GameEvent>();
     app.insert_resource(void_drifter::infrastructure::events::EventSeverityConfig::default());
     app.add_systems(FixedUpdate, dock_at_station);
+    app.init_resource::<ActionState>();
     // Prime
     app.update();
     app
@@ -951,6 +952,7 @@ fn station_docking_advances_phase_to_station_visited_when_complete() {
         Transform::from_translation(Vec3::new(50.0, 0.0, 0.0)),
     ));
 
+    app.world_mut().resource_mut::<ActionState>().interact = true;
     app.update(); // dock_at_station runs, sets NextState to StationVisited
     app.update(); // Apply state transition to StationVisited
 
@@ -985,6 +987,7 @@ fn station_docking_sets_station_not_defective() {
         ))
         .id();
 
+    app.world_mut().resource_mut::<ActionState>().interact = true;
     app.update();
 
     let station_data = app
@@ -1021,6 +1024,7 @@ fn station_docking_adds_spread_unlocked_to_player() {
         Transform::from_translation(Vec3::new(50.0, 0.0, 0.0)),
     ));
 
+    app.world_mut().resource_mut::<ActionState>().interact = true;
     app.update();
 
     let has_spread_unlocked = app
@@ -1117,6 +1121,7 @@ fn station_no_dock_when_too_far() {
         Transform::from_translation(Vec3::new(500.0, 0.0, 0.0)),
     ));
 
+    app.world_mut().resource_mut::<ActionState>().interact = true;
     app.update();
 
     let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
@@ -2338,6 +2343,10 @@ fn tutorial_happy_path_full_flow() {
             .translation = station_pos + Vec3::new(50.0, 0.0, 0.0);
     }
 
+    // Simulate E key press (interact) to trigger dock_at_station
+    app.world_mut()
+        .resource_mut::<void_drifter::core::input::ActionState>()
+        .interact = true;
     app.update(); // dock_at_station fires → NextState(StationVisited), inserts SpreadUnlocked on player
     app.update(); // Apply state transition: Complete → StationVisited
 
