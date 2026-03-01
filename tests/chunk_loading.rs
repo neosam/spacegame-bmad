@@ -5,6 +5,9 @@ mod helpers;
 
 use bevy::prelude::*;
 use helpers::{run_until_loaded, spawn_player, test_app};
+use void_drifter::infrastructure::events::EventSeverityConfig;
+use void_drifter::infrastructure::logbook::Logbook;
+use void_drifter::shared::events::GameEvent;
 use void_drifter::world::{
     ActiveChunks, BiomeConfig, ChunkEntity, ChunkEntityIndex, ChunkLoadState, ExploredChunks,
     PendingChunks, WorldConfig,
@@ -135,6 +138,9 @@ fn staggered_loading_respects_max_per_frame() {
     app.init_resource::<ChunkEntityIndex>();
     app.init_resource::<PendingChunks>();
     app.init_resource::<ChunkLoadState>();
+    app.add_message::<GameEvent>();
+    app.insert_resource(EventSeverityConfig::default());
+    app.init_resource::<Logbook>();
     app.add_systems(FixedUpdate, void_drifter::world::update_chunks);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
         1.0 / 60.0,
@@ -188,6 +194,9 @@ fn load_priority_nearest_first() {
     app.init_resource::<ChunkEntityIndex>();
     app.init_resource::<PendingChunks>();
     app.init_resource::<ChunkLoadState>();
+    app.add_message::<GameEvent>();
+    app.insert_resource(EventSeverityConfig::default());
+    app.init_resource::<Logbook>();
     app.add_systems(FixedUpdate, void_drifter::world::update_chunks);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
         1.0 / 60.0,
@@ -302,6 +311,9 @@ fn pending_queue_refreshed_on_chunk_change() {
     app.init_resource::<ChunkEntityIndex>();
     app.init_resource::<PendingChunks>();
     app.init_resource::<ChunkLoadState>();
+    app.add_message::<GameEvent>();
+    app.insert_resource(EventSeverityConfig::default());
+    app.init_resource::<Logbook>();
     app.add_systems(FixedUpdate, void_drifter::world::update_chunks);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
         1.0 / 60.0,

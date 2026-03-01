@@ -6,7 +6,10 @@ use bevy::prelude::*;
 use helpers::{run_until_loaded, spawn_player, test_app};
 use void_drifter::core::collision::{Collider, Health};
 use void_drifter::core::spawning::Asteroid;
+use void_drifter::infrastructure::events::EventSeverityConfig;
+use void_drifter::infrastructure::logbook::Logbook;
 use void_drifter::shared::components::Velocity;
+use void_drifter::shared::events::GameEvent;
 use void_drifter::world::{
     ActiveChunks, BiomeConfig, BiomeType, ChunkEntity, ChunkEntityIndex, ChunkLoadState,
     ExploredChunks, PendingChunks, WorldConfig,
@@ -261,6 +264,9 @@ fn entity_budget_enforced_across_multi_chunk_load() {
     app.init_resource::<ChunkEntityIndex>();
     app.init_resource::<PendingChunks>();
     app.init_resource::<ChunkLoadState>();
+    app.add_message::<GameEvent>();
+    app.insert_resource(EventSeverityConfig::default());
+    app.init_resource::<Logbook>();
     app.add_systems(FixedUpdate, void_drifter::world::update_chunks);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)));
     app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
@@ -305,6 +311,9 @@ fn entity_budget_accounts_for_non_chunk_collidable_entities() {
     app.init_resource::<ChunkEntityIndex>();
     app.init_resource::<PendingChunks>();
     app.init_resource::<ChunkLoadState>();
+    app.add_message::<GameEvent>();
+    app.insert_resource(EventSeverityConfig::default());
+    app.init_resource::<Logbook>();
     app.add_systems(FixedUpdate, void_drifter::world::update_chunks);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)));
     app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
@@ -545,6 +554,9 @@ fn multiple_biomes_appear_across_chunks() {
     app.init_resource::<ChunkEntityIndex>();
     app.init_resource::<PendingChunks>();
     app.init_resource::<ChunkLoadState>();
+    app.add_message::<GameEvent>();
+    app.insert_resource(EventSeverityConfig::default());
+    app.init_resource::<Logbook>();
     app.add_systems(FixedUpdate, void_drifter::world::update_chunks);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)));
     app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
@@ -606,6 +618,9 @@ fn entity_budget_with_high_density_biome() {
     app.init_resource::<ChunkEntityIndex>();
     app.init_resource::<PendingChunks>();
     app.init_resource::<ChunkLoadState>();
+    app.add_message::<GameEvent>();
+    app.insert_resource(EventSeverityConfig::default());
+    app.init_resource::<Logbook>();
     app.add_systems(FixedUpdate, void_drifter::world::update_chunks);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)));
     app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));

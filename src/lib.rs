@@ -3,16 +3,18 @@
 pub mod core;
 pub mod dev;
 pub mod game_states;
+pub mod infrastructure;
 pub mod rendering;
 pub mod shared;
 pub mod world;
 
 use self::core::CorePlugin;
 use self::dev::DevPlugin;
+use self::infrastructure::InfrastructurePlugin;
 use self::rendering::RenderingPlugin;
 use self::world::WorldPlugin;
 
 /// Returns all game plugins. Entry point for both main.rs and tests.
-pub fn game_plugins() -> (CorePlugin, RenderingPlugin, DevPlugin, WorldPlugin) {
-    (CorePlugin, RenderingPlugin, DevPlugin, WorldPlugin)
+pub fn game_plugins() -> (CorePlugin, RenderingPlugin, DevPlugin, WorldPlugin, InfrastructurePlugin) {
+    (CorePlugin, RenderingPlugin, DevPlugin, WorldPlugin, InfrastructurePlugin)
 }

@@ -1,8 +1,11 @@
-use bevy::ecs::message::MessageReader;
+use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::prelude::*;
 
+use crate::infrastructure::events::EventSeverityConfig;
 use crate::shared::components::{ContactDamageCooldown, Invincible, JustDamaged, Velocity};
+use crate::shared::events::{GameEvent, GameEventKind};
 use super::flight::Player;
+use super::spawning::{Asteroid, ScoutDrone};
 use super::weapons::{LaserFired, SpreadProjectile, WeaponConfig};
 
 /// Radius used for spread projectile collision checks.
@@ -267,22 +270,34 @@ pub fn tick_contact_cooldown(
 }
 
 /// Handles player death: resets health/position/velocity, triggers destruction effect,
-/// and grants invincibility. Runs AFTER apply_damage and BEFORE despawn_destroyed.
+/// grants invincibility, and emits `PlayerDeath` + `PlayerRespawned` events.
+/// Runs AFTER apply_damage and BEFORE despawn_destroyed.
 pub fn handle_player_death(
     mut commands: Commands,
     mut query: Query<(Entity, &mut Health, &mut Transform, &mut Velocity), With<Player>>,
     mut destroyed_positions: ResMut<DestroyedPositions>,
+    mut game_events: MessageWriter<GameEvent>,
+    time: Res<Time>,
+    severity_config: Res<EventSeverityConfig>,
 ) {
     let Ok((entity, mut health, mut transform, mut velocity)) = query.single_mut() else {
         return;
     };
 
     if health.current <= 0.0 {
+        let death_pos = Vec2::new(transform.translation.x, transform.translation.y);
+
         // Record death position for destruction visual
-        destroyed_positions.positions.push(Vec2::new(
-            transform.translation.x,
-            transform.translation.y,
-        ));
+        destroyed_positions.positions.push(death_pos);
+
+        // Emit PlayerDeath event
+        let death_kind = GameEventKind::PlayerDeath;
+        game_events.write(GameEvent {
+            severity: severity_config.severity_for(&death_kind),
+            kind: death_kind,
+            position: death_pos,
+            game_time: time.elapsed_secs_f64(),
+        });
 
         // Reset player state
         health.current = health.max;
@@ -296,6 +311,15 @@ pub fn handle_player_death(
         commands
             .entity(entity)
             .remove::<ContactDamageCooldown>();
+
+        // Emit PlayerRespawned event
+        let respawn_kind = GameEventKind::PlayerRespawned;
+        game_events.write(GameEvent {
+            severity: severity_config.severity_for(&respawn_kind),
+            kind: respawn_kind,
+            position: Vec2::ZERO,
+            game_time: time.elapsed_secs_f64(),
+        });
     }
 }
 
@@ -320,17 +344,40 @@ pub fn tick_invincibility(
 
 /// Despawns non-Player entities whose health has reached zero or below.
 /// Records positions of destroyed entities in `DestroyedPositions` for visual effects.
+/// Emits `GameEvent::EnemyDestroyed` for each despawned entity.
 /// Player entity is NEVER despawned — handled by `handle_player_death` instead.
+#[allow(clippy::type_complexity)]
 pub fn despawn_destroyed(
     mut commands: Commands,
-    query: Query<(Entity, &Health, &Transform), Without<Player>>,
+    query: Query<
+        (Entity, &Health, &Transform, Option<&Asteroid>, Option<&ScoutDrone>),
+        Without<Player>,
+    >,
     mut destroyed_positions: ResMut<DestroyedPositions>,
+    mut game_events: MessageWriter<GameEvent>,
+    time: Res<Time>,
+    severity_config: Res<EventSeverityConfig>,
 ) {
-    for (entity, health, transform) in query.iter() {
+    for (entity, health, transform, asteroid, drone) in query.iter() {
         if health.current <= 0.0 {
             let position = Vec2::new(transform.translation.x, transform.translation.y);
             destroyed_positions.positions.push(position);
             commands.entity(entity).despawn();
+
+            let entity_type = if asteroid.is_some() {
+                "asteroid"
+            } else if drone.is_some() {
+                "drone"
+            } else {
+                "unknown"
+            };
+            let kind = GameEventKind::EnemyDestroyed { entity_type };
+            game_events.write(GameEvent {
+                severity: severity_config.severity_for(&kind),
+                kind,
+                position,
+                game_time: time.elapsed_secs_f64(),
+            });
         }
     }
 }
@@ -340,6 +387,8 @@ pub fn despawn_destroyed(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::infrastructure::events::EventSeverityConfig;
+    use crate::shared::events::GameEvent;
     use bevy::time::TimeUpdateStrategy;
 
     // ── ray_circle_intersection ──
@@ -482,14 +531,18 @@ mod tests {
 
     // ── player death ──
 
-    #[test]
-    fn player_death_resets_health_to_max() {
+    fn setup_player_death_app() -> App {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
         app.init_resource::<DestroyedPositions>();
+        app.add_message::<GameEvent>();
+        app.insert_resource(EventSeverityConfig::default());
+        app.add_systems(Update, handle_player_death);
+        app
+    }
 
-        let entity = app
-            .world_mut()
+    fn spawn_dead_player(app: &mut App) -> Entity {
+        app.world_mut()
             .spawn((
                 Player,
                 Health {
@@ -499,9 +552,13 @@ mod tests {
                 Transform::from_translation(Vec3::new(50.0, 50.0, 0.0)),
                 Velocity(Vec2::new(10.0, 20.0)),
             ))
-            .id();
+            .id()
+    }
 
-        app.add_systems(Update, handle_player_death);
+    #[test]
+    fn player_death_resets_health_to_max() {
+        let mut app = setup_player_death_app();
+        let entity = spawn_dead_player(&mut app);
         app.update();
 
         let health = app
@@ -517,24 +574,8 @@ mod tests {
 
     #[test]
     fn player_death_resets_position_to_origin() {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins);
-        app.init_resource::<DestroyedPositions>();
-
-        let entity = app
-            .world_mut()
-            .spawn((
-                Player,
-                Health {
-                    current: 0.0,
-                    max: 100.0,
-                },
-                Transform::from_translation(Vec3::new(50.0, 50.0, 0.0)),
-                Velocity(Vec2::new(10.0, 20.0)),
-            ))
-            .id();
-
-        app.add_systems(Update, handle_player_death);
+        let mut app = setup_player_death_app();
+        let entity = spawn_dead_player(&mut app);
         app.update();
 
         let transform = app
@@ -550,24 +591,8 @@ mod tests {
 
     #[test]
     fn player_death_resets_velocity_to_zero() {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins);
-        app.init_resource::<DestroyedPositions>();
-
-        let entity = app
-            .world_mut()
-            .spawn((
-                Player,
-                Health {
-                    current: 0.0,
-                    max: 100.0,
-                },
-                Transform::from_translation(Vec3::new(50.0, 50.0, 0.0)),
-                Velocity(Vec2::new(10.0, 20.0)),
-            ))
-            .id();
-
-        app.add_systems(Update, handle_player_death);
+        let mut app = setup_player_death_app();
+        let entity = spawn_dead_player(&mut app);
         app.update();
 
         let velocity = app
@@ -583,24 +608,8 @@ mod tests {
 
     #[test]
     fn player_death_inserts_invincible() {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins);
-        app.init_resource::<DestroyedPositions>();
-
-        let entity = app
-            .world_mut()
-            .spawn((
-                Player,
-                Health {
-                    current: 0.0,
-                    max: 100.0,
-                },
-                Transform::from_translation(Vec3::new(50.0, 50.0, 0.0)),
-                Velocity(Vec2::new(10.0, 20.0)),
-            ))
-            .id();
-
-        app.add_systems(Update, handle_player_death);
+        let mut app = setup_player_death_app();
+        let entity = spawn_dead_player(&mut app);
         app.update();
 
         let invincible = app.world().entity(entity).get::<Invincible>();

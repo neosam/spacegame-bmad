@@ -2,6 +2,7 @@ pub mod chunk;
 pub mod generation;
 pub mod noise_layers;
 
+use bevy::ecs::message::MessageWriter;
 use bevy::prelude::*;
 use serde::Deserialize;
 
@@ -14,7 +15,9 @@ use std::collections::VecDeque;
 use crate::core::collision::{Collider, Health};
 use crate::core::flight::Player;
 use crate::core::spawning::{Asteroid, NeedsAsteroidVisual, NeedsDroneVisual, ScoutDrone};
+use crate::infrastructure::events::EventSeverityConfig;
 use crate::shared::components::Velocity;
+use crate::shared::events::{GameEvent, GameEventKind};
 
 // ── World Config ─────────────────────────────────────────────────────────
 
@@ -240,6 +243,9 @@ pub fn update_chunks(
     mut pending_chunks: ResMut<PendingChunks>,
     mut chunk_load_state: ResMut<ChunkLoadState>,
     all_collidable: Query<Entity, With<Collider>>,
+    mut game_events: MessageWriter<GameEvent>,
+    time: Res<Time>,
+    severity_config: Res<EventSeverityConfig>,
 ) {
     let Ok(player_transform) = player_query.single() else {
         return;
@@ -271,6 +277,14 @@ pub fn update_chunks(
             despawned_count += entities.len();
         }
         active_chunks.chunks.remove(coord);
+
+        let kind = GameEventKind::ChunkUnloaded { coord: *coord };
+        game_events.write(GameEvent {
+            severity: severity_config.severity_for(&kind),
+            kind,
+            position: chunk::chunk_to_world_center(*coord, config.chunk_size),
+            game_time: time.elapsed_secs_f64(),
+        });
     }
 
     // Phase 2: QUEUE (only on chunk change or first frame)
@@ -354,6 +368,15 @@ pub fn update_chunks(
         chunk_entity_index.chunks.insert(coord, chunk_entities);
         active_chunks.chunks.insert(coord, biome);
         explored_chunks.chunks.entry(coord).or_insert(biome);
+
+        let kind = GameEventKind::ChunkLoaded { coord, biome };
+        game_events.write(GameEvent {
+            severity: severity_config.severity_for(&kind),
+            kind,
+            position: chunk::chunk_to_world_center(coord, config.chunk_size),
+            game_time: time.elapsed_secs_f64(),
+        });
+
         loaded += 1;
     }
 }

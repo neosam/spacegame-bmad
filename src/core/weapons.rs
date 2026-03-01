@@ -4,6 +4,8 @@ use serde::Deserialize;
 
 use crate::core::flight::Player;
 use crate::core::input::ActionState;
+use crate::infrastructure::events::EventSeverityConfig;
+use crate::shared::events::{GameEvent, GameEventKind, WeaponKind};
 
 /// Weapon balance values loaded from `assets/config/weapons.ron`.
 /// Derives Asset + TypePath for future AssetServer migration.
@@ -167,6 +169,8 @@ pub fn regenerate_energy(
 
 /// Fires the active weapon when fire input is active and cooldown is ready.
 /// Branches on ActiveWeapon: Laser (hitscan) or Spread (projectiles with energy cost).
+/// Emits `GameEvent::WeaponFired` on each successful shot.
+#[allow(clippy::too_many_arguments)]
 pub fn fire_weapon(
     action_state: Res<ActionState>,
     config: Res<WeaponConfig>,
@@ -183,6 +187,9 @@ pub fn fire_weapon(
     mut commands: Commands,
     mut laser_events: MessageWriter<LaserFired>,
     mut spread_events: MessageWriter<SpreadFired>,
+    mut game_events: MessageWriter<GameEvent>,
+    time: Res<Time>,
+    severity_config: Res<EventSeverityConfig>,
 ) {
     if !action_state.fire {
         return;
@@ -218,6 +225,14 @@ pub fn fire_weapon(
                     origin,
                     direction,
                     range: config.laser_range,
+                });
+
+                let kind = GameEventKind::WeaponFired { weapon: WeaponKind::Laser };
+                game_events.write(GameEvent {
+                    severity: severity_config.severity_for(&kind),
+                    kind,
+                    position: origin,
+                    game_time: time.elapsed_secs_f64(),
                 });
 
                 cooldown.timer = 1.0 / config.laser_fire_rate;
@@ -263,6 +278,14 @@ pub fn fire_weapon(
                     origin,
                     direction,
                     count,
+                });
+
+                let kind = GameEventKind::WeaponFired { weapon: WeaponKind::Spread };
+                game_events.write(GameEvent {
+                    severity: severity_config.severity_for(&kind),
+                    kind,
+                    position: origin,
+                    game_time: time.elapsed_secs_f64(),
                 });
 
                 cooldown.timer = 1.0 / config.spread_fire_rate;
@@ -314,18 +337,38 @@ pub fn tick_spread_projectiles(
 }
 
 /// Toggles the player's active weapon when switch input is active.
+/// Emits `GameEvent::WeaponSwitched` on each toggle.
 pub fn switch_weapon(
     action_state: Res<ActionState>,
-    mut query: Query<&mut ActiveWeapon, With<Player>>,
+    mut query: Query<(&mut ActiveWeapon, &Transform), With<Player>>,
+    mut game_events: MessageWriter<GameEvent>,
+    time: Res<Time>,
+    severity_config: Res<EventSeverityConfig>,
 ) {
     if !action_state.switch_weapon {
         return;
     }
-    for mut weapon in query.iter_mut() {
+    for (mut weapon, transform) in query.iter_mut() {
+        let from = match *weapon {
+            ActiveWeapon::Laser => WeaponKind::Laser,
+            ActiveWeapon::Spread => WeaponKind::Spread,
+        };
         *weapon = match *weapon {
             ActiveWeapon::Laser => ActiveWeapon::Spread,
             ActiveWeapon::Spread => ActiveWeapon::Laser,
         };
+        let to = match *weapon {
+            ActiveWeapon::Laser => WeaponKind::Laser,
+            ActiveWeapon::Spread => WeaponKind::Spread,
+        };
+        let kind = GameEventKind::WeaponSwitched { from, to };
+        let position = Vec2::new(transform.translation.x, transform.translation.y);
+        game_events.write(GameEvent {
+            severity: severity_config.severity_for(&kind),
+            kind,
+            position,
+            game_time: time.elapsed_secs_f64(),
+        });
     }
 }
 
@@ -454,16 +497,23 @@ mod tests {
         );
     }
 
-    #[test]
-    fn switch_weapon_toggles_laser_to_spread() {
+    fn setup_switch_weapon_app() -> App {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
         app.init_resource::<ActionState>();
+        app.add_message::<GameEvent>();
+        app.insert_resource(EventSeverityConfig::default());
         app.add_systems(Update, switch_weapon);
+        app
+    }
+
+    #[test]
+    fn switch_weapon_toggles_laser_to_spread() {
+        let mut app = setup_switch_weapon_app();
 
         let entity = app
             .world_mut()
-            .spawn((Player, ActiveWeapon::Laser))
+            .spawn((Player, ActiveWeapon::Laser, Transform::default()))
             .id();
 
         // Set switch_weapon input
@@ -485,14 +535,11 @@ mod tests {
 
     #[test]
     fn switch_weapon_toggles_spread_to_laser() {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins);
-        app.init_resource::<ActionState>();
-        app.add_systems(Update, switch_weapon);
+        let mut app = setup_switch_weapon_app();
 
         let entity = app
             .world_mut()
-            .spawn((Player, ActiveWeapon::Spread))
+            .spawn((Player, ActiveWeapon::Spread, Transform::default()))
             .id();
 
         // Set switch_weapon input
@@ -514,14 +561,11 @@ mod tests {
 
     #[test]
     fn switch_weapon_no_input_keeps_current() {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins);
-        app.init_resource::<ActionState>();
-        app.add_systems(Update, switch_weapon);
+        let mut app = setup_switch_weapon_app();
 
         let entity = app
             .world_mut()
-            .spawn((Player, ActiveWeapon::Laser))
+            .spawn((Player, ActiveWeapon::Laser, Transform::default()))
             .id();
 
         // switch_weapon defaults to false — no toggle

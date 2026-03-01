@@ -60,7 +60,7 @@ development_status:
   1-4-world-map: done
   1-5-chunk-loading: done
   1-6-noise-biome-distribution: done
-  1-7-event-system: backlog
+  1-7-event-system: done
   1-8-save-system: backlog
   1-9-delta-save: backlog
   1-10-wasm-build: backlog

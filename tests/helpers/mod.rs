@@ -19,7 +19,10 @@ use void_drifter::core::weapons::{
     tick_laser_pulses, tick_spread_projectiles, ActiveWeapon, Energy, FireCooldown, LaserFired,
     SpreadFired, WeaponConfig,
 };
+use void_drifter::infrastructure::events::{record_game_events, EventSeverityConfig};
+use void_drifter::infrastructure::logbook::Logbook;
 use void_drifter::shared::components::Velocity;
+use void_drifter::shared::events::GameEvent;
 use void_drifter::rendering::minimap::{MinimapConfig, MinimapState};
 use void_drifter::rendering::world_map::{WorldMapConfig, WorldMapOpen, WorldMapState};
 use void_drifter::world::{
@@ -55,6 +58,9 @@ pub fn test_app() -> App {
     app.init_resource::<ActiveChunks>();
     app.add_message::<LaserFired>();
     app.add_message::<SpreadFired>();
+    app.add_message::<GameEvent>();
+    app.insert_resource(EventSeverityConfig::default());
+    app.init_resource::<Logbook>();
     // Match production ordering: update_chunks runs before collision/damage chain
     app.add_systems(FixedUpdate, update_chunks);
     app.add_systems(
@@ -84,6 +90,7 @@ pub fn test_app() -> App {
             tick_invincibility,
             tick_respawn_timers,
             drift_entities,
+            record_game_events,
         )
             .chain()
             .after(update_chunks),

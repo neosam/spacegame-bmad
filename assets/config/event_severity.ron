@@ -1,0 +1,11 @@
+(
+    mappings: {
+        "EnemyDestroyed": Tier3,
+        "PlayerDeath": Tier1,
+        "PlayerRespawned": Tier2,
+        "ChunkLoaded": Tier3,
+        "ChunkUnloaded": Tier3,
+        "WeaponFired": Tier3,
+        "WeaponSwitched": Tier3,
+    },
+)
