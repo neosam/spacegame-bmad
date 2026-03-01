@@ -20,7 +20,7 @@ use self::spawning::{
     drift_entities, spawn_respawn_timers, tick_respawn_timers,
     SpawningConfig,
 };
-use self::tutorial::{spawn_tutorial_zone, update_weapons_lock, TutorialConfig, TutorialPhase};
+use self::tutorial::{apply_gravity_well, spawn_tutorial_zone, update_weapons_lock, TutorialConfig, TutorialPhase};
 use self::weapons::{
     fire_weapon, move_spread_projectiles, regenerate_energy, switch_weapon, tick_fire_cooldown,
     tick_laser_pulses, tick_spread_projectiles, LaserFired, SpreadFired, WeaponConfig,
@@ -158,6 +158,14 @@ impl Plugin for CorePlugin {
 
         // Startup validation: warn if max_speed exceeds chunk generation capacity
         app.add_systems(Startup, validate_speed_cap);
+
+        // Gravity well pull after Physics, before Collision
+        app.add_systems(
+            FixedUpdate,
+            apply_gravity_well
+                .after(CoreSet::Physics)
+                .before(CoreSet::Collision),
+        );
 
         // Speed clamping after Physics, before Collision
         app.add_systems(

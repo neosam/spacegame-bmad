@@ -7,9 +7,10 @@ use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use void_drifter::core::flight::Player;
 use void_drifter::core::tutorial::{
-    generate_tutorial_zone, validate_tutorial_seed, GravityWellGenerator, TutorialConfig,
-    TutorialPhase, TutorialStation, TutorialZone, WeaponsLocked,
+    apply_gravity_well, generate_tutorial_zone, validate_tutorial_seed, GravityWellGenerator,
+    TutorialConfig, TutorialPhase, TutorialStation, TutorialZone, WeaponsLocked,
 };
+use void_drifter::shared::components::Velocity;
 use void_drifter::core::weapons::{ActiveWeapon, Energy, FireCooldown, LaserPulse};
 use void_drifter::core::input::ActionState;
 use void_drifter::core::collision::Health;
@@ -246,5 +247,182 @@ fn generator_has_health_from_config() {
     assert!(
         (health.max - expected_health).abs() < f32::EPSILON,
         "Generator max health should match config"
+    );
+}
+
+// ── Gravity Well Integration Tests ──────────────────────────────────
+
+/// Create a minimal app with just gravity well system for integration testing.
+fn gravity_well_test_app() -> App {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+        Duration::from_secs_f64(1.0 / 60.0),
+    ));
+    app.add_systems(FixedUpdate, apply_gravity_well);
+    // Prime
+    app.update();
+    app
+}
+
+#[test]
+fn gravity_well_player_inside_safe_radius_no_pull() {
+    let mut app = gravity_well_test_app();
+
+    // Generator at origin
+    app.world_mut().spawn((
+        GravityWellGenerator {
+            safe_radius: 2000.0,
+            pull_strength: 50.0,
+            requires_projectile: true,
+        },
+        Transform::from_translation(Vec3::ZERO),
+    ));
+
+    // Player inside safe_radius
+    let player = app
+        .world_mut()
+        .spawn((
+            Player,
+            Velocity::default(),
+            Transform::from_translation(Vec3::new(500.0, 0.0, 0.0)),
+        ))
+        .id();
+
+    app.update();
+
+    let vel = app
+        .world()
+        .entity(player)
+        .get::<Velocity>()
+        .expect("Player should have Velocity");
+    assert!(
+        vel.0.length() < f32::EPSILON,
+        "Player inside safe_radius should have no pull force, got {:?}",
+        vel.0
+    );
+}
+
+#[test]
+fn gravity_well_player_outside_pulled_back_over_frames() {
+    let mut app = gravity_well_test_app();
+
+    // Generator at origin
+    app.world_mut().spawn((
+        GravityWellGenerator {
+            safe_radius: 100.0,
+            pull_strength: 50.0,
+            requires_projectile: true,
+        },
+        Transform::from_translation(Vec3::ZERO),
+    ));
+
+    // Player far outside safe_radius at (500, 0)
+    let player = app
+        .world_mut()
+        .spawn((
+            Player,
+            Velocity::default(),
+            Transform::from_translation(Vec3::new(500.0, 0.0, 0.0)),
+        ))
+        .id();
+
+    // Run several frames
+    for _ in 0..10 {
+        app.update();
+    }
+
+    let vel = app
+        .world()
+        .entity(player)
+        .get::<Velocity>()
+        .expect("Player should have Velocity");
+    // After many frames of pull, velocity should be significantly toward generator
+    assert!(
+        vel.0.x < -10.0,
+        "Player should be pulled significantly toward generator, got {:?}",
+        vel.0
+    );
+}
+
+#[test]
+fn gravity_well_no_effect_when_generator_despawned() {
+    let mut app = gravity_well_test_app();
+
+    // Spawn and then despawn generator
+    let gen_entity = app
+        .world_mut()
+        .spawn((
+            GravityWellGenerator {
+                safe_radius: 100.0,
+                pull_strength: 50.0,
+                requires_projectile: true,
+            },
+            Transform::from_translation(Vec3::ZERO),
+        ))
+        .id();
+
+    let player = app
+        .world_mut()
+        .spawn((
+            Player,
+            Velocity::default(),
+            Transform::from_translation(Vec3::new(500.0, 0.0, 0.0)),
+        ))
+        .id();
+
+    // Despawn generator before update
+    app.world_mut().entity_mut(gen_entity).despawn();
+
+    app.update();
+
+    let vel = app
+        .world()
+        .entity(player)
+        .get::<Velocity>()
+        .expect("Player should have Velocity");
+    assert!(
+        vel.0.length() < f32::EPSILON,
+        "No force when generator is despawned, got {:?}",
+        vel.0
+    );
+}
+
+#[test]
+fn gravity_well_with_full_tutorial_zone() {
+    let mut app = tutorial_test_app();
+
+    // Add gravity well system
+    app.add_systems(FixedUpdate, apply_gravity_well);
+
+    // Move player far outside safe_radius
+    let mut player_query = app
+        .world_mut()
+        .query_filtered::<(Entity, &mut Transform), With<Player>>();
+    let (player_entity, _) = player_query
+        .iter(app.world())
+        .next()
+        .expect("Should have player");
+
+    // Set player position far outside safe_radius (default 2000)
+    app.world_mut()
+        .entity_mut(player_entity)
+        .insert(Velocity::default());
+    app.world_mut()
+        .entity_mut(player_entity)
+        .insert(Transform::from_translation(Vec3::new(3000.0, 0.0, 0.0)));
+
+    app.update();
+
+    let vel = app
+        .world()
+        .entity(player_entity)
+        .get::<Velocity>()
+        .expect("Player should have Velocity");
+    // Player is 1000 units beyond safe_radius (3000 - 2000), should have pull force
+    assert!(
+        vel.0.x < 0.0,
+        "Player outside tutorial zone safe_radius should be pulled back, got {:?}",
+        vel.0
     );
 }

@@ -335,6 +335,32 @@ pub fn update_weapons_lock(
     }
 }
 
+// ── Gravity Well Physics ────────────────────────────────────────────────
+
+/// Apply gravity well pull to entities outside the safe radius.
+/// `pull_force = max(0, (distance - safe_radius) * pull_strength)`
+/// Force is applied as velocity change toward the generator.
+pub fn apply_gravity_well(
+    time: Res<Time>,
+    generator_query: Query<(&GravityWellGenerator, &Transform)>,
+    mut player_query: Query<(&Transform, &mut crate::shared::components::Velocity), With<crate::core::flight::Player>>,
+) {
+    let dt = time.delta_secs();
+    for (gen_comp, gen_transform) in generator_query.iter() {
+        let gen_pos = gen_transform.translation.truncate();
+        for (player_transform, mut velocity) in player_query.iter_mut() {
+            let player_pos = player_transform.translation.truncate();
+            let diff = gen_pos - player_pos;
+            let distance = diff.length();
+            if distance > gen_comp.safe_radius && distance > f32::EPSILON {
+                let pull_magnitude = (distance - gen_comp.safe_radius) * gen_comp.pull_strength;
+                let direction = diff / distance;
+                velocity.0 += direction * pull_magnitude * dt;
+            }
+        }
+    }
+}
+
 // ── Unit Tests ──────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -566,5 +592,226 @@ mod tests {
                 config.generator_offset_max
             );
         }
+    }
+
+    // ── Gravity Well Physics Tests ──────────────────────────────────────
+
+    use bevy::time::TimeUpdateStrategy;
+    use std::time::Duration;
+    use crate::shared::components::Velocity;
+    use crate::core::flight::Player;
+
+    fn gravity_test_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
+            1.0 / 60.0,
+        )));
+        app.add_systems(FixedUpdate, apply_gravity_well);
+        // Prime
+        app.update();
+        app
+    }
+
+    #[test]
+    fn gravity_well_no_force_inside_safe_radius() {
+        let mut app = gravity_test_app();
+
+        // Generator at origin with safe_radius=100
+        app.world_mut().spawn((
+            GravityWellGenerator {
+                safe_radius: 100.0,
+                pull_strength: 50.0,
+                requires_projectile: true,
+            },
+            Transform::from_translation(Vec3::ZERO),
+        ));
+
+        // Player at distance 50 (inside safe_radius)
+        let player = app.world_mut().spawn((
+            Player,
+            Velocity::default(),
+            Transform::from_translation(Vec3::new(50.0, 0.0, 0.0)),
+        )).id();
+
+        app.update();
+
+        let vel = app.world().entity(player).get::<Velocity>()
+            .expect("Player should have Velocity");
+        assert!(
+            vel.0.length() < f32::EPSILON,
+            "No force should be applied inside safe_radius, got {:?}",
+            vel.0
+        );
+    }
+
+    #[test]
+    fn gravity_well_no_force_at_exact_boundary() {
+        let mut app = gravity_test_app();
+
+        app.world_mut().spawn((
+            GravityWellGenerator {
+                safe_radius: 100.0,
+                pull_strength: 50.0,
+                requires_projectile: true,
+            },
+            Transform::from_translation(Vec3::ZERO),
+        ));
+
+        // Player at exactly safe_radius
+        let player = app.world_mut().spawn((
+            Player,
+            Velocity::default(),
+            Transform::from_translation(Vec3::new(100.0, 0.0, 0.0)),
+        )).id();
+
+        app.update();
+
+        let vel = app.world().entity(player).get::<Velocity>()
+            .expect("Player should have Velocity");
+        assert!(
+            vel.0.length() < f32::EPSILON,
+            "No force at exact safe_radius boundary, got {:?}",
+            vel.0
+        );
+    }
+
+    #[test]
+    fn gravity_well_applies_force_outside_safe_radius() {
+        let mut app = gravity_test_app();
+
+        app.world_mut().spawn((
+            GravityWellGenerator {
+                safe_radius: 100.0,
+                pull_strength: 50.0,
+                requires_projectile: true,
+            },
+            Transform::from_translation(Vec3::ZERO),
+        ));
+
+        // Player at distance 200 (100 beyond safe_radius)
+        let player = app.world_mut().spawn((
+            Player,
+            Velocity::default(),
+            Transform::from_translation(Vec3::new(200.0, 0.0, 0.0)),
+        )).id();
+
+        app.update();
+
+        let vel = app.world().entity(player).get::<Velocity>()
+            .expect("Player should have Velocity");
+        // Force should pull toward generator (negative X)
+        assert!(
+            vel.0.x < 0.0,
+            "Pull should be toward generator (negative X), got {:?}",
+            vel.0
+        );
+        assert!(
+            vel.0.y.abs() < f32::EPSILON,
+            "No Y component expected, got {:?}",
+            vel.0
+        );
+    }
+
+    #[test]
+    fn gravity_well_force_increases_with_distance() {
+        let mut app = gravity_test_app();
+
+        app.world_mut().spawn((
+            GravityWellGenerator {
+                safe_radius: 100.0,
+                pull_strength: 50.0,
+                requires_projectile: true,
+            },
+            Transform::from_translation(Vec3::ZERO),
+        ));
+
+        // Player at 150 (50 beyond)
+        let player_near = app.world_mut().spawn((
+            Player,
+            Velocity::default(),
+            Transform::from_translation(Vec3::new(150.0, 0.0, 0.0)),
+        )).id();
+
+        // Player at 300 (200 beyond)
+        let player_far = app.world_mut().spawn((
+            Player,
+            Velocity::default(),
+            Transform::from_translation(Vec3::new(300.0, 0.0, 0.0)),
+        )).id();
+
+        app.update();
+
+        let vel_near = app.world().entity(player_near).get::<Velocity>()
+            .expect("Near player should have Velocity");
+        let vel_far = app.world().entity(player_far).get::<Velocity>()
+            .expect("Far player should have Velocity");
+
+        assert!(
+            vel_far.0.x.abs() > vel_near.0.x.abs(),
+            "Farther player should have stronger pull: near={:.2}, far={:.2}",
+            vel_near.0.x.abs(),
+            vel_far.0.x.abs()
+        );
+    }
+
+    #[test]
+    fn gravity_well_direction_toward_generator() {
+        let mut app = gravity_test_app();
+
+        // Generator at (500, 500)
+        app.world_mut().spawn((
+            GravityWellGenerator {
+                safe_radius: 100.0,
+                pull_strength: 50.0,
+                requires_projectile: true,
+            },
+            Transform::from_translation(Vec3::new(500.0, 500.0, 0.0)),
+        ));
+
+        // Player at origin (distance ~707, well beyond safe_radius)
+        let player = app.world_mut().spawn((
+            Player,
+            Velocity::default(),
+            Transform::from_translation(Vec3::ZERO),
+        )).id();
+
+        app.update();
+
+        let vel = app.world().entity(player).get::<Velocity>()
+            .expect("Player should have Velocity");
+        // Force should pull toward (500,500) — both X and Y should be positive
+        assert!(
+            vel.0.x > 0.0,
+            "Pull X should be positive (toward generator at 500,500), got {:?}",
+            vel.0
+        );
+        assert!(
+            vel.0.y > 0.0,
+            "Pull Y should be positive (toward generator at 500,500), got {:?}",
+            vel.0
+        );
+    }
+
+    #[test]
+    fn gravity_well_no_effect_without_generator() {
+        let mut app = gravity_test_app();
+
+        // No generator spawned — only player
+        let player = app.world_mut().spawn((
+            Player,
+            Velocity::default(),
+            Transform::from_translation(Vec3::new(500.0, 0.0, 0.0)),
+        )).id();
+
+        app.update();
+
+        let vel = app.world().entity(player).get::<Velocity>()
+            .expect("Player should have Velocity");
+        assert!(
+            vel.0.length() < f32::EPSILON,
+            "No force without generator, got {:?}",
+            vel.0
+        );
     }
 }

@@ -70,7 +70,7 @@ development_status:
   # ── Epic 2: Tutorial Zone (Must | Dependencies: Epic 1) ──
   epic-2: in-progress
   2-1-tutorial-spawn: done
-  2-2-gravity-well: backlog
+  2-2-gravity-well: done
   2-3-laser-at-wreck: backlog
   2-4-enemies-after-laser: backlog
   2-5-station-spread-weapon: backlog
