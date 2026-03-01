@@ -10,7 +10,7 @@ use crate::core::camera::camera_follow_player;
 use crate::core::collision::{Collider, Health};
 use crate::core::flight::Player;
 use crate::core::spawning::{NeedsAsteroidVisual, NeedsDroneVisual, SpawningConfig};
-use crate::core::tutorial::{generate_tutorial_zone, TutorialConfig};
+use crate::core::tutorial::{generate_tutorial_zone, GravityWellBoundary, GravityWellGenerator, TutorialConfig, TutorialStation, TutorialWreck};
 use crate::core::weapons::{
     ActiveWeapon, Energy, FireCooldown, NeedsLaserVisual, NeedsProjectileVisual, WeaponConfig,
 };
@@ -28,8 +28,9 @@ use self::background::{setup_starfield, update_starfield, StarfieldConfig};
 use self::minimap::{setup_minimap, update_minimap_blips, MinimapConfig, MinimapState};
 use self::world_map::{toggle_world_map, update_world_map, WorldMapConfig, WorldMapOpen, WorldMapState};
 use self::vector_art::{
-    generate_asteroid_mesh, generate_drone_mesh, generate_laser_mesh, generate_player_mesh,
-    generate_projectile_mesh,
+    generate_asteroid_mesh, generate_circle_outline_mesh, generate_drone_mesh, generate_laser_mesh,
+    generate_player_mesh, generate_projectile_mesh, generate_tutorial_generator_mesh,
+    generate_tutorial_station_mesh, generate_tutorial_wreck_mesh,
 };
 
 pub struct RenderingPlugin;
@@ -86,6 +87,9 @@ impl Plugin for RenderingPlugin {
                 setup_projectile_assets,
                 setup_asteroid_assets,
                 setup_drone_assets,
+                setup_tutorial_station_assets,
+                setup_tutorial_wreck_assets,
+                setup_tutorial_generator_assets,
                 setup_flash_materials,
                 setup_destruction_assets,
                 setup_impact_flash_assets,
@@ -94,7 +98,7 @@ impl Plugin for RenderingPlugin {
             ),
         );
 
-        // Update systems: visual effects + minimap
+        // Update systems: visual setup for entities
         app.add_systems(
             Update,
             (
@@ -102,7 +106,19 @@ impl Plugin for RenderingPlugin {
                 render_spread_projectiles,
                 render_asteroids,
                 render_drones,
+                render_tutorial_stations,
+                render_tutorial_wrecks,
+                render_tutorial_generators,
+                setup_gravity_well_boundary_visual,
+                update_tutorial_station_visual,
                 trigger_damage_flash,
+            ),
+        );
+
+        // Update systems: visual effects + minimap
+        app.add_systems(
+            Update,
+            (
                 remove_just_damaged_without_material,
                 update_damage_flash,
                 trigger_screen_shake.before(spawn_destruction_effects),
@@ -262,6 +278,171 @@ fn render_drones(
                 MeshMaterial2d(drone_assets.material.clone()),
             ))
             .remove::<NeedsDroneVisual>();
+    }
+}
+
+/// Cached mesh and material handles for TutorialStation.
+#[derive(Resource)]
+pub struct TutorialStationAssets {
+    pub mesh: Handle<Mesh>,
+    pub material_defective: Handle<ColorMaterial>,
+    pub material_repaired: Handle<ColorMaterial>,
+}
+
+/// Initialize TutorialStation visual assets once at startup.
+fn setup_tutorial_station_assets(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let mesh = meshes.add(generate_tutorial_station_mesh(20.0));
+    // Defective: dim teal; Repaired: bright teal
+    let material_defective = materials.add(ColorMaterial::from(Color::srgb(0.1, 0.5, 0.5)));
+    let material_repaired = materials.add(ColorMaterial::from(Color::srgb(0.2, 0.9, 0.9)));
+    commands.insert_resource(TutorialStationAssets {
+        mesh,
+        material_defective,
+        material_repaired,
+    });
+}
+
+/// Attaches cached mesh and material to newly spawned TutorialStation entities.
+pub fn render_tutorial_stations(
+    mut commands: Commands,
+    assets: Res<TutorialStationAssets>,
+    query: Query<(Entity, &TutorialStation), Added<TutorialStation>>,
+) {
+    for (entity, station) in query.iter() {
+        let material = if station.defective {
+            assets.material_defective.clone()
+        } else {
+            assets.material_repaired.clone()
+        };
+        commands.entity(entity).insert((
+            Mesh2d(assets.mesh.clone()),
+            MeshMaterial2d(material),
+        ));
+    }
+}
+
+/// Updates TutorialStation material color when `defective` changes.
+pub fn update_tutorial_station_visual(
+    assets: Res<TutorialStationAssets>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    query: Query<(&TutorialStation, &MeshMaterial2d<ColorMaterial>), Changed<TutorialStation>>,
+) {
+    for (station, mat_handle) in query.iter() {
+        if let Some(material) = materials.get_mut(&mat_handle.0) {
+            if station.defective {
+                // Dim teal — defective
+                material.color = Color::srgb(0.1, 0.5, 0.5);
+            } else {
+                // Bright teal — repaired after docking
+                material.color = Color::srgb(0.2, 0.9, 0.9);
+            }
+        }
+        // If the material is not in the assets map (e.g. cached handle), swap it out.
+        // The above direct mutation is sufficient for the same material instance.
+        let _ = &assets; // suppress unused warning; assets used for color constants above
+    }
+}
+
+/// Cached mesh and material handles for TutorialWreck.
+#[derive(Resource)]
+pub struct TutorialWreckAssets {
+    pub mesh: Handle<Mesh>,
+    pub material: Handle<ColorMaterial>,
+}
+
+/// Initialize TutorialWreck visual assets once at startup.
+fn setup_tutorial_wreck_assets(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let mesh = meshes.add(generate_tutorial_wreck_mesh(18.0));
+    // Dark grey — derelict wreck appearance
+    let material = materials.add(ColorMaterial::from(Color::srgb(0.3, 0.3, 0.3)));
+    commands.insert_resource(TutorialWreckAssets { mesh, material });
+}
+
+/// Attaches cached mesh and material to newly spawned TutorialWreck entities.
+pub fn render_tutorial_wrecks(
+    mut commands: Commands,
+    assets: Res<TutorialWreckAssets>,
+    query: Query<Entity, Added<TutorialWreck>>,
+) {
+    for entity in query.iter() {
+        commands.entity(entity).insert((
+            Mesh2d(assets.mesh.clone()),
+            MeshMaterial2d(assets.material.clone()),
+        ));
+    }
+}
+
+/// Cached mesh and material handles for GravityWellGenerator.
+#[derive(Resource)]
+pub struct TutorialGeneratorAssets {
+    pub mesh: Handle<Mesh>,
+    pub material: Handle<ColorMaterial>,
+}
+
+/// Initialize GravityWellGenerator visual assets once at startup.
+fn setup_tutorial_generator_assets(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let mesh = meshes.add(generate_tutorial_generator_mesh(25.0));
+    // Orange — gravity well / danger indicator
+    let material = materials.add(ColorMaterial::from(Color::srgb(1.0, 0.5, 0.1)));
+    commands.insert_resource(TutorialGeneratorAssets { mesh, material });
+}
+
+/// Attaches cached mesh and material to newly spawned GravityWellGenerator entities.
+pub fn render_tutorial_generators(
+    mut commands: Commands,
+    assets: Res<TutorialGeneratorAssets>,
+    query: Query<Entity, Added<GravityWellGenerator>>,
+) {
+    for entity in query.iter() {
+        commands.entity(entity).insert((
+            Mesh2d(assets.mesh.clone()),
+            MeshMaterial2d(assets.material.clone()),
+        ));
+    }
+}
+
+/// Attaches a circle-outline mesh and semi-transparent orange material to newly spawned
+/// `GravityWellBoundary` child entities.  The boundary ring is centered on the parent
+/// `GravityWellGenerator` and its radius equals the generator's `safe_radius`.
+/// Because `GravityWellBoundary` is a child entity, it is automatically despawned
+/// together with the parent `GravityWellGenerator`.
+pub fn setup_gravity_well_boundary_visual(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    query: Query<(Entity, &ChildOf), Added<GravityWellBoundary>>,
+    generator_query: Query<&GravityWellGenerator>,
+) {
+    for (entity, child_of) in query.iter() {
+        let parent_entity: Entity = child_of.parent();
+        let Ok(generator) = generator_query.get(parent_entity) else {
+            continue;
+        };
+        let safe_radius = generator.safe_radius;
+        // Stroke width is fixed at 8 units — thin enough to be a hint, thick enough to see.
+        let stroke_width = 8.0;
+        let mesh = meshes.add(generate_circle_outline_mesh(safe_radius, stroke_width));
+        // Semi-transparent orange warning color.
+        let material = materials.add(ColorMaterial {
+            color: Color::srgba(1.0, 0.5, 0.0, 0.4),
+            ..Default::default()
+        });
+        commands.entity(entity).insert((
+            Mesh2d(mesh),
+            MeshMaterial2d(material),
+        ));
     }
 }
 

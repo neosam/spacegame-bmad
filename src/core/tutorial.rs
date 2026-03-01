@@ -36,6 +36,8 @@ pub struct TutorialConfig {
     pub tutorial_enemy_spawn_radius: f32,
     /// Distance from station within which the player docks and receives the Spread weapon
     pub dock_radius: f32,
+    /// Distance from wreck within which the laser weapon is unlocked (Flying → Shooting)
+    pub wreck_dock_radius: f32,
     /// Delay in seconds after GeneratorDestroyed before cascade despawn fires
     pub cascade_delay_secs: f32,
 }
@@ -57,6 +59,7 @@ impl Default for TutorialConfig {
             tutorial_enemy_count: 3,
             tutorial_enemy_spawn_radius: 150.0,
             dock_radius: 150.0,
+            wreck_dock_radius: 120.0,
             cascade_delay_secs: 2.0,
         }
     }
@@ -95,6 +98,12 @@ pub fn validate_tutorial_config(config: Res<TutorialConfig>) {
         warn!(
             "TutorialConfig: wreck_offset_min ({}) is negative. Use 0.0 or higher.",
             config.wreck_offset_min
+        );
+    }
+    if config.wreck_dock_radius <= 0.0 {
+        warn!(
+            "TutorialConfig: wreck_dock_radius ({}) must be > 0.0",
+            config.wreck_dock_radius
         );
     }
     if config.dock_radius <= 0.0 {
@@ -158,6 +167,13 @@ pub struct WreckShotState {
 /// Distinguishes them from normal map enemies — they do not respawn on death.
 #[derive(Component, Debug)]
 pub struct TutorialEnemy;
+
+/// Marker component for the gravity well boundary ring visual.
+/// Spawned as a child entity of `GravityWellGenerator` so that it is
+/// automatically despawned when the generator is destroyed.
+/// The rendering layer adds `Mesh2d` + `MeshMaterial2d` on this entity.
+#[derive(Component, Debug)]
+pub struct GravityWellBoundary;
 
 // ── Resources ───────────────────────────────────────────────────────────
 
@@ -368,7 +384,8 @@ pub fn spawn_tutorial_zone(
         Transform::from_translation(layout.station_position.extend(0.0)),
     ));
 
-    // Spawn gravity well generator
+    // Spawn gravity well generator with boundary ring as a child entity.
+    // The child GravityWellBoundary is automatically despawned when the parent despawns.
     commands.spawn((
         GravityWellGenerator {
             safe_radius: config.safe_radius,
@@ -381,7 +398,13 @@ pub fn spawn_tutorial_zone(
         },
         crate::core::collision::Collider { radius: 30.0 },
         Transform::from_translation(layout.generator_position.extend(0.0)),
-    ));
+    )).with_children(|parent| {
+        parent.spawn((
+            GravityWellBoundary,
+            Transform::default(),
+            GlobalTransform::default(),
+        ));
+    });
 
     // Spawn tutorial wreck — the player shoots this to unlock laser weapon
     commands.spawn((
@@ -613,6 +636,46 @@ pub fn dock_at_station(
     }
 }
 
+// ── Flying → Shooting Trigger ────────────────────────────────────────────
+
+/// Detects player proximity to `TutorialWreck` when the phase is `Flying`.
+/// When the player is within `wreck_dock_radius`, the laser weapon is unlocked:
+/// - Phase advances from `Flying` to `Shooting`
+/// - `WeaponsLocked` is removed from the player automatically via `update_weapons_lock`
+///   which runs before this system and responds to the phase transition.
+///
+/// The transition is idempotent: the `TutorialPhase::Flying` guard prevents re-triggering.
+/// If no `TutorialWreck` entity exists, the system does nothing (no crash).
+pub fn unlock_laser_at_wreck(
+    mut commands: Commands,
+    phase: Res<State<TutorialPhase>>,
+    mut next_phase: ResMut<NextState<TutorialPhase>>,
+    config: Res<TutorialConfig>,
+    wreck_query: Query<&Transform, With<TutorialWreck>>,
+    player_query: Query<(Entity, &Transform), With<crate::core::flight::Player>>,
+) {
+    if *phase.get() != TutorialPhase::Flying {
+        return;
+    }
+    let Ok((_player_entity, player_transform)) = player_query.single() else {
+        return;
+    };
+    let player_pos = player_transform.translation.truncate();
+
+    for wreck_transform in wreck_query.iter() {
+        let wreck_pos = wreck_transform.translation.truncate();
+        let distance = (wreck_pos - player_pos).length();
+        if distance <= config.wreck_dock_radius {
+            next_phase.set(TutorialPhase::Shooting);
+            // WeaponsLocked will be removed by update_weapons_lock on next frame
+            // once the phase transitions to Shooting.
+            // Suppress unused variable warning.
+            let _ = &mut commands;
+            return;
+        }
+    }
+}
+
 // ── Generator Destruction Detection ─────────────────────────────────────
 
 /// Detects when the `GravityWellGenerator` entity has been destroyed (despawned)
@@ -739,6 +802,7 @@ mod tests {
         assert!(config.tutorial_enemy_count > 0);
         assert!(config.tutorial_enemy_spawn_radius > 0.0);
         assert!(config.dock_radius > 0.0);
+        assert!(config.wreck_dock_radius > 0.0);
         assert!(config.cascade_delay_secs > 0.0);
     }
 
@@ -759,6 +823,7 @@ mod tests {
             tutorial_enemy_count: 5,
             tutorial_enemy_spawn_radius: 200.0,
             dock_radius: 120.0,
+            wreck_dock_radius: 90.0,
             cascade_delay_secs: 3.0,
         )"#;
         let config = TutorialConfig::from_ron(ron_str).expect("Should parse RON");
@@ -770,6 +835,7 @@ mod tests {
         assert_eq!(config.tutorial_enemy_count, 5);
         assert!((config.tutorial_enemy_spawn_radius - 200.0).abs() < f32::EPSILON);
         assert!((config.dock_radius - 120.0).abs() < f32::EPSILON);
+        assert!((config.wreck_dock_radius - 90.0).abs() < f32::EPSILON);
         assert!((config.cascade_delay_secs - 3.0).abs() < f32::EPSILON);
     }
 
@@ -1434,6 +1500,7 @@ mod tests {
             "wreck_offset_min ({}) must be >= 0.0",
             c.wreck_offset_min
         );
+        assert!(c.wreck_dock_radius > 0.0, "wreck_dock_radius must be > 0");
         assert!(c.dock_radius > 0.0, "dock_radius must be > 0");
         assert!(
             c.dock_radius <= c.safe_radius,
@@ -1590,6 +1657,131 @@ mod tests {
         assert!(
             !(c.cascade_delay_secs > 0.0),
             "negative cascade_delay_secs should violate the constraint"
+        );
+    }
+
+    // ── unlock_laser_at_wreck Unit Tests ────────────────────────────────
+
+    fn wreck_unlock_test_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_plugins(bevy::state::app::StatesPlugin);
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
+            1.0 / 60.0,
+        )));
+        app.insert_resource(TutorialConfig::default());
+        app.init_state::<TutorialPhase>();
+        app.add_systems(FixedUpdate, super::unlock_laser_at_wreck);
+        // Prime
+        app.update();
+        app
+    }
+
+    #[test]
+    fn unlock_laser_no_trigger_when_player_outside_wreck_dock_radius() {
+        let mut app = wreck_unlock_test_app();
+        // Phase is Flying (default)
+
+        // Spawn wreck at origin
+        app.world_mut().spawn((
+            TutorialWreck,
+            Transform::from_translation(Vec3::ZERO),
+        ));
+
+        // Spawn player far outside wreck_dock_radius (default 120.0)
+        app.world_mut().spawn((
+            Player,
+            Transform::from_translation(Vec3::new(500.0, 0.0, 0.0)),
+        ));
+
+        app.update(); // unlock_laser_at_wreck runs — player is 500 units away, no trigger
+
+        let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
+        assert_eq!(
+            *phase.get(),
+            TutorialPhase::Flying,
+            "Phase should remain Flying when player is outside wreck_dock_radius"
+        );
+    }
+
+    #[test]
+    fn unlock_laser_triggers_when_player_inside_wreck_dock_radius() {
+        let mut app = wreck_unlock_test_app();
+        // Phase is Flying (default)
+
+        // Spawn wreck at origin
+        app.world_mut().spawn((
+            TutorialWreck,
+            Transform::from_translation(Vec3::ZERO),
+        ));
+
+        // Spawn player inside wreck_dock_radius (default 120.0)
+        app.world_mut().spawn((
+            Player,
+            Transform::from_translation(Vec3::new(50.0, 0.0, 0.0)),
+        ));
+
+        app.update(); // unlock_laser_at_wreck runs — sets NextState(Shooting)
+        app.update(); // Apply state transition: Flying -> Shooting
+
+        let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
+        assert_eq!(
+            *phase.get(),
+            TutorialPhase::Shooting,
+            "Phase should advance to Shooting when player is inside wreck_dock_radius"
+        );
+    }
+
+    #[test]
+    fn unlock_laser_no_trigger_when_phase_is_not_flying() {
+        let mut app = wreck_unlock_test_app();
+
+        // Set phase to Shooting (not Flying)
+        app.world_mut()
+            .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+            .set(TutorialPhase::Shooting);
+        app.update(); // Apply state transition: Flying -> Shooting
+
+        // Spawn wreck at origin and player right next to it
+        app.world_mut().spawn((
+            TutorialWreck,
+            Transform::from_translation(Vec3::ZERO),
+        ));
+        app.world_mut().spawn((
+            Player,
+            Transform::from_translation(Vec3::new(10.0, 0.0, 0.0)),
+        ));
+
+        app.update(); // unlock_laser_at_wreck runs — phase is Shooting, guard returns early
+        app.update(); // Apply any potential state transition
+
+        let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
+        assert_eq!(
+            *phase.get(),
+            TutorialPhase::Shooting,
+            "Phase should remain Shooting when phase is not Flying (idempotent)"
+        );
+    }
+
+    #[test]
+    fn unlock_laser_no_crash_when_no_wreck_entity() {
+        let mut app = wreck_unlock_test_app();
+        // Phase is Flying (default)
+
+        // No TutorialWreck entity spawned
+        app.world_mut().spawn((
+            Player,
+            Transform::from_translation(Vec3::ZERO),
+        ));
+
+        // Should not crash
+        app.update();
+
+        let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
+        assert_eq!(
+            *phase.get(),
+            TutorialPhase::Flying,
+            "Phase should remain Flying when no wreck entity exists"
         );
     }
 

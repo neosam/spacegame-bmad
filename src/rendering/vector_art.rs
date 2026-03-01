@@ -3,7 +3,8 @@ use bevy::mesh::{Indices, PrimitiveTopology};
 use lyon_tessellation::geom::point;
 use lyon_tessellation::path::Path;
 use lyon_tessellation::{
-    BuffersBuilder, FillOptions, FillTessellator, FillVertex, VertexBuffers,
+    BuffersBuilder, FillOptions, FillTessellator, FillVertex, StrokeOptions, StrokeTessellator,
+    StrokeVertex, VertexBuffers,
 };
 
 /// Generate the player ship mesh using lyon tessellation.
@@ -169,6 +170,154 @@ pub fn generate_drone_mesh(radius: f32) -> Mesh {
     mesh
 }
 
+/// Generate a hexagon mesh for TutorialStation rendering (teal color applied separately).
+pub fn generate_tutorial_station_mesh(radius: f32) -> Mesh {
+    let mut buffers: VertexBuffers<[f32; 3], u32> = VertexBuffers::new();
+    let mut tessellator = FillTessellator::new();
+
+    let mut builder = Path::builder();
+    let vertex_count = 6u32;
+    let angle_step = std::f32::consts::TAU / vertex_count as f32;
+
+    for i in 0..vertex_count {
+        // Flat-top hexagon: start at angle 0 (right side)
+        let angle = angle_step * i as f32;
+        let x = angle.cos() * radius;
+        let y = angle.sin() * radius;
+        if i == 0 {
+            builder.begin(point(x, y));
+        } else {
+            builder.line_to(point(x, y));
+        }
+    }
+    builder.close();
+    let path = builder.build();
+
+    let result = tessellator.tessellate_path(
+        &path,
+        &FillOptions::default(),
+        &mut BuffersBuilder::new(&mut buffers, |vertex: FillVertex| {
+            [vertex.position().x, vertex.position().y, 0.0]
+        }),
+    );
+
+    if let Err(e) = result {
+        warn!("TutorialStation tessellation failed: {e:?}, using circle fallback");
+        return Mesh::from(Circle::new(radius));
+    }
+
+    let positions: Vec<[f32; 3]> = buffers.vertices.clone();
+    let normals: Vec<[f32; 3]> = vec![[0.0, 0.0, 1.0]; positions.len()];
+    let uvs: Vec<[f32; 2]> = positions
+        .iter()
+        .map(|p| [(p[0] / radius + 1.0) / 2.0, (p[1] / radius + 1.0) / 2.0])
+        .collect();
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Indices::U32(buffers.indices));
+    mesh
+}
+
+/// Generate an irregular polygon mesh for TutorialWreck rendering (dark-grey color applied separately).
+pub fn generate_tutorial_wreck_mesh(radius: f32) -> Mesh {
+    let mut buffers: VertexBuffers<[f32; 3], u32> = VertexBuffers::new();
+    let mut tessellator = FillTessellator::new();
+
+    let mut builder = Path::builder();
+    // Irregular 7-point polygon — uneven offsets give wreck/damage feel
+    let vertex_count = 7usize;
+    let angle_step = std::f32::consts::TAU / vertex_count as f32;
+    // Pseudo-random radii to look damaged/irregular
+    let offsets: [f32; 7] = [0.85, 0.65, 1.0, 0.55, 0.90, 0.70, 0.80];
+
+    for i in 0..vertex_count {
+        let angle = angle_step * i as f32;
+        let r = radius * offsets[i];
+        let x = angle.cos() * r;
+        let y = angle.sin() * r;
+        if i == 0 {
+            builder.begin(point(x, y));
+        } else {
+            builder.line_to(point(x, y));
+        }
+    }
+    builder.close();
+    let path = builder.build();
+
+    let result = tessellator.tessellate_path(
+        &path,
+        &FillOptions::default(),
+        &mut BuffersBuilder::new(&mut buffers, |vertex: FillVertex| {
+            [vertex.position().x, vertex.position().y, 0.0]
+        }),
+    );
+
+    if let Err(e) = result {
+        warn!("TutorialWreck tessellation failed: {e:?}, using circle fallback");
+        return Mesh::from(Circle::new(radius));
+    }
+
+    let positions: Vec<[f32; 3]> = buffers.vertices.clone();
+    let normals: Vec<[f32; 3]> = vec![[0.0, 0.0, 1.0]; positions.len()];
+    let uvs: Vec<[f32; 2]> = positions
+        .iter()
+        .map(|p| [(p[0] / radius + 1.0) / 2.0, (p[1] / radius + 1.0) / 2.0])
+        .collect();
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Indices::U32(buffers.indices));
+    mesh
+}
+
+/// Generate a diamond-shaped mesh for GravityWellGenerator rendering (orange color applied separately).
+/// Wider than the Scout Drone diamond to be visually distinct.
+pub fn generate_tutorial_generator_mesh(radius: f32) -> Mesh {
+    let mut buffers: VertexBuffers<[f32; 3], u32> = VertexBuffers::new();
+    let mut tessellator = FillTessellator::new();
+
+    let mut builder = Path::builder();
+    // Wider diamond: 4 points with equal horizontal/vertical extent
+    builder.begin(point(0.0, radius));           // Top
+    builder.line_to(point(radius, 0.0));         // Right (wider than drone)
+    builder.line_to(point(0.0, -radius));        // Bottom
+    builder.line_to(point(-radius, 0.0));        // Left
+    builder.close();
+    let path = builder.build();
+
+    let result = tessellator.tessellate_path(
+        &path,
+        &FillOptions::default(),
+        &mut BuffersBuilder::new(&mut buffers, |vertex: FillVertex| {
+            [vertex.position().x, vertex.position().y, 0.0]
+        }),
+    );
+
+    if let Err(e) = result {
+        warn!("GravityWellGenerator tessellation failed: {e:?}, using circle fallback");
+        return Mesh::from(Circle::new(radius));
+    }
+
+    let positions: Vec<[f32; 3]> = buffers.vertices.clone();
+    let normals: Vec<[f32; 3]> = vec![[0.0, 0.0, 1.0]; positions.len()];
+    let uvs: Vec<[f32; 2]> = positions
+        .iter()
+        .map(|p| [(p[0] / radius + 1.0) / 2.0, (p[1] / radius + 1.0) / 2.0])
+        .collect();
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Indices::U32(buffers.indices));
+    mesh
+}
+
 /// Generate an asteroid mesh and verify it produces valid geometry.
 #[cfg(test)]
 mod tests {
@@ -211,6 +360,117 @@ mod tests {
         };
         assert!(index_count >= 3, "Drone mesh should have at least 3 indices, got {index_count}");
     }
+
+    #[test]
+    fn generate_tutorial_station_mesh_produces_vertices() {
+        let mesh = generate_tutorial_station_mesh(20.0);
+        let positions = mesh
+            .attribute(Mesh::ATTRIBUTE_POSITION)
+            .expect("TutorialStation mesh should have positions");
+        let len = match positions {
+            bevy::mesh::VertexAttributeValues::Float32x3(v) => v.len(),
+            _ => panic!("Expected Float32x3 positions"),
+        };
+        assert!(len >= 3, "TutorialStation mesh should have at least 3 vertices, got {len}");
+        let indices = mesh.indices().expect("TutorialStation mesh should have indices");
+        let index_count = match indices {
+            Indices::U32(v) => v.len(),
+            _ => panic!("Expected U32 indices"),
+        };
+        assert!(index_count >= 3, "TutorialStation mesh should have at least 3 indices, got {index_count}");
+    }
+
+    #[test]
+    fn generate_tutorial_wreck_mesh_produces_vertices() {
+        let mesh = generate_tutorial_wreck_mesh(18.0);
+        let positions = mesh
+            .attribute(Mesh::ATTRIBUTE_POSITION)
+            .expect("TutorialWreck mesh should have positions");
+        let len = match positions {
+            bevy::mesh::VertexAttributeValues::Float32x3(v) => v.len(),
+            _ => panic!("Expected Float32x3 positions"),
+        };
+        assert!(len >= 3, "TutorialWreck mesh should have at least 3 vertices, got {len}");
+        let indices = mesh.indices().expect("TutorialWreck mesh should have indices");
+        let index_count = match indices {
+            Indices::U32(v) => v.len(),
+            _ => panic!("Expected U32 indices"),
+        };
+        assert!(index_count >= 3, "TutorialWreck mesh should have at least 3 indices, got {index_count}");
+    }
+
+    #[test]
+    fn generate_tutorial_generator_mesh_produces_vertices() {
+        let mesh = generate_tutorial_generator_mesh(25.0);
+        let positions = mesh
+            .attribute(Mesh::ATTRIBUTE_POSITION)
+            .expect("GravityWellGenerator mesh should have positions");
+        let len = match positions {
+            bevy::mesh::VertexAttributeValues::Float32x3(v) => v.len(),
+            _ => panic!("Expected Float32x3 positions"),
+        };
+        assert!(len >= 3, "GravityWellGenerator mesh should have at least 3 vertices, got {len}");
+        let indices = mesh.indices().expect("GravityWellGenerator mesh should have indices");
+        let index_count = match indices {
+            Indices::U32(v) => v.len(),
+            _ => panic!("Expected U32 indices"),
+        };
+        assert!(index_count >= 3, "GravityWellGenerator mesh should have at least 3 indices, got {index_count}");
+    }
+}
+
+/// Generate a circle outline (ring) mesh using lyon stroke tessellation.
+/// The resulting mesh is a thin ring centered at the origin with the given `radius`.
+/// `stroke_width` controls the thickness of the ring.
+/// This is used for the gravity well boundary visual indicator.
+pub fn generate_circle_outline_mesh(radius: f32, stroke_width: f32) -> Mesh {
+    let mut geometry: VertexBuffers<[f32; 3], u32> = VertexBuffers::new();
+    let mut stroke_tess = StrokeTessellator::new();
+
+    // Approximate a circle with 64 line segments for smooth appearance.
+    let segment_count = 64usize;
+    let angle_step = std::f32::consts::TAU / segment_count as f32;
+
+    let mut builder = Path::builder();
+    for i in 0..segment_count {
+        let angle = angle_step * i as f32;
+        let x = angle.cos() * radius;
+        let y = angle.sin() * radius;
+        if i == 0 {
+            builder.begin(point(x, y));
+        } else {
+            builder.line_to(point(x, y));
+        }
+    }
+    builder.close();
+    let path = builder.build();
+
+    let result = stroke_tess.tessellate_path(
+        &path,
+        &StrokeOptions::default().with_line_width(stroke_width),
+        &mut BuffersBuilder::new(&mut geometry, |vertex: StrokeVertex| {
+            [vertex.position().x, vertex.position().y, 0.0]
+        }),
+    );
+
+    if let Err(e) = result {
+        warn!("Circle outline stroke tessellation failed: {e:?}, using circle fallback");
+        return Mesh::from(Circle::new(radius));
+    }
+
+    let positions: Vec<[f32; 3]> = geometry.vertices.clone();
+    let normals: Vec<[f32; 3]> = vec![[0.0, 0.0, 1.0]; positions.len()];
+    let uvs: Vec<[f32; 2]> = positions
+        .iter()
+        .map(|p| [(p[0] / radius + 1.0) / 2.0, (p[1] / radius + 1.0) / 2.0])
+        .collect();
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Indices::U32(geometry.indices));
+    mesh
 }
 
 /// Fallback mesh if lyon tessellation fails (graceful degradation).

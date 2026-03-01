@@ -9,10 +9,10 @@ use void_drifter::core::flight::Player;
 use void_drifter::core::tutorial::{
     advance_phase_on_wreck_shot, apply_gravity_well, check_generator_destroyed,
     check_tutorial_wave_complete, dock_at_station, generate_tutorial_zone, spawn_tutorial_enemies,
-    start_destruction_cascade, tick_cascade_timer, validate_tutorial_config, validate_tutorial_seed,
-    CascadeTimer, GravityWellGenerator, SpreadUnlocked, TutorialConfig, TutorialEnemy,
-    TutorialEnemyWave, TutorialPhase, TutorialStation, TutorialWreck, TutorialZone, WeaponsLocked,
-    WreckShotState,
+    start_destruction_cascade, tick_cascade_timer, unlock_laser_at_wreck, validate_tutorial_config,
+    validate_tutorial_seed, CascadeTimer, GravityWellGenerator, SpreadUnlocked, TutorialConfig,
+    TutorialEnemy, TutorialEnemyWave, TutorialPhase, TutorialStation, TutorialWreck, TutorialZone,
+    WeaponsLocked, WreckShotState,
 };
 use void_drifter::core::spawning::{ScoutDrone, SpawningConfig};
 use void_drifter::shared::components::JustDamaged;
@@ -1688,6 +1688,699 @@ fn hundred_seed_validation_still_passes_after_constraint_validation() {
         assert!(
             result.is_ok(),
             "Seed {seed} should still pass validation after constraint validation feature added: {:?}",
+            result.expect_err("Expected Ok")
+        );
+    }
+}
+
+// ── Flying → Shooting Trigger Integration Tests (Story 2-10) ────────────
+
+/// Minimal app with unlock_laser_at_wreck and update_weapons_lock for isolated testing.
+fn laser_unlock_test_app() -> App {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.add_plugins(bevy::state::app::StatesPlugin);
+    app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+        Duration::from_secs_f64(1.0 / 60.0),
+    ));
+    app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
+    app.insert_resource(TutorialConfig::default());
+    app.init_state::<TutorialPhase>();
+    app.add_systems(
+        FixedUpdate,
+        (
+            void_drifter::core::tutorial::update_weapons_lock,
+            unlock_laser_at_wreck,
+        )
+            .chain(),
+    );
+    // Prime
+    app.update();
+    app
+}
+
+#[test]
+fn weapons_locked_removed_after_approaching_wreck() {
+    let mut app = laser_unlock_test_app();
+    // Phase is Flying (default)
+
+    // Spawn wreck at origin
+    app.world_mut().spawn((
+        TutorialWreck,
+        Transform::from_translation(Vec3::ZERO),
+    ));
+
+    // Spawn player inside wreck_dock_radius (default 120.0), with WeaponsLocked
+    let player = app
+        .world_mut()
+        .spawn((
+            Player,
+            WeaponsLocked,
+            Transform::from_translation(Vec3::new(50.0, 0.0, 0.0)),
+        ))
+        .id();
+
+    // Verify WeaponsLocked is present before update
+    assert!(
+        app.world().entity(player).get::<WeaponsLocked>().is_some(),
+        "Player should have WeaponsLocked initially"
+    );
+
+    app.update(); // unlock_laser_at_wreck fires: NextState(Shooting). update_weapons_lock removes WeaponsLocked.
+    app.update(); // Apply state transition: Flying -> Shooting
+
+    // After phase transition to Shooting, update_weapons_lock should have removed WeaponsLocked
+    app.update(); // Run update_weapons_lock again in Shooting phase
+
+    let has_weapons_locked = app
+        .world()
+        .entity(player)
+        .get::<WeaponsLocked>()
+        .is_some();
+    assert!(
+        !has_weapons_locked,
+        "WeaponsLocked should be removed after phase transitions to Shooting"
+    );
+}
+
+#[test]
+fn phase_transitions_flying_to_shooting_on_wreck_proximity() {
+    let mut app = laser_unlock_test_app();
+    // Phase is Flying (default)
+
+    // Spawn wreck at origin
+    app.world_mut().spawn((
+        TutorialWreck,
+        Transform::from_translation(Vec3::ZERO),
+    ));
+
+    // Spawn player inside wreck_dock_radius (default 120.0)
+    app.world_mut().spawn((
+        Player,
+        Transform::from_translation(Vec3::new(80.0, 0.0, 0.0)),
+    ));
+
+    app.update(); // unlock_laser_at_wreck runs — sets NextState(Shooting)
+    app.update(); // Apply state transition: Flying -> Shooting
+
+    let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::Shooting,
+        "Phase should advance to Shooting when player reaches wreck"
+    );
+}
+
+#[test]
+fn phase_stays_flying_when_player_far_from_wreck() {
+    let mut app = laser_unlock_test_app();
+    // Phase is Flying (default)
+
+    // Spawn wreck at origin
+    app.world_mut().spawn((
+        TutorialWreck,
+        Transform::from_translation(Vec3::ZERO),
+    ));
+
+    // Spawn player outside wreck_dock_radius (default 120.0)
+    app.world_mut().spawn((
+        Player,
+        Transform::from_translation(Vec3::new(500.0, 0.0, 0.0)),
+    ));
+
+    app.update();
+    app.update();
+
+    let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::Flying,
+        "Phase should remain Flying when player is far from wreck"
+    );
+}
+
+#[test]
+fn unlock_laser_trigger_is_idempotent_in_shooting_phase() {
+    let mut app = laser_unlock_test_app();
+
+    // Set phase to Shooting (skip Flying)
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::Shooting);
+    app.update(); // Apply transition to Shooting
+
+    // Spawn wreck and player right next to it
+    app.world_mut().spawn((
+        TutorialWreck,
+        Transform::from_translation(Vec3::ZERO),
+    ));
+    app.world_mut().spawn((
+        Player,
+        Transform::from_translation(Vec3::new(10.0, 0.0, 0.0)),
+    ));
+
+    app.update(); // unlock_laser_at_wreck — guard returns early (not Flying)
+    app.update(); // No state transition should happen
+
+    let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::Shooting,
+        "Phase should remain Shooting — unlock_laser_at_wreck is idempotent"
+    );
+}
+
+#[test]
+fn unlock_laser_no_panic_without_wreck_entity() {
+    let mut app = laser_unlock_test_app();
+    // Phase is Flying (default), no TutorialWreck entity
+
+    app.world_mut().spawn((
+        Player,
+        Transform::from_translation(Vec3::ZERO),
+    ));
+
+    // Should not panic or crash
+    app.update();
+
+    let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::Flying,
+        "Phase should remain Flying when no wreck exists"
+    );
+}
+
+#[test]
+fn hundred_seed_validation_still_passes_after_laser_unlock_trigger() {
+    let config = TutorialConfig::default();
+    for seed in 0..100 {
+        let result = validate_tutorial_seed(seed, &config);
+        assert!(
+            result.is_ok(),
+            "Seed {seed} should still pass validation after laser unlock trigger added: {:?}",
+            result.expect_err("Expected Ok")
+        );
+    }
+}
+
+// ── Tutorial Entity Rendering Tests (Story 2-9) ──────────────────────────
+
+use void_drifter::rendering::{
+    render_tutorial_generators, render_tutorial_stations, render_tutorial_wrecks,
+    setup_gravity_well_boundary_visual, update_tutorial_station_visual, TutorialGeneratorAssets,
+    TutorialStationAssets, TutorialWreckAssets,
+};
+use void_drifter::rendering::vector_art::{
+    generate_circle_outline_mesh, generate_tutorial_generator_mesh, generate_tutorial_station_mesh,
+    generate_tutorial_wreck_mesh,
+};
+use void_drifter::core::tutorial::GravityWellBoundary;
+use bevy::ecs::hierarchy::ChildOf;
+
+/// Build a minimal app with Assets<Mesh> + Assets<ColorMaterial> and the tutorial
+/// render systems registered. The asset resources (TutorialStationAssets etc.) are
+/// pre-inserted so the render systems can run without the full RenderingPlugin.
+/// Entities must be spawned AFTER the prime `app.update()` so `Added<T>` fires.
+fn tutorial_rendering_app_with_assets() -> App {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+
+    // Insert bare asset stores — no AssetPlugin needed for in-memory usage
+    app.insert_resource(Assets::<Mesh>::default());
+    app.insert_resource(Assets::<ColorMaterial>::default());
+
+    // Pre-build asset resources
+    {
+        let mut meshes = app.world_mut().resource_mut::<Assets<Mesh>>();
+        let station_mesh = meshes.add(generate_tutorial_station_mesh(20.0));
+        let wreck_mesh = meshes.add(generate_tutorial_wreck_mesh(18.0));
+        let generator_mesh = meshes.add(generate_tutorial_generator_mesh(25.0));
+
+        let mut materials = app.world_mut().resource_mut::<Assets<ColorMaterial>>();
+        let station_mat_defective = materials.add(ColorMaterial::from(Color::srgb(0.1, 0.5, 0.5)));
+        let station_mat_repaired = materials.add(ColorMaterial::from(Color::srgb(0.2, 0.9, 0.9)));
+        let wreck_mat = materials.add(ColorMaterial::from(Color::srgb(0.3, 0.3, 0.3)));
+        let generator_mat = materials.add(ColorMaterial::from(Color::srgb(1.0, 0.5, 0.1)));
+
+        app.world_mut().insert_resource(TutorialStationAssets {
+            mesh: station_mesh,
+            material_defective: station_mat_defective,
+            material_repaired: station_mat_repaired,
+        });
+        app.world_mut().insert_resource(TutorialWreckAssets {
+            mesh: wreck_mesh,
+            material: wreck_mat,
+        });
+        app.world_mut().insert_resource(TutorialGeneratorAssets {
+            mesh: generator_mesh,
+            material: generator_mat,
+        });
+    }
+
+    // Register the rendering systems under test
+    app.add_systems(
+        Update,
+        (
+            render_tutorial_stations,
+            render_tutorial_wrecks,
+            render_tutorial_generators,
+            update_tutorial_station_visual,
+        ),
+    );
+
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
+        1.0 / 60.0,
+    )));
+
+    // Prime frame — establishes change detection baseline
+    app.update();
+
+    app
+}
+
+#[test]
+fn tutorial_station_gets_mesh2d_after_setup() {
+    let mut app = tutorial_rendering_app_with_assets();
+
+    // Spawn AFTER prime so Added<TutorialStation> fires on the next update
+    let station = app
+        .world_mut()
+        .spawn((
+            TutorialStation { defective: true },
+            Transform::default(),
+        ))
+        .id();
+
+    app.update(); // render_tutorial_stations runs
+
+    let has_mesh = app.world().entity(station).get::<Mesh2d>().is_some();
+    assert!(
+        has_mesh,
+        "TutorialStation entity should have Mesh2d component after rendering setup"
+    );
+}
+
+#[test]
+fn tutorial_wreck_gets_mesh2d_after_setup() {
+    let mut app = tutorial_rendering_app_with_assets();
+
+    let wreck = app
+        .world_mut()
+        .spawn((TutorialWreck, Transform::default()))
+        .id();
+
+    app.update(); // render_tutorial_wrecks runs
+
+    let has_mesh = app.world().entity(wreck).get::<Mesh2d>().is_some();
+    assert!(
+        has_mesh,
+        "TutorialWreck entity should have Mesh2d component after rendering setup"
+    );
+}
+
+#[test]
+fn gravity_well_generator_gets_mesh2d_after_setup() {
+    let mut app = tutorial_rendering_app_with_assets();
+
+    let generator = app
+        .world_mut()
+        .spawn((
+            GravityWellGenerator {
+                safe_radius: 2000.0,
+                pull_strength: 50.0,
+                requires_projectile: true,
+            },
+            Transform::default(),
+        ))
+        .id();
+
+    app.update(); // render_tutorial_generators runs
+
+    let has_mesh = app.world().entity(generator).get::<Mesh2d>().is_some();
+    assert!(
+        has_mesh,
+        "GravityWellGenerator entity should have Mesh2d component after rendering setup"
+    );
+}
+
+#[test]
+fn tutorial_station_material_updated_when_defective_flips_to_false() {
+    let mut app = tutorial_rendering_app_with_assets();
+
+    // Spawn defective station
+    let station = app
+        .world_mut()
+        .spawn((
+            TutorialStation { defective: true },
+            Transform::default(),
+        ))
+        .id();
+
+    app.update(); // render_tutorial_stations attaches Mesh2d + MeshMaterial2d
+
+    // Confirm Mesh2d was attached
+    assert!(
+        app.world().entity(station).get::<Mesh2d>().is_some(),
+        "Station should have Mesh2d after initial setup"
+    );
+
+    // Record material handle before change
+    let mat_handle = app
+        .world()
+        .entity(station)
+        .get::<MeshMaterial2d<ColorMaterial>>()
+        .expect("Station should have MeshMaterial2d after setup")
+        .clone();
+
+    // Simulate docking: flip defective to false
+    app.world_mut()
+        .entity_mut(station)
+        .get_mut::<TutorialStation>()
+        .expect("Station should have TutorialStation")
+        .defective = false;
+
+    app.update(); // update_tutorial_station_visual runs on Changed<TutorialStation>
+
+    // Material in Assets should now be bright teal (green channel > 0.7)
+    let materials = app.world().resource::<Assets<ColorMaterial>>();
+    let mat = materials
+        .get(&mat_handle.0)
+        .expect("Material should still be present in Assets");
+    let green = mat.color.to_srgba().green;
+    assert!(
+        green > 0.7,
+        "After docking (defective=false), station material green should be > 0.7, got {green}"
+    );
+}
+
+#[test]
+fn hundred_seed_validation_still_passes_after_entity_rendering() {
+    let config = TutorialConfig::default();
+    for seed in 0..100 {
+        let result = validate_tutorial_seed(seed, &config);
+        assert!(
+            result.is_ok(),
+            "Seed {seed} should still pass validation after entity rendering added: {:?}",
+            result.expect_err("Expected Ok")
+        );
+    }
+}
+
+// ── Gravity Well Boundary Visual Tests (Story 2-11) ──────────────────────
+
+/// Build a minimal app with asset resources and the setup_gravity_well_boundary_visual
+/// system registered.  Entities must be spawned AFTER the prime `app.update()` so
+/// `Added<GravityWellBoundary>` fires on the subsequent frame.
+fn gravity_well_boundary_app() -> App {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+
+    // Bare in-memory asset stores — no AssetPlugin needed.
+    app.insert_resource(Assets::<Mesh>::default());
+    app.insert_resource(Assets::<ColorMaterial>::default());
+
+    app.add_systems(Update, setup_gravity_well_boundary_visual);
+
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
+        1.0 / 60.0,
+    )));
+
+    // Prime frame — establishes change detection baseline.
+    app.update();
+
+    app
+}
+
+#[test]
+fn gravity_well_boundary_spawned_as_child_of_generator() {
+    // Verify that spawn_tutorial_zone creates a GravityWellBoundary child entity
+    // for each GravityWellGenerator.
+    let mut app = tutorial_test_app();
+
+    // Count GravityWellBoundary entities
+    let boundary_count = app
+        .world_mut()
+        .query_filtered::<Entity, With<GravityWellBoundary>>()
+        .iter(app.world())
+        .count();
+    assert_eq!(
+        boundary_count, 1,
+        "Should spawn exactly one GravityWellBoundary child entity, got {boundary_count}"
+    );
+}
+
+#[test]
+fn gravity_well_boundary_entity_has_parent_that_is_generator() {
+    // Verify the GravityWellBoundary entity's ChildOf resolves to a GravityWellGenerator.
+    let mut app = tutorial_test_app();
+
+    // Collect all (boundary_entity, parent_entity) pairs via the ChildOf relationship.
+    let boundaries: Vec<(Entity, Entity)> = app
+        .world_mut()
+        .query::<(Entity, &ChildOf)>()
+        .iter(app.world())
+        .filter_map(|(entity, child_of): (Entity, &ChildOf)| {
+            if app.world().entity(entity).get::<GravityWellBoundary>().is_some() {
+                Some((entity, child_of.parent()))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    assert_eq!(
+        boundaries.len(), 1,
+        "Should have exactly one GravityWellBoundary with a parent"
+    );
+
+    let (_, parent_entity) = boundaries[0];
+    let parent_is_generator: bool = app
+        .world()
+        .entity(parent_entity)
+        .get::<GravityWellGenerator>()
+        .is_some();
+    assert!(
+        parent_is_generator,
+        "The parent of GravityWellBoundary should be a GravityWellGenerator entity"
+    );
+}
+
+#[test]
+fn gravity_well_boundary_gets_mesh2d_after_visual_setup() {
+    // Verify the rendering system attaches Mesh2d to GravityWellBoundary entities.
+    let mut app = gravity_well_boundary_app();
+
+    // Spawn generator at origin
+    let generator = app
+        .world_mut()
+        .spawn((
+            GravityWellGenerator {
+                safe_radius: 2000.0,
+                pull_strength: 50.0,
+                requires_projectile: true,
+            },
+            Transform::default(),
+            GlobalTransform::default(),
+        ))
+        .id();
+
+    // Spawn boundary as a child of the generator AFTER the prime frame.
+    let boundary = app
+        .world_mut()
+        .spawn((
+            GravityWellBoundary,
+            Transform::default(),
+            GlobalTransform::default(),
+        ))
+        .id();
+
+    // Manually set the parent relationship so the system can resolve it.
+    app.world_mut()
+        .entity_mut(generator)
+        .add_child(boundary);
+
+    app.update(); // setup_gravity_well_boundary_visual runs on Added<GravityWellBoundary>
+
+    let has_mesh = app.world().entity(boundary).get::<Mesh2d>().is_some();
+    assert!(
+        has_mesh,
+        "GravityWellBoundary entity should have Mesh2d after visual setup"
+    );
+}
+
+#[test]
+fn gravity_well_boundary_gets_mesh_material_after_visual_setup() {
+    // Verify the rendering system attaches MeshMaterial2d to GravityWellBoundary entities.
+    let mut app = gravity_well_boundary_app();
+
+    let generator = app
+        .world_mut()
+        .spawn((
+            GravityWellGenerator {
+                safe_radius: 2000.0,
+                pull_strength: 50.0,
+                requires_projectile: true,
+            },
+            Transform::default(),
+            GlobalTransform::default(),
+        ))
+        .id();
+
+    let boundary = app
+        .world_mut()
+        .spawn((
+            GravityWellBoundary,
+            Transform::default(),
+            GlobalTransform::default(),
+        ))
+        .id();
+
+    app.world_mut().entity_mut(generator).add_child(boundary);
+
+    app.update();
+
+    let has_material = app
+        .world()
+        .entity(boundary)
+        .get::<MeshMaterial2d<ColorMaterial>>()
+        .is_some();
+    assert!(
+        has_material,
+        "GravityWellBoundary entity should have MeshMaterial2d after visual setup"
+    );
+}
+
+#[test]
+fn gravity_well_boundary_material_is_semi_transparent_orange() {
+    // Verify the material color is orange with low alpha (~0.4).
+    let mut app = gravity_well_boundary_app();
+
+    let generator = app
+        .world_mut()
+        .spawn((
+            GravityWellGenerator {
+                safe_radius: 2000.0,
+                pull_strength: 50.0,
+                requires_projectile: true,
+            },
+            Transform::default(),
+            GlobalTransform::default(),
+        ))
+        .id();
+
+    let boundary = app
+        .world_mut()
+        .spawn((
+            GravityWellBoundary,
+            Transform::default(),
+            GlobalTransform::default(),
+        ))
+        .id();
+
+    app.world_mut().entity_mut(generator).add_child(boundary);
+
+    app.update();
+
+    let mat_handle = app
+        .world()
+        .entity(boundary)
+        .get::<MeshMaterial2d<ColorMaterial>>()
+        .expect("GravityWellBoundary should have MeshMaterial2d")
+        .clone();
+
+    let materials = app.world().resource::<Assets<ColorMaterial>>();
+    let mat = materials
+        .get(&mat_handle.0)
+        .expect("Material should exist in Assets");
+    let color = mat.color.to_srgba();
+    // Red channel should be high (orange)
+    assert!(
+        color.red > 0.9,
+        "Boundary material red channel should be high (orange), got {}",
+        color.red
+    );
+    // Alpha should be low (~0.4) — semi-transparent
+    assert!(
+        color.alpha < 0.6,
+        "Boundary material alpha should be low (semi-transparent), got {}",
+        color.alpha
+    );
+    assert!(
+        color.alpha > 0.1,
+        "Boundary material alpha should be > 0 (visible), got {}",
+        color.alpha
+    );
+}
+
+#[test]
+fn generate_circle_outline_mesh_produces_vertices() {
+    let mesh = generate_circle_outline_mesh(100.0, 5.0);
+    let positions = mesh
+        .attribute(Mesh::ATTRIBUTE_POSITION)
+        .expect("Circle outline mesh should have positions");
+    let len = match positions {
+        bevy::mesh::VertexAttributeValues::Float32x3(v) => v.len(),
+        _ => panic!("Expected Float32x3 positions"),
+    };
+    assert!(len >= 3, "Circle outline mesh should have at least 3 vertices, got {len}");
+    let indices = mesh.indices().expect("Circle outline mesh should have indices");
+    let index_count = match indices {
+        bevy::mesh::Indices::U32(v) => v.len(),
+        _ => panic!("Expected U32 indices"),
+    };
+    assert!(
+        index_count >= 3,
+        "Circle outline mesh should have at least 3 indices, got {index_count}"
+    );
+}
+
+#[test]
+fn generate_circle_outline_mesh_different_radii_produce_different_vertex_counts() {
+    // Larger radius with same segment count — vertex positions should differ.
+    let mesh_small = generate_circle_outline_mesh(50.0, 5.0);
+    let mesh_large = generate_circle_outline_mesh(500.0, 5.0);
+
+    let positions_small = mesh_small
+        .attribute(Mesh::ATTRIBUTE_POSITION)
+        .expect("Small circle mesh should have positions");
+    let positions_large = mesh_large
+        .attribute(Mesh::ATTRIBUTE_POSITION)
+        .expect("Large circle mesh should have positions");
+
+    let verts_small = match positions_small {
+        bevy::mesh::VertexAttributeValues::Float32x3(v) => v,
+        _ => panic!("Expected Float32x3 positions"),
+    };
+    let verts_large = match positions_large {
+        bevy::mesh::VertexAttributeValues::Float32x3(v) => v,
+        _ => panic!("Expected Float32x3 positions"),
+    };
+
+    // Same segment count means same vertex count, but max vertex extent should differ.
+    let max_extent_small = verts_small
+        .iter()
+        .map(|v| (v[0] * v[0] + v[1] * v[1]).sqrt())
+        .fold(0.0f32, f32::max);
+    let max_extent_large = verts_large
+        .iter()
+        .map(|v| (v[0] * v[0] + v[1] * v[1]).sqrt())
+        .fold(0.0f32, f32::max);
+
+    assert!(
+        max_extent_large > max_extent_small,
+        "Larger radius should produce larger max vertex extent: small={max_extent_small:.1}, large={max_extent_large:.1}"
+    );
+}
+
+#[test]
+fn hundred_seed_validation_still_passes_after_gravity_well_boundary() {
+    let config = TutorialConfig::default();
+    for seed in 0..100 {
+        let result = validate_tutorial_seed(seed, &config);
+        assert!(
+            result.is_ok(),
+            "Seed {seed} should still pass validation after gravity well boundary added: {:?}",
             result.expect_err("Expected Ok")
         );
     }

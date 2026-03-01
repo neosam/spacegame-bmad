@@ -23,8 +23,8 @@ use self::spawning::{
 use self::tutorial::{
     advance_phase_on_wreck_shot, apply_gravity_well, check_generator_destroyed,
     check_tutorial_wave_complete, dock_at_station, spawn_tutorial_enemies, spawn_tutorial_zone,
-    start_destruction_cascade, tick_cascade_timer, update_weapons_lock, validate_tutorial_config,
-    TutorialConfig, TutorialPhase,
+    start_destruction_cascade, tick_cascade_timer, unlock_laser_at_wreck, update_weapons_lock,
+    validate_tutorial_config, TutorialConfig, TutorialPhase,
 };
 use self::weapons::{
     fire_weapon, move_spread_projectiles, regenerate_energy, switch_weapon, tick_fire_cooldown,
@@ -246,6 +246,9 @@ impl Plugin for CorePlugin {
             )
                 .after(CoreSet::Damage),
         );
+
+        // Flying → Shooting trigger: runs in CoreSet::Events, fires once when player reaches wreck
+        app.add_systems(FixedUpdate, unlock_laser_at_wreck.in_set(CoreSet::Events));
 
         // Station docking: runs in CoreSet::Events, after Damage has settled
         app.add_systems(FixedUpdate, dock_at_station.in_set(CoreSet::Events));
