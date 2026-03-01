@@ -6,6 +6,7 @@ use crate::core::economy::{Credits, PlayerInventory};
 use crate::core::flight::Player;
 use crate::core::upgrades::{InstalledUpgrades, ShipSystem, WeaponSystem};
 use crate::core::weapons::{ActiveWeapon, Energy};
+use crate::core::wormhole::{ClearedWormholes, Wormhole};
 use crate::shared::components::{MaterialType, Velocity};
 use crate::shared::events::EventSeverity;
 use crate::infrastructure::logbook::{Logbook, LogbookEntry};
@@ -293,6 +294,26 @@ impl PlayerSave {
                 .rev()
                 .collect();
         }
+        // Save cleared wormholes (Story 9-4): use ClearedWormholes resource (authoritative set)
+        // Also merge in any Wormhole components that are cleared but not yet in the resource.
+        if let Some(cleared) = world.get_resource::<ClearedWormholes>() {
+            let mut coords: Vec<[i32; 2]> = cleared
+                .coords
+                .iter()
+                .map(|c| [c.x, c.y])
+                .collect();
+            // Also pick up cleared Wormhole components that may not have gone through check_arena_completion
+            let mut wormhole_query = world.query::<&Wormhole>();
+            for wormhole in wormhole_query.iter(world) {
+                if wormhole.cleared {
+                    let arr = [wormhole.coord.x, wormhole.coord.y];
+                    if !coords.contains(&arr) {
+                        coords.push(arr);
+                    }
+                }
+            }
+            save.cleared_wormholes = coords;
+        }
         Some(save)
     }
 
@@ -356,6 +377,13 @@ impl PlayerSave {
         if let Some(mut logbook) = world.get_resource_mut::<Logbook>() {
             for saved_entry in &self.logbook_entries {
                 logbook.push(saved_entry.to_entry());
+            }
+        }
+        // Restore cleared wormholes (Story 9-4): populate ClearedWormholes resource
+        if let Some(mut cleared) = world.get_resource_mut::<ClearedWormholes>() {
+            cleared.coords.clear();
+            for arr in &self.cleared_wormholes {
+                cleared.coords.insert(crate::world::ChunkCoord { x: arr[0], y: arr[1] });
             }
         }
         // Restore companion roster (Story 6a-6)

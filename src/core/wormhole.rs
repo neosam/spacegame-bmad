@@ -1,7 +1,10 @@
-use bevy::ecs::message::MessageWriter;
+use std::collections::HashSet;
+
+use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::prelude::*;
 
 use crate::core::collision::{Collider, Health};
+use crate::core::economy::{Credits, PendingDropSpawns};
 use crate::core::flight::Player;
 use crate::core::input::ActionState;
 use crate::core::spawning::{
@@ -10,7 +13,7 @@ use crate::core::spawning::{
 };
 use crate::game_states::PlayingSubState;
 use crate::infrastructure::events::EventSeverityConfig;
-use crate::shared::components::Velocity;
+use crate::shared::components::{MaterialType, Velocity};
 use crate::shared::events::{EventSeverity, GameEvent, GameEventKind};
 use crate::world::ChunkCoord;
 
@@ -35,6 +38,14 @@ pub struct ArenaState {
     pub total_waves: u32,
     pub enemies_remaining: u32,
     pub cleared: bool,
+    /// True after WormholeCleared event has been emitted — prevents duplicate reward spawns.
+    pub completion_notified: bool,
+}
+
+/// Pure function: berechnet die Credit-Belohnung anhand der Wormhole-Distanz vom Ursprung.
+/// Distanz 1.0 → 200 Credits, steigt proportional, max 1000.
+pub fn calculate_arena_reward(distance: f32) -> u32 {
+    (200.0 * distance.max(1.0)).clamp(200.0, 1000.0) as u32
 }
 
 /// Marker-Komponente für eine Wormhole-Entity in der Hauptwelt.
@@ -55,6 +66,13 @@ pub struct ArenaEnemy;
 /// Arena-Boundary — unsichtbare Kreisgrenze.
 #[derive(Component)]
 pub struct ArenaBoundary;
+
+/// Persistente Menge aller Wormhole-Koordinaten, die in dieser Sitzung gecleart wurden.
+/// Wird beim Laden befüllt und beim Chunk-Spawn abgefragt.
+#[derive(Resource, Default, Debug)]
+pub struct ClearedWormholes {
+    pub coords: HashSet<ChunkCoord>,
+}
 
 /// Pure Funktion: Soll in diesem Chunk ein Wormhole spawnen?
 /// Mindestdistanz 2 Chunks vom Ursprung, ca. 1 von 8 Chunks.
@@ -105,6 +123,7 @@ pub fn check_wormhole_proximity(
                 total_waves: 3,
                 enemies_remaining: 0,
                 cleared: false,
+                completion_notified: false,
             });
 
             // Teleport player to arena center
@@ -140,6 +159,7 @@ pub fn setup_arena(mut arena_state: ResMut<ArenaState>) {
     arena_state.total_waves = 3;
     arena_state.enemies_remaining = 0;
     arena_state.cleared = false;
+    arena_state.completion_notified = false;
 }
 
 /// FixedUpdate, nur in InWormhole — spawnt nächste Welle wenn alle Feinde besiegt.
@@ -281,6 +301,124 @@ pub fn cleanup_arena(
     for entity in arena_enemies.iter() {
         if let Ok(mut e) = commands.get_entity(entity) {
             e.despawn();
+        }
+    }
+}
+
+/// FixedUpdate, nur in InWormhole — prüft ob alle Wellen besiegt wurden und emittiert
+/// WormholeCleared Event. Setzt Wormhole.cleared=true auf der Wormhole-Entity.
+pub fn check_arena_completion(
+    mut arena_state: ResMut<ArenaState>,
+    entrance: Option<Res<WormholeEntrance>>,
+    mut wormhole_query: Query<&mut Wormhole>,
+    mut cleared_wormholes: ResMut<ClearedWormholes>,
+    mut game_events: MessageWriter<GameEvent>,
+    severity_config: Res<EventSeverityConfig>,
+    time: Res<Time>,
+) {
+    if !arena_state.cleared || arena_state.completion_notified {
+        return;
+    }
+
+    let Some(entrance) = entrance else {
+        return;
+    };
+
+    // Mark wormhole as cleared in the world
+    if let Ok(mut wormhole) = wormhole_query.get_mut(entrance.wormhole_entity) {
+        let coord = wormhole.coord;
+        wormhole.cleared = true;
+
+        // Persist to cleared set for save/load and re-chunk-spawn support
+        cleared_wormholes.coords.insert(coord);
+
+        // Emit WormholeCleared event
+        let kind = GameEventKind::WormholeCleared { coord };
+        let severity = severity_config
+            .mappings
+            .get("WormholeCleared")
+            .copied()
+            .unwrap_or(EventSeverity::Tier1);
+        game_events.write(GameEvent {
+            kind,
+            severity,
+            position: Vec2::ZERO,
+            game_time: time.elapsed_secs_f64(),
+        });
+    }
+
+    arena_state.completion_notified = true;
+}
+
+/// Update, nur in InWormhole — wenn Arena cleared und Spieler E drückt, kehrt er zur Welt zurück.
+pub fn handle_arena_exit(
+    mut player_query: Query<&mut Transform, With<Player>>,
+    entrance: Option<Res<WormholeEntrance>>,
+    action_state: Res<ActionState>,
+    arena_state: Option<Res<ArenaState>>,
+    mut next_sub_state: ResMut<NextState<PlayingSubState>>,
+    mut commands: Commands,
+) {
+    let Some(arena_state) = arena_state else {
+        return;
+    };
+    if !arena_state.cleared {
+        return;
+    }
+    if !action_state.interact {
+        return;
+    }
+    let Some(entrance) = entrance else {
+        return;
+    };
+
+    let Ok(mut player_transform) = player_query.single_mut() else {
+        return;
+    };
+
+    // Teleport player back to world entry position
+    player_transform.translation = entrance.world_position.extend(0.0);
+
+    // Transition back to Flying
+    next_sub_state.set(PlayingSubState::Flying);
+
+    // Remove arena resources
+    commands.remove_resource::<WormholeEntrance>();
+    commands.remove_resource::<ArenaState>();
+}
+
+/// Update, nur in InWormhole — reagiert auf WormholeCleared Events und spawnt Belohnungen.
+pub fn spawn_arena_rewards(
+    mut reader: MessageReader<GameEvent>,
+    mut credits: ResMut<Credits>,
+    mut pending_drops: ResMut<PendingDropSpawns>,
+    player_query: Query<&Transform, With<Player>>,
+) {
+    let player_pos = player_query.single()
+        .map(|t| t.translation.truncate())
+        .unwrap_or(Vec2::ZERO);
+
+    for event in reader.read() {
+        if let GameEventKind::WormholeCleared { coord } = &event.kind {
+            let dist = ((coord.x * coord.x + coord.y * coord.y) as f32).sqrt();
+            let reward_credits = calculate_arena_reward(dist);
+            credits.balance += reward_credits;
+
+            // Spawn 3–5 material drops near player position
+            let drop_count = 3 + (rand::random::<u8>() % 3); // 0..=2 → 3..=5
+            let material_variants = [
+                MaterialType::CommonScrap,
+                MaterialType::RareAlloy,
+                MaterialType::EnergyCore,
+            ];
+            for _ in 0..drop_count {
+                let offset_x = (rand::random::<f32>() * 2.0 - 1.0) * 40.0;
+                let offset_y = (rand::random::<f32>() * 2.0 - 1.0) * 40.0;
+                let drop_pos = player_pos + Vec2::new(offset_x, offset_y);
+                let idx = (rand::random::<u8>() % 3) as usize;
+                let material = material_variants[idx];
+                pending_drops.drops.push((material, drop_pos));
+            }
         }
     }
 }

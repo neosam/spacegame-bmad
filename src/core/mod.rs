@@ -36,6 +36,7 @@ use self::economy::{
 use self::station::{record_discovered_stations, update_docking, update_undocking, DiscoveredStations, LastDockedStation};
 use self::wormhole::{
     check_wormhole_proximity, setup_arena, spawn_arena_wave, enforce_arena_boundary, cleanup_arena,
+    check_arena_completion, handle_arena_exit, spawn_arena_rewards, ClearedWormholes,
 };
 use crate::game_states::PlayingSubState;
 use self::upgrades::{
@@ -369,6 +370,9 @@ impl Plugin for CorePlugin {
                 .after(CoreSet::Events),
         );
 
+        // Wormhole cleared set: persisted across chunk loads for save/load support
+        app.init_resource::<ClearedWormholes>();
+
         // Wormhole proximity: runs in Update, only when Flying
         // Checks if the player is close enough to a wormhole and presses E to enter it.
         app.add_systems(
@@ -383,6 +387,19 @@ impl Plugin for CorePlugin {
         app.add_systems(
             FixedUpdate,
             (spawn_arena_wave, enforce_arena_boundary)
+                .run_if(in_state(PlayingSubState::InWormhole)),
+        );
+
+        // Story 9-4: Arena Rewards — completion check in FixedUpdate
+        app.add_systems(
+            FixedUpdate,
+            check_arena_completion.run_if(in_state(PlayingSubState::InWormhole)),
+        );
+
+        // Story 9-4: Arena Rewards — exit and reward spawning in Update
+        app.add_systems(
+            Update,
+            (handle_arena_exit, spawn_arena_rewards)
                 .run_if(in_state(PlayingSubState::InWormhole)),
         );
 

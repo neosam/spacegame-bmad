@@ -16,7 +16,7 @@ use crate::core::collision::{Collider, Health};
 use crate::core::flight::Player;
 use crate::core::spawning::{Asteroid, BossEnemy, NeedsAsteroidVisual, NeedsBossVisual, NeedsDroneVisual, ScoutDrone};
 use crate::core::station::{NeedsStationVisual, Station, StationType};
-use crate::core::wormhole::{NeedsWormholeVisual, Wormhole, should_spawn_wormhole};
+use crate::core::wormhole::{ClearedWormholes, NeedsWormholeVisual, Wormhole, should_spawn_wormhole};
 use crate::infrastructure::events::EventSeverityConfig;
 use crate::infrastructure::save::delta::{SeedIndex, WorldDeltas};
 use crate::shared::components::Velocity;
@@ -318,6 +318,7 @@ pub fn update_chunks(
     mut pending_chunks: ResMut<PendingChunks>,
     mut chunk_load_state: ResMut<ChunkLoadState>,
     tutorial_chunks: Res<TutorialZoneChunks>,
+    cleared_wormholes: Option<Res<ClearedWormholes>>,
     all_collidable: Query<Entity, With<Collider>>,
     mut game_events: MessageWriter<GameEvent>,
     time: Res<Time>,
@@ -567,8 +568,13 @@ pub fn update_chunks(
         // Story 9-1: Spawn a Wormhole entity for eligible chunks
         if should_spawn_wormhole(coord, config.seed) {
             let chunk_center = chunk::chunk_to_world_center(coord, config.chunk_size);
+            // Story 9-4: Restore cleared flag from persistent ClearedWormholes resource
+            let already_cleared = cleared_wormholes
+                .as_ref()
+                .map(|cw| cw.coords.contains(&coord))
+                .unwrap_or(false);
             let wormhole_entity = commands.spawn((
-                Wormhole { coord, cleared: false },
+                Wormhole { coord, cleared: already_cleared },
                 NeedsWormholeVisual,
                 Transform::from_translation(chunk_center.extend(0.0)),
                 ChunkEntity { coord },

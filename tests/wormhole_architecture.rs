@@ -229,6 +229,7 @@ fn arena_state_on_enter_has_three_waves() {
         total_waves: 3,
         enemies_remaining: 0,
         cleared: false,
+        completion_notified: false,
     };
     assert_eq!(arena.total_waves, 3, "ArenaState on entry should have 3 waves");
     assert_eq!(arena.wave, 0, "ArenaState on entry should start at wave 0");
@@ -502,6 +503,7 @@ fn setup_arena_initializes_state() {
         total_waves: 10,
         enemies_remaining: 99,
         cleared: true,
+        completion_notified: true,
     });
     app.add_systems(bevy::app::Startup, setup_arena);
     app.update();
@@ -530,6 +532,7 @@ fn spawn_arena_wave_spawns_wave_1_on_first_call() {
         total_waves: 3,
         enemies_remaining: 0,
         cleared: false,
+        completion_notified: false,
     });
     app.add_systems(bevy::app::Update, spawn_arena_wave);
     app.update();
@@ -560,6 +563,7 @@ fn arena_cleared_after_all_waves_defeated() {
         total_waves: 3,
         enemies_remaining: 0,
         cleared: false,
+        completion_notified: false,
     });
     app.add_systems(bevy::app::Update, spawn_arena_wave);
     app.update();
@@ -691,6 +695,7 @@ fn arena_enemies_have_arena_enemy_marker() {
         total_waves: 3,
         enemies_remaining: 0,
         cleared: false,
+        completion_notified: false,
     });
     app.add_systems(bevy::app::Update, spawn_arena_wave);
     app.update();
@@ -704,5 +709,94 @@ fn arena_enemies_have_arena_enemy_marker() {
     assert!(
         with_marker > 0,
         "At least some enemies should be spawned with ArenaEnemy marker after wave 1"
+    );
+}
+
+// ── Story 9-4: Arena Rewards ──────────────────────────────────────────────────
+
+/// calculate_arena_reward scales correctly with distance.
+#[test]
+fn arena_reward_credits_scale_with_distance() {
+    use void_drifter::core::wormhole::calculate_arena_reward;
+
+    let reward_at_1 = calculate_arena_reward(1.0);
+    let reward_at_5 = calculate_arena_reward(5.0);
+    assert!(
+        reward_at_1 >= 200,
+        "Reward at distance 1 should be at least 200, got {}",
+        reward_at_1
+    );
+    assert!(
+        reward_at_5 <= 1000,
+        "Reward at distance 5 should be at most 1000, got {}",
+        reward_at_5
+    );
+    assert!(
+        reward_at_5 > reward_at_1,
+        "Reward at distance 5 ({}) should exceed reward at distance 1 ({})",
+        reward_at_5,
+        reward_at_1
+    );
+}
+
+/// calculate_arena_reward clamps at 200 for very short distances.
+#[test]
+fn arena_reward_minimum_is_200() {
+    use void_drifter::core::wormhole::calculate_arena_reward;
+
+    let reward_at_zero = calculate_arena_reward(0.0);
+    assert_eq!(
+        reward_at_zero, 200,
+        "Reward should be clamped to minimum 200 at distance 0, got {}",
+        reward_at_zero
+    );
+}
+
+/// calculate_arena_reward clamps at 1000 for very large distances.
+#[test]
+fn arena_reward_maximum_is_1000() {
+    use void_drifter::core::wormhole::calculate_arena_reward;
+
+    let reward_far = calculate_arena_reward(100.0);
+    assert_eq!(
+        reward_far, 1000,
+        "Reward should be clamped to maximum 1000 at large distances, got {}",
+        reward_far
+    );
+}
+
+/// PlayerSave serializes and deserializes cleared_wormholes correctly via RON.
+#[test]
+fn save_roundtrip_cleared_wormholes() {
+    use void_drifter::infrastructure::save::player_save::PlayerSave;
+
+    let mut save = PlayerSave::default();
+    save.cleared_wormholes = vec![[3, 4], [5, -2]];
+    let ron_str = save.to_ron().expect("Should serialize cleared_wormholes to RON");
+    let loaded = PlayerSave::from_ron(&ron_str).expect("Should deserialize cleared_wormholes from RON");
+    assert_eq!(
+        loaded.cleared_wormholes.len(),
+        2,
+        "Should have 2 cleared wormhole entries after roundtrip"
+    );
+    assert_eq!(
+        loaded.cleared_wormholes[0],
+        [3, 4],
+        "First cleared wormhole coord should be [3, 4]"
+    );
+    assert_eq!(
+        loaded.cleared_wormholes[1],
+        [5, -2],
+        "Second cleared wormhole coord should be [5, -2]"
+    );
+}
+
+/// ArenaState.completion_notified field defaults to false.
+#[test]
+fn arena_state_completion_notified_defaults_false() {
+    let state = ArenaState::default();
+    assert!(
+        !state.completion_notified,
+        "ArenaState::completion_notified should default to false"
     );
 }
