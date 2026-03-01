@@ -170,7 +170,7 @@ pub fn regenerate_energy(
 /// Fires the active weapon when fire input is active and cooldown is ready.
 /// Branches on ActiveWeapon: Laser (hitscan) or Spread (projectiles with energy cost).
 /// Emits `GameEvent::WeaponFired` on each successful shot.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn fire_weapon(
     action_state: Res<ActionState>,
     config: Res<WeaponConfig>,
@@ -181,6 +181,7 @@ pub fn fire_weapon(
             &mut FireCooldown,
             &mut Energy,
             &ActiveWeapon,
+            Option<&crate::core::tutorial::WeaponsLocked>,
         ),
         With<Player>,
     >,
@@ -195,7 +196,10 @@ pub fn fire_weapon(
         return;
     }
 
-    for (player_entity, transform, mut cooldown, mut energy, active_weapon) in player_query.iter_mut() {
+    for (player_entity, transform, mut cooldown, mut energy, active_weapon, weapons_locked) in player_query.iter_mut() {
+        if weapons_locked.is_some() {
+            continue;
+        }
         if cooldown.timer > 0.0 {
             continue;
         }

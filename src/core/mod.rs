@@ -3,6 +3,7 @@ pub mod collision;
 pub mod flight;
 pub mod input;
 pub mod spawning;
+pub mod tutorial;
 pub mod weapons;
 
 use bevy::prelude::*;
@@ -19,6 +20,7 @@ use self::spawning::{
     drift_entities, spawn_respawn_timers, tick_respawn_timers,
     SpawningConfig,
 };
+use self::tutorial::{spawn_tutorial_zone, update_weapons_lock, TutorialConfig, TutorialPhase};
 use self::weapons::{
     fire_weapon, move_spread_projectiles, regenerate_energy, switch_weapon, tick_fire_cooldown,
     tick_laser_pulses, tick_spread_projectiles, LaserFired, SpreadFired, WeaponConfig,
@@ -99,6 +101,26 @@ impl Plugin for CorePlugin {
         };
         app.insert_resource(spawning_config);
 
+        // Load TutorialConfig from RON file with graceful fallback to defaults
+        let tutorial_config_path = "assets/config/tutorial.ron";
+        let tutorial_config = match std::fs::read_to_string(tutorial_config_path) {
+            Ok(contents) => match TutorialConfig::from_ron(&contents) {
+                Ok(cfg) => cfg,
+                Err(e) => {
+                    warn!("Failed to parse {tutorial_config_path}: {e}. Using defaults.");
+                    TutorialConfig::default()
+                }
+            },
+            Err(e) => {
+                warn!("Failed to read {tutorial_config_path}: {e}. Using defaults.");
+                TutorialConfig::default()
+            }
+        };
+        app.insert_resource(tutorial_config);
+
+        // Tutorial phase state machine
+        app.init_state::<TutorialPhase>();
+
         // Configure system ordering in FixedUpdate
         app.configure_sets(
             FixedUpdate,
@@ -130,6 +152,9 @@ impl Plugin for CorePlugin {
                 .chain()
                 .in_set(CoreSet::Physics),
         );
+
+        // Tutorial zone spawn
+        app.add_systems(Startup, spawn_tutorial_zone);
 
         // Startup validation: warn if max_speed exceeds chunk generation capacity
         app.add_systems(Startup, validate_speed_cap);
@@ -194,6 +219,9 @@ impl Plugin for CorePlugin {
             )
                 .after(CoreSet::Damage),
         );
+
+        // Tutorial weapon lock system
+        app.add_systems(FixedUpdate, update_weapons_lock.before(CoreSet::Input));
 
         // Camera follow in PostUpdate
         app.add_systems(PostUpdate, camera_follow_player);

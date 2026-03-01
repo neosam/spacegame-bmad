@@ -1,0 +1,11 @@
+(
+    safe_radius: 2000.0,
+    pull_strength: 50.0,
+    station_offset_min: 200.0,
+    station_offset_max: 400.0,
+    generator_offset_min: 1600.0,
+    generator_offset_max: 1900.0,
+    player_offset_min: 50.0,
+    player_offset_max: 150.0,
+    generator_health: 100.0,
+)

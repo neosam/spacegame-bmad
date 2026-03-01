@@ -42,6 +42,8 @@ pub enum GameEventKind {
     WeaponSwitched { from: WeaponKind, to: WeaponKind },
     /// Game was saved to disk.
     GameSaved,
+    /// Tutorial zone was spawned.
+    TutorialZoneSpawned,
 }
 
 /// A game event emitted as a Bevy message by gameplay systems.

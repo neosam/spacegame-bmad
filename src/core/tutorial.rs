@@ -1,0 +1,570 @@
+use bevy::prelude::*;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
+use serde::Deserialize;
+
+// ── Config ──────────────────────────────────────────────────────────────
+
+/// Tutorial zone balance values loaded from `assets/config/tutorial.ron`.
+#[derive(Resource, Deserialize, Clone, Debug)]
+pub struct TutorialConfig {
+    /// Radius of the safe zone where no gravity pull is applied
+    pub safe_radius: f32,
+    /// Strength of the gravity pull outside the safe radius
+    pub pull_strength: f32,
+    /// Minimum distance from zone center for station placement
+    pub station_offset_min: f32,
+    /// Maximum distance from zone center for station placement
+    pub station_offset_max: f32,
+    /// Minimum distance from zone center for generator placement
+    pub generator_offset_min: f32,
+    /// Maximum distance from zone center for generator placement
+    pub generator_offset_max: f32,
+    /// Minimum distance from zone center for player spawn
+    pub player_offset_min: f32,
+    /// Maximum distance from zone center for player spawn
+    pub player_offset_max: f32,
+    /// Health of the gravity well generator
+    pub generator_health: f32,
+}
+
+impl Default for TutorialConfig {
+    fn default() -> Self {
+        Self {
+            safe_radius: 2000.0,
+            pull_strength: 50.0,
+            station_offset_min: 200.0,
+            station_offset_max: 400.0,
+            generator_offset_min: 1600.0,
+            generator_offset_max: 1900.0,
+            player_offset_min: 50.0,
+            player_offset_max: 150.0,
+            generator_health: 100.0,
+        }
+    }
+}
+
+impl TutorialConfig {
+    /// Load config from RON string.
+    pub fn from_ron(ron_str: &str) -> Result<Self, ron::error::SpannedError> {
+        ron::from_str(ron_str)
+    }
+}
+
+// ── Components ──────────────────────────────────────────────────────────
+
+/// Gravity well generator entity that defines the tutorial boundary.
+#[derive(Component, Debug)]
+pub struct GravityWellGenerator {
+    pub safe_radius: f32,
+    pub pull_strength: f32,
+    /// Whether destruction requires projectile (spread) weapon
+    pub requires_projectile: bool,
+}
+
+/// Marker component for the defective tutorial station.
+#[derive(Component, Debug)]
+pub struct TutorialStation {
+    pub defective: bool,
+}
+
+// ── Resources ───────────────────────────────────────────────────────────
+
+/// Tracks the tutorial zone state: center, seed, and layout metadata.
+#[derive(Resource, Debug)]
+pub struct TutorialZone {
+    pub center: Vec2,
+    pub seed: u64,
+    pub layout: TutorialLayout,
+}
+
+// ── State Machine ───────────────────────────────────────────────────────
+
+/// Tutorial phase state machine.
+/// Controls what abilities are available to the player during the tutorial.
+#[derive(States, Default, Clone, Eq, PartialEq, Debug, Hash)]
+pub enum TutorialPhase {
+    /// Only thrust and rotate available
+    #[default]
+    Flying,
+    /// Laser weapon unlocked
+    Shooting,
+    /// Spread weapon unlocked
+    SpreadUnlocked,
+    /// Tutorial complete — all abilities available
+    Complete,
+}
+
+// ── Layout Generation ───────────────────────────────────────────────────
+
+/// Describes the computed positions for all tutorial entities.
+#[derive(Debug, Clone)]
+pub struct TutorialLayout {
+    pub player_spawn: Vec2,
+    pub station_position: Vec2,
+    pub generator_position: Vec2,
+    pub zone_center: Vec2,
+}
+
+const TUTORIAL_SEED_PRIME: u64 = 9_876_543_210_123_456_789;
+
+/// Derives a tutorial-specific seed from the world seed.
+fn tutorial_seed(world_seed: u64) -> u64 {
+    world_seed ^ TUTORIAL_SEED_PRIME
+}
+
+/// Generates a random position at a given distance range from center using an RNG.
+fn random_offset(rng: &mut StdRng, min_dist: f32, max_dist: f32) -> Vec2 {
+    let angle = rng.random_range(0.0..std::f32::consts::TAU);
+    let dist = if min_dist < max_dist {
+        rng.random_range(min_dist..=max_dist)
+    } else {
+        min_dist
+    };
+    Vec2::new(angle.cos() * dist, angle.sin() * dist)
+}
+
+/// Generates a deterministic tutorial zone layout from a seed and config.
+/// Pure function: same seed + config always produces the same layout.
+pub fn generate_tutorial_zone(seed: u64, config: &TutorialConfig) -> TutorialLayout {
+    let tseed = tutorial_seed(seed);
+    let mut rng = StdRng::seed_from_u64(tseed);
+
+    let zone_center = Vec2::ZERO;
+
+    let player_offset = random_offset(&mut rng, config.player_offset_min, config.player_offset_max);
+    let player_spawn = zone_center + player_offset;
+
+    let station_offset =
+        random_offset(&mut rng, config.station_offset_min, config.station_offset_max);
+    let station_position = zone_center + station_offset;
+
+    let generator_offset = random_offset(
+        &mut rng,
+        config.generator_offset_min,
+        config.generator_offset_max,
+    );
+    let generator_position = zone_center + generator_offset;
+
+    TutorialLayout {
+        player_spawn,
+        station_position,
+        generator_position,
+        zone_center,
+    }
+}
+
+// ── Constraint Validation ───────────────────────────────────────────────
+
+/// Describes a constraint violation in the tutorial layout.
+#[derive(Debug, Clone)]
+pub struct ConstraintViolation {
+    pub description: String,
+}
+
+/// Validates a tutorial layout against the config constraints.
+pub fn validate_tutorial_layout(
+    layout: &TutorialLayout,
+    config: &TutorialConfig,
+) -> Result<(), Vec<ConstraintViolation>> {
+    let mut violations = Vec::new();
+
+    // All entities must be within safe_radius of zone center
+    let station_dist = (layout.station_position - layout.zone_center).length();
+    if station_dist > config.safe_radius {
+        violations.push(ConstraintViolation {
+            description: format!(
+                "Station at distance {station_dist:.1} exceeds safe_radius {}",
+                config.safe_radius
+            ),
+        });
+    }
+
+    let generator_dist = (layout.generator_position - layout.zone_center).length();
+    if generator_dist > config.safe_radius {
+        violations.push(ConstraintViolation {
+            description: format!(
+                "Generator at distance {generator_dist:.1} exceeds safe_radius {}",
+                config.safe_radius
+            ),
+        });
+    }
+
+    let player_dist = (layout.player_spawn - layout.zone_center).length();
+    if player_dist > config.safe_radius {
+        violations.push(ConstraintViolation {
+            description: format!(
+                "Player spawn at distance {player_dist:.1} exceeds safe_radius {}",
+                config.safe_radius
+            ),
+        });
+    }
+
+    // Station must be reachable from player spawn (within safe_radius distance)
+    let player_to_station = (layout.station_position - layout.player_spawn).length();
+    if player_to_station > config.safe_radius {
+        violations.push(ConstraintViolation {
+            description: format!(
+                "Station unreachable from player spawn: distance {player_to_station:.1} exceeds safe_radius {}",
+                config.safe_radius
+            ),
+        });
+    }
+
+    if violations.is_empty() {
+        Ok(())
+    } else {
+        Err(violations)
+    }
+}
+
+/// Validates a single seed produces a valid tutorial layout.
+pub fn validate_tutorial_seed(
+    seed: u64,
+    config: &TutorialConfig,
+) -> Result<(), Vec<ConstraintViolation>> {
+    let layout = generate_tutorial_zone(seed, config);
+    validate_tutorial_layout(&layout, config)
+}
+
+// ── Spawn System ────────────────────────────────────────────────────────
+
+/// Startup system: generates and spawns the tutorial zone entities.
+pub fn spawn_tutorial_zone(
+    mut commands: Commands,
+    config: Res<TutorialConfig>,
+    world_config: Res<crate::world::WorldConfig>,
+    mut active_chunks: ResMut<crate::world::ActiveChunks>,
+    mut game_events: bevy::ecs::message::MessageWriter<crate::shared::events::GameEvent>,
+    time: Res<Time>,
+    severity_config: Res<crate::infrastructure::events::EventSeverityConfig>,
+) {
+    let seed = world_config.seed;
+    let layout = generate_tutorial_zone(seed, &config);
+
+    // Spawn player at tutorial position
+    commands.spawn((
+        crate::core::flight::Player,
+        crate::shared::components::Velocity::default(),
+        crate::core::collision::Health {
+            current: 100.0,
+            max: 100.0,
+        },
+        crate::core::collision::Collider { radius: 12.0 },
+        crate::core::weapons::FireCooldown::default(),
+        crate::core::weapons::Energy::default(),
+        crate::core::weapons::ActiveWeapon::default(),
+        Transform::from_translation(layout.player_spawn.extend(0.0)),
+    ));
+
+    // Spawn tutorial station
+    commands.spawn((
+        TutorialStation { defective: true },
+        Transform::from_translation(layout.station_position.extend(0.0)),
+    ));
+
+    // Spawn gravity well generator
+    commands.spawn((
+        GravityWellGenerator {
+            safe_radius: config.safe_radius,
+            pull_strength: config.pull_strength,
+            requires_projectile: true,
+        },
+        crate::core::collision::Health {
+            current: config.generator_health,
+            max: config.generator_health,
+        },
+        Transform::from_translation(layout.generator_position.extend(0.0)),
+    ));
+
+    // Mark tutorial area chunks as occupied so chunk generation skips them
+    let chunk_size = world_config.chunk_size;
+    let radius_in_chunks = (config.safe_radius / chunk_size).ceil() as i32;
+    for cx in -radius_in_chunks..=radius_in_chunks {
+        for cy in -radius_in_chunks..=radius_in_chunks {
+            let coord = crate::world::ChunkCoord { x: cx, y: cy };
+            let chunk_center = Vec2::new(
+                cx as f32 * chunk_size + chunk_size / 2.0,
+                cy as f32 * chunk_size + chunk_size / 2.0,
+            );
+            if chunk_center.length() <= config.safe_radius + chunk_size {
+                active_chunks
+                    .chunks
+                    .insert(coord, crate::world::BiomeType::DeepSpace);
+            }
+        }
+    }
+
+    // Emit tutorial zone spawned event
+    let kind = crate::shared::events::GameEventKind::TutorialZoneSpawned;
+    game_events.write(crate::shared::events::GameEvent {
+        severity: severity_config.severity_for(&kind),
+        kind,
+        position: layout.zone_center,
+        game_time: time.elapsed_secs_f64(),
+    });
+
+    // Insert TutorialZone resource
+    commands.insert_resource(TutorialZone {
+        center: layout.zone_center,
+        seed,
+        layout,
+    });
+}
+
+// ── Weapon Gating ───────────────────────────────────────────────────────
+
+/// Marker component added to the player when weapons are locked by the tutorial phase.
+#[derive(Component, Debug)]
+pub struct WeaponsLocked;
+
+/// System that adds/removes WeaponsLocked based on TutorialPhase.
+pub fn update_weapons_lock(
+    mut commands: Commands,
+    phase: Res<State<TutorialPhase>>,
+    player_query: Query<(Entity, Option<&WeaponsLocked>), With<crate::core::flight::Player>>,
+) {
+    let should_lock = matches!(phase.get(), TutorialPhase::Flying);
+
+    for (entity, has_lock) in player_query.iter() {
+        if should_lock && has_lock.is_none() {
+            commands.entity(entity).insert(WeaponsLocked);
+        } else if !should_lock && has_lock.is_some() {
+            commands.entity(entity).remove::<WeaponsLocked>();
+        }
+    }
+}
+
+// ── Unit Tests ──────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tutorial_config_default_has_valid_values() {
+        let config = TutorialConfig::default();
+        assert!(config.safe_radius > 0.0);
+        assert!(config.pull_strength > 0.0);
+        assert!(config.station_offset_min > 0.0);
+        assert!(config.station_offset_max >= config.station_offset_min);
+        assert!(config.generator_offset_min > 0.0);
+        assert!(config.generator_offset_max >= config.generator_offset_min);
+        assert!(config.player_offset_min > 0.0);
+        assert!(config.player_offset_max >= config.player_offset_min);
+        assert!(config.generator_health > 0.0);
+    }
+
+    #[test]
+    fn tutorial_config_from_ron() {
+        let ron_str = r#"(
+            safe_radius: 1500.0,
+            pull_strength: 40.0,
+            station_offset_min: 150.0,
+            station_offset_max: 350.0,
+            generator_offset_min: 1200.0,
+            generator_offset_max: 1400.0,
+            player_offset_min: 30.0,
+            player_offset_max: 100.0,
+            generator_health: 80.0,
+        )"#;
+        let config = TutorialConfig::from_ron(ron_str).expect("Should parse RON");
+        assert!((config.safe_radius - 1500.0).abs() < f32::EPSILON);
+        assert!((config.pull_strength - 40.0).abs() < f32::EPSILON);
+        assert!((config.generator_health - 80.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn tutorial_config_from_ron_invalid() {
+        let result = TutorialConfig::from_ron("not valid ron");
+        assert!(result.is_err(), "Invalid RON should return error");
+    }
+
+    #[test]
+    fn generate_tutorial_zone_is_deterministic() {
+        let config = TutorialConfig::default();
+        let layout1 = generate_tutorial_zone(42, &config);
+        let layout2 = generate_tutorial_zone(42, &config);
+
+        assert!(
+            (layout1.player_spawn.x - layout2.player_spawn.x).abs() < f32::EPSILON,
+            "Player spawn X should be deterministic"
+        );
+        assert!(
+            (layout1.player_spawn.y - layout2.player_spawn.y).abs() < f32::EPSILON,
+            "Player spawn Y should be deterministic"
+        );
+        assert!(
+            (layout1.station_position.x - layout2.station_position.x).abs() < f32::EPSILON,
+            "Station position should be deterministic"
+        );
+        assert!(
+            (layout1.generator_position.x - layout2.generator_position.x).abs() < f32::EPSILON,
+            "Generator position should be deterministic"
+        );
+    }
+
+    #[test]
+    fn different_seeds_produce_different_layouts() {
+        let config = TutorialConfig::default();
+        let layout1 = generate_tutorial_zone(42, &config);
+        let layout2 = generate_tutorial_zone(99, &config);
+
+        let same_player = (layout1.player_spawn - layout2.player_spawn).length() < 0.01;
+        let same_station = (layout1.station_position - layout2.station_position).length() < 0.01;
+        assert!(
+            !same_player || !same_station,
+            "Different seeds should produce different layouts"
+        );
+    }
+
+    #[test]
+    fn generated_entities_within_safe_radius() {
+        let config = TutorialConfig::default();
+        for seed in 0..100 {
+            let layout = generate_tutorial_zone(seed, &config);
+            let player_dist = (layout.player_spawn - layout.zone_center).length();
+            let station_dist = (layout.station_position - layout.zone_center).length();
+            let generator_dist = (layout.generator_position - layout.zone_center).length();
+
+            assert!(
+                player_dist <= config.safe_radius,
+                "Seed {seed}: player at distance {player_dist:.1} exceeds safe_radius {}",
+                config.safe_radius
+            );
+            assert!(
+                station_dist <= config.safe_radius,
+                "Seed {seed}: station at distance {station_dist:.1} exceeds safe_radius {}",
+                config.safe_radius
+            );
+            assert!(
+                generator_dist <= config.safe_radius,
+                "Seed {seed}: generator at distance {generator_dist:.1} exceeds safe_radius {}",
+                config.safe_radius
+            );
+        }
+    }
+
+    #[test]
+    fn station_reachable_from_player_spawn() {
+        let config = TutorialConfig::default();
+        for seed in 0..100 {
+            let layout = generate_tutorial_zone(seed, &config);
+            let distance = (layout.station_position - layout.player_spawn).length();
+            assert!(
+                distance <= config.safe_radius,
+                "Seed {seed}: station unreachable, distance {distance:.1} > safe_radius {}",
+                config.safe_radius
+            );
+        }
+    }
+
+    #[test]
+    fn validate_tutorial_layout_passes_valid_layout() {
+        let config = TutorialConfig::default();
+        let layout = generate_tutorial_zone(42, &config);
+        assert!(
+            validate_tutorial_layout(&layout, &config).is_ok(),
+            "Default layout should pass validation"
+        );
+    }
+
+    #[test]
+    fn validate_tutorial_layout_catches_out_of_bounds() {
+        let config = TutorialConfig::default();
+        let layout = TutorialLayout {
+            player_spawn: Vec2::ZERO,
+            station_position: Vec2::new(config.safe_radius + 100.0, 0.0),
+            generator_position: Vec2::ZERO,
+            zone_center: Vec2::ZERO,
+        };
+        let result = validate_tutorial_layout(&layout, &config);
+        assert!(result.is_err(), "Out-of-bounds station should fail validation");
+        let violations = result.expect_err("Should have violations");
+        assert!(
+            violations.iter().any(|v| v.description.contains("Station")),
+            "Should mention station in violation"
+        );
+    }
+
+    #[test]
+    fn validate_tutorial_seed_passes_default_config() {
+        let config = TutorialConfig::default();
+        for seed in 0..100 {
+            assert!(
+                validate_tutorial_seed(seed, &config).is_ok(),
+                "Seed {seed} should pass validation with default config"
+            );
+        }
+    }
+
+    #[test]
+    fn tutorial_phase_default_is_flying() {
+        let phase = TutorialPhase::default();
+        assert_eq!(phase, TutorialPhase::Flying);
+    }
+
+    #[test]
+    fn gravity_well_generator_component() {
+        let generator = GravityWellGenerator {
+            safe_radius: 2000.0,
+            pull_strength: 50.0,
+            requires_projectile: true,
+        };
+        assert!((generator.safe_radius - 2000.0).abs() < f32::EPSILON);
+        assert!((generator.pull_strength - 50.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn tutorial_station_component() {
+        let station = TutorialStation { defective: true };
+        assert!(station.defective);
+    }
+
+    #[test]
+    fn player_spawn_offset_within_config_range() {
+        let config = TutorialConfig::default();
+        for seed in 0..50 {
+            let layout = generate_tutorial_zone(seed, &config);
+            let dist = (layout.player_spawn - layout.zone_center).length();
+            assert!(
+                dist >= config.player_offset_min - 0.01 && dist <= config.player_offset_max + 0.01,
+                "Seed {seed}: player offset {dist:.1} not in [{}, {}]",
+                config.player_offset_min,
+                config.player_offset_max
+            );
+        }
+    }
+
+    #[test]
+    fn station_offset_within_config_range() {
+        let config = TutorialConfig::default();
+        for seed in 0..50 {
+            let layout = generate_tutorial_zone(seed, &config);
+            let dist = (layout.station_position - layout.zone_center).length();
+            assert!(
+                dist >= config.station_offset_min - 0.01
+                    && dist <= config.station_offset_max + 0.01,
+                "Seed {seed}: station offset {dist:.1} not in [{}, {}]",
+                config.station_offset_min,
+                config.station_offset_max
+            );
+        }
+    }
+
+    #[test]
+    fn generator_offset_within_config_range() {
+        let config = TutorialConfig::default();
+        for seed in 0..50 {
+            let layout = generate_tutorial_zone(seed, &config);
+            let dist = (layout.generator_position - layout.zone_center).length();
+            assert!(
+                dist >= config.generator_offset_min - 0.01
+                    && dist <= config.generator_offset_max + 0.01,
+                "Seed {seed}: generator offset {dist:.1} not in [{}, {}]",
+                config.generator_offset_min,
+                config.generator_offset_max
+            );
+        }
+    }
+}

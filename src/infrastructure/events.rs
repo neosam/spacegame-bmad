@@ -25,6 +25,7 @@ impl Default for EventSeverityConfig {
         mappings.insert("WeaponFired".to_string(), EventSeverity::Tier3);
         mappings.insert("WeaponSwitched".to_string(), EventSeverity::Tier3);
         mappings.insert("GameSaved".to_string(), EventSeverity::Tier2);
+        mappings.insert("TutorialZoneSpawned".to_string(), EventSeverity::Tier2);
         Self { mappings }
     }
 }
@@ -46,6 +47,7 @@ impl EventSeverityConfig {
             "WeaponFired",
             "WeaponSwitched",
             "GameSaved",
+            "TutorialZoneSpawned",
         ];
 
         for key in self.mappings.keys() {
@@ -79,6 +81,7 @@ impl EventSeverityConfig {
             GameEventKind::WeaponFired { .. } => "WeaponFired",
             GameEventKind::WeaponSwitched { .. } => "WeaponSwitched",
             GameEventKind::GameSaved => "GameSaved",
+            GameEventKind::TutorialZoneSpawned => "TutorialZoneSpawned",
         };
         self.mappings
             .get(key)
@@ -147,7 +150,7 @@ mod tests {
     #[test]
     fn severity_config_default_has_all_mappings() {
         let config = EventSeverityConfig::default();
-        assert_eq!(config.mappings.len(), 8, "Should have 8 default mappings");
+        assert_eq!(config.mappings.len(), 9, "Should have 8 default mappings");
         assert_eq!(
             config.severity_for(&GameEventKind::PlayerRespawned),
             EventSeverity::Tier2
@@ -200,7 +203,7 @@ mod tests {
         // Default config should have all known keys — validate should not panic
         let config = EventSeverityConfig::default();
         config.validate(); // should produce no warnings
-        assert_eq!(config.mappings.len(), 8);
+        assert_eq!(config.mappings.len(), 9);
     }
 
     #[test]
