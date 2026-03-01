@@ -79,9 +79,9 @@ development_status:
   2-8-constraint-validation: done
   epic-2-retrospective: done
   # ── Epic 2 Mini-Sprint: Completion Fixes (Playtest gaps) ──
-  2-9-tutorial-entity-rendering: ready-for-dev
-  2-10-flying-to-shooting-trigger: ready-for-dev
-  2-11-gravity-well-visual: ready-for-dev
+  2-9-tutorial-entity-rendering: done
+  2-10-flying-to-shooting-trigger: done
+  2-11-gravity-well-visual: done
 
   # ── Epic 3: Stations & Economy (Must | Dependencies: Epic 1) ──
   epic-3: backlog
