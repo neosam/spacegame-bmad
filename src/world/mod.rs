@@ -21,7 +21,10 @@ use crate::infrastructure::save::delta::{SeedIndex, WorldDeltas};
 use crate::shared::components::Velocity;
 use crate::shared::events::{GameEvent, GameEventKind};
 use crate::social::enemy_ai::{AiState, ErraticOffset, EnemyFireCooldown};
-use crate::social::faction::{faction_at_position, FactionId, AggroRange, AttackRange, FleeThreshold, PatrolRadius};
+use crate::social::faction::{
+    faction_at_position, AggroRange, AttackRange, FacingDirection, FactionId, FleeThreshold,
+    PatrolRadius, TurnRate,
+};
 
 // ── World Config ─────────────────────────────────────────────────────────
 
@@ -389,6 +392,9 @@ pub fn update_chunks(
                         PatrolRadius(150.0),
                         ErraticOffset::default(),
                         EnemyFireCooldown::default(),
+                        // Story 4-8: Attack Telegraphing
+                        FacingDirection::default(),
+                        TurnRate(3.0),
                     ))
                     .id(),
                 generation::BlueprintType::Station => {

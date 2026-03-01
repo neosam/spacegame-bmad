@@ -30,6 +30,21 @@ pub struct FleeThreshold(pub f32);
 #[derive(Component, Debug, Clone)]
 pub struct AttackRange(pub f32);
 
+/// Current facing direction of an enemy entity.
+/// Updated each frame by `update_enemy_facing`.
+#[derive(Component, Debug, Clone)]
+pub struct FacingDirection(pub Vec2);
+
+impl Default for FacingDirection {
+    fn default() -> Self {
+        Self(Vec2::Y) // Default facing up
+    }
+}
+
+/// Turn rate in radians per second for enemy facing updates.
+#[derive(Component, Debug, Clone)]
+pub struct TurnRate(pub f32);
+
 // ── Faction Behavior Profiles (Story 4-6) ────────────────────────────────
 
 /// How a faction prefers to engage in combat.

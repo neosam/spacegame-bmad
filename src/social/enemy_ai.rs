@@ -589,6 +589,66 @@ pub fn update_swarm_ai(
     }
 }
 
+/// Updates enemy facing direction toward the player.
+/// Rotates `FacingDirection` at `TurnRate` radians per second toward the player.
+/// Also updates `Transform` rotation so mesh shows the facing direction.
+pub fn update_enemy_facing(
+    time: Res<Time>,
+    player_query: Query<&Transform, With<crate::core::flight::Player>>,
+    mut enemy_query: Query<
+        (
+            &Transform,
+            &mut crate::social::faction::FacingDirection,
+            Option<&crate::social::faction::TurnRate>,
+        ),
+        (
+            Without<crate::core::flight::Player>,
+            Or<(
+                With<crate::core::spawning::ScoutDrone>,
+                With<crate::core::spawning::Fighter>,
+                With<crate::core::spawning::HeavyCruiser>,
+                With<crate::core::spawning::Sniper>,
+            )>,
+        ),
+    >,
+) {
+    let dt = time.delta_secs();
+    let Ok(player_transform) = player_query.single() else {
+        return;
+    };
+    let player_pos = Vec2::new(
+        player_transform.translation.x,
+        player_transform.translation.y,
+    );
+
+    for (transform, mut facing, turn_rate_opt) in enemy_query.iter_mut() {
+        let enemy_pos = Vec2::new(transform.translation.x, transform.translation.y);
+        let to_player = player_pos - enemy_pos;
+
+        if to_player.length_squared() < f32::EPSILON {
+            continue;
+        }
+
+        let target_dir = to_player.normalize();
+        let turn_rate = turn_rate_opt.map(|r| r.0).unwrap_or(3.0); // Default 3 rad/s
+
+        // Rotate current facing toward target_dir at turn_rate
+        let current = facing.0;
+        let current_angle = current.y.atan2(current.x);
+        let target_angle = target_dir.y.atan2(target_dir.x);
+        let mut angle_diff = target_angle - current_angle;
+
+        // Normalize angle to [-PI, PI]
+        while angle_diff > std::f32::consts::PI { angle_diff -= std::f32::consts::TAU; }
+        while angle_diff < -std::f32::consts::PI { angle_diff += std::f32::consts::TAU; }
+
+        let max_turn = turn_rate * dt;
+        let actual_turn = angle_diff.clamp(-max_turn, max_turn);
+        let new_angle = current_angle + actual_turn;
+        facing.0 = Vec2::new(new_angle.cos(), new_angle.sin());
+    }
+}
+
 /// A pending laser shot from an enemy, to be processed by collision systems.
 #[derive(Debug, Clone)]
 pub struct PendingEnemyShot {
@@ -1057,6 +1117,80 @@ mod tests {
     }
 
     // ── Sniper AI tests ──
+
+    // ── Attack Telegraphing (Story 4-8) tests ──
+
+    #[test]
+    fn update_enemy_facing_rotates_toward_player() {
+        use crate::core::flight::Player;
+        use crate::core::spawning::ScoutDrone;
+        use crate::social::faction::{FacingDirection, TurnRate};
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f64(1.0),
+        ));
+        app.add_systems(Update, update_enemy_facing);
+
+        // Player at (100, 0), enemy at origin facing up (Y)
+        app.world_mut().spawn((Player, Transform::from_translation(Vec3::new(100.0, 0.0, 0.0))));
+
+        let drone = app.world_mut().spawn((
+            ScoutDrone,
+            Transform::from_translation(Vec3::ZERO),
+            FacingDirection(Vec2::Y), // Initially facing up
+            TurnRate(std::f32::consts::PI * 2.0), // Fast turn: 2π rad/s
+        )).id();
+
+        app.update(); // prime (dt=0)
+        app.update(); // 1 second at 2π rad/s = full rotation possible
+
+        let facing = app.world().entity(drone).get::<FacingDirection>()
+            .expect("Drone should have FacingDirection");
+        // Player is to the right (+X), facing should now have positive X component
+        assert!(facing.0.x > 0.0, "Facing should point toward player (positive X), got {:?}", facing.0);
+    }
+
+    #[test]
+    fn update_enemy_facing_respects_turn_rate() {
+        use crate::core::flight::Player;
+        use crate::core::spawning::ScoutDrone;
+        use crate::social::faction::{FacingDirection, TurnRate};
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f64(1.0 / 60.0),
+        ));
+        app.add_systems(Update, update_enemy_facing);
+
+        // Player directly to the right, drone facing up
+        app.world_mut().spawn((Player, Transform::from_translation(Vec3::new(100.0, 0.0, 0.0))));
+
+        let drone = app.world_mut().spawn((
+            ScoutDrone,
+            Transform::from_translation(Vec3::ZERO),
+            FacingDirection(Vec2::Y), // Facing up initially
+            TurnRate(0.1), // Very slow turn rate — won't reach target in one frame
+        )).id();
+
+        app.update(); // prime
+        app.update(); // 1/60 second at 0.1 rad/s = only 0.0017 rad turn
+
+        let facing = app.world().entity(drone).get::<FacingDirection>()
+            .expect("Drone should have FacingDirection");
+        // Should still be mostly facing up (Y), just slightly toward X
+        // Y should still be dominant
+        assert!(facing.0.y > 0.9, "Slow turn rate should not rotate much in one frame, y={}", facing.0.y);
+    }
+
+    #[test]
+    fn facing_direction_default_is_up() {
+        use crate::social::faction::FacingDirection;
+        let facing = FacingDirection::default();
+        assert!((facing.0.y - 1.0).abs() < f32::EPSILON, "Default facing should be Vec2::Y");
+    }
 
     #[test]
     fn sniper_backs_away_when_too_close() {

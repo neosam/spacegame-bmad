@@ -6,8 +6,8 @@ pub mod faction;
 use bevy::prelude::*;
 
 use self::enemy_ai::{
-    update_fighter_ai, update_heavy_cruiser_ai, update_scout_drone_ai, update_sniper_ai,
-    update_swarm_ai, PendingEnemyShotQueue,
+    update_enemy_facing, update_fighter_ai, update_heavy_cruiser_ai, update_scout_drone_ai,
+    update_sniper_ai, update_swarm_ai, PendingEnemyShotQueue,
 };
 use self::faction::FactionBehaviorProfiles;
 
@@ -28,5 +28,7 @@ impl Plugin for SocialPlugin {
         app.add_systems(Update, update_swarm_ai);
         // Story 4-6: Faction Behavior Profiles
         app.init_resource::<FactionBehaviorProfiles>();
+        // Story 4-8: Attack Telegraphing
+        app.add_systems(Update, update_enemy_facing);
     }
 }
