@@ -5,7 +5,7 @@ use crate::infrastructure::events::EventSeverityConfig;
 use crate::shared::components::{ContactDamageCooldown, Invincible, JustDamaged, Velocity};
 use crate::shared::events::{GameEvent, GameEventKind};
 use super::flight::Player;
-use super::spawning::{Asteroid, ScoutDrone};
+use super::spawning::{Asteroid, Fighter, HeavyCruiser, ScoutDrone, Sniper};
 use super::weapons::{LaserFired, SpreadProjectile, WeaponConfig};
 use crate::core::tutorial::GravityWellGenerator;
 
@@ -351,7 +351,16 @@ pub fn tick_invincibility(
 pub fn despawn_destroyed(
     mut commands: Commands,
     query: Query<
-        (Entity, &Health, &Transform, Option<&Asteroid>, Option<&ScoutDrone>),
+        (
+            Entity,
+            &Health,
+            &Transform,
+            Option<&Asteroid>,
+            Option<&ScoutDrone>,
+            Option<&Fighter>,
+            Option<&HeavyCruiser>,
+            Option<&Sniper>,
+        ),
         Without<Player>,
     >,
     mut destroyed_positions: ResMut<DestroyedPositions>,
@@ -359,7 +368,7 @@ pub fn despawn_destroyed(
     time: Res<Time>,
     severity_config: Res<EventSeverityConfig>,
 ) {
-    for (entity, health, transform, asteroid, drone) in query.iter() {
+    for (entity, health, transform, asteroid, drone, fighter, heavy, sniper) in query.iter() {
         if health.current <= 0.0 {
             let position = Vec2::new(transform.translation.x, transform.translation.y);
             destroyed_positions.positions.push(position);
@@ -369,6 +378,12 @@ pub fn despawn_destroyed(
                 "asteroid"
             } else if drone.is_some() {
                 "drone"
+            } else if fighter.is_some() {
+                "fighter"
+            } else if heavy.is_some() {
+                "heavy_cruiser"
+            } else if sniper.is_some() {
+                "sniper"
             } else {
                 "unknown"
             };

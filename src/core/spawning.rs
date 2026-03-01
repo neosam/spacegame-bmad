@@ -15,6 +15,26 @@ pub struct Asteroid;
 #[derive(Component)]
 pub struct ScoutDrone;
 
+/// Marker component for Fighter enemy entities (Story 4-2).
+#[derive(Component)]
+pub struct Fighter;
+
+/// Marker component for Heavy Cruiser enemy entities (Story 4-3).
+#[derive(Component)]
+pub struct HeavyCruiser;
+
+/// Marker component for Sniper enemy entities (Story 4-4).
+#[derive(Component)]
+pub struct Sniper;
+
+/// Preferred engagement range for Sniper enemies (Story 4-4).
+/// Sniper will move away if closer than `min`, approach if farther than `max`.
+#[derive(Component, Debug, Clone)]
+pub struct PreferredRange {
+    pub min: f32,
+    pub max: f32,
+}
+
 /// Marker for asteroid entities that need their visual mesh attached by RenderingPlugin.
 #[derive(Component)]
 pub struct NeedsAsteroidVisual;
@@ -23,6 +43,18 @@ pub struct NeedsAsteroidVisual;
 #[derive(Component)]
 pub struct NeedsDroneVisual;
 
+/// Marker for fighter entities that need their visual mesh attached by RenderingPlugin.
+#[derive(Component)]
+pub struct NeedsFighterVisual;
+
+/// Marker for heavy cruiser entities that need their visual mesh attached by RenderingPlugin.
+#[derive(Component)]
+pub struct NeedsHeavyCruiserVisual;
+
+/// Marker for sniper entities that need their visual mesh attached by RenderingPlugin.
+#[derive(Component)]
+pub struct NeedsSniperVisual;
+
 // ── Respawn ─────────────────────────────────────────────────────────────
 
 /// Which type of entity to respawn.
@@ -30,6 +62,9 @@ pub struct NeedsDroneVisual;
 pub enum SpawnType {
     Asteroid,
     ScoutDrone,
+    Fighter,
+    HeavyCruiser,
+    Sniper,
 }
 
 /// Timer entity that counts down and then spawns a replacement entity.
@@ -63,7 +98,44 @@ pub struct SpawningConfig {
     pub asteroid_velocity_max: f32,
     pub drone_velocity_min: f32,
     pub drone_velocity_max: f32,
+    // Story 4-2: Fighter config
+    #[serde(default)]
+    pub fighter_positions: Vec<SpawnPoint>,
+    #[serde(default = "default_fighter_health")]
+    pub fighter_health: f32,
+    #[serde(default = "default_fighter_radius")]
+    pub fighter_radius: f32,
+    #[serde(default = "default_fighter_respawn_delay")]
+    pub fighter_respawn_delay: f32,
+    // Story 4-3: Heavy Cruiser config
+    #[serde(default)]
+    pub heavy_cruiser_positions: Vec<SpawnPoint>,
+    #[serde(default = "default_heavy_health")]
+    pub heavy_cruiser_health: f32,
+    #[serde(default = "default_heavy_radius")]
+    pub heavy_cruiser_radius: f32,
+    #[serde(default = "default_heavy_respawn_delay")]
+    pub heavy_cruiser_respawn_delay: f32,
+    // Story 4-4: Sniper config
+    #[serde(default)]
+    pub sniper_positions: Vec<SpawnPoint>,
+    #[serde(default = "default_sniper_health")]
+    pub sniper_health: f32,
+    #[serde(default = "default_sniper_radius")]
+    pub sniper_radius: f32,
+    #[serde(default = "default_sniper_respawn_delay")]
+    pub sniper_respawn_delay: f32,
 }
+
+fn default_fighter_health() -> f32 { 50.0 }
+fn default_fighter_radius() -> f32 { 12.0 }
+fn default_fighter_respawn_delay() -> f32 { 8.0 }
+fn default_heavy_health() -> f32 { 200.0 }
+fn default_heavy_radius() -> f32 { 25.0 }
+fn default_heavy_respawn_delay() -> f32 { 15.0 }
+fn default_sniper_health() -> f32 { 40.0 }
+fn default_sniper_radius() -> f32 { 10.0 }
+fn default_sniper_respawn_delay() -> f32 { 10.0 }
 
 impl Default for SpawningConfig {
     fn default() -> Self {
@@ -87,6 +159,18 @@ impl Default for SpawningConfig {
             asteroid_velocity_max: 15.0,
             drone_velocity_min: 10.0,
             drone_velocity_max: 25.0,
+            fighter_positions: vec![],
+            fighter_health: default_fighter_health(),
+            fighter_radius: default_fighter_radius(),
+            fighter_respawn_delay: default_fighter_respawn_delay(),
+            heavy_cruiser_positions: vec![],
+            heavy_cruiser_health: default_heavy_health(),
+            heavy_cruiser_radius: default_heavy_radius(),
+            heavy_cruiser_respawn_delay: default_heavy_respawn_delay(),
+            sniper_positions: vec![],
+            sniper_health: default_sniper_health(),
+            sniper_radius: default_sniper_radius(),
+            sniper_respawn_delay: default_sniper_respawn_delay(),
         }
     }
 }
@@ -146,7 +230,7 @@ pub fn spawn_initial_entities(mut commands: Commands, config: Res<SpawningConfig
     }
 }
 
-/// Watches for destroyed Asteroid/ScoutDrone entities and spawns RespawnTimer entities.
+/// Watches for destroyed enemy entities and spawns RespawnTimer entities.
 /// Runs BEFORE despawn_destroyed in the Damage chain so we can detect entities with
 /// health <= 0 and record their position and spawn type before they are removed.
 /// TutorialEnemy entities are excluded — they must NOT respawn when destroyed.
@@ -155,27 +239,47 @@ pub fn spawn_respawn_timers(
     mut commands: Commands,
     config: Res<SpawningConfig>,
     query: Query<
-        (&Health, &Transform, Option<&Asteroid>, Option<&ScoutDrone>),
+        (
+            &Health,
+            &Transform,
+            Option<&Asteroid>,
+            Option<&ScoutDrone>,
+            Option<&Fighter>,
+            Option<&HeavyCruiser>,
+            Option<&Sniper>,
+        ),
         (
             Without<Player>,
             Without<crate::core::tutorial::TutorialEnemy>,
-            Or<(With<Asteroid>, With<ScoutDrone>)>,
+            Or<(
+                With<Asteroid>,
+                With<ScoutDrone>,
+                With<Fighter>,
+                With<HeavyCruiser>,
+                With<Sniper>,
+            )>,
         ),
     >,
 ) {
-    for (health, transform, asteroid, drone) in query.iter() {
+    for (health, transform, asteroid, drone, fighter, heavy, sniper) in query.iter() {
         if health.current <= 0.0 {
             let position = Vec2::new(transform.translation.x, transform.translation.y);
-            let spawn_type = if asteroid.is_some() {
-                SpawnType::Asteroid
+            let (spawn_type, delay) = if asteroid.is_some() {
+                (SpawnType::Asteroid, config.respawn_delay)
             } else if drone.is_some() {
-                SpawnType::ScoutDrone
+                (SpawnType::ScoutDrone, config.respawn_delay)
+            } else if fighter.is_some() {
+                (SpawnType::Fighter, config.fighter_respawn_delay)
+            } else if heavy.is_some() {
+                (SpawnType::HeavyCruiser, config.heavy_cruiser_respawn_delay)
+            } else if sniper.is_some() {
+                (SpawnType::Sniper, config.sniper_respawn_delay)
             } else {
                 continue;
             };
 
             commands.spawn(RespawnTimer {
-                timer: config.respawn_delay,
+                timer: delay,
                 spawn_type,
                 position,
             });
@@ -231,18 +335,60 @@ pub fn tick_respawn_timers(
                         Transform::from_translation(timer.position.extend(0.0)),
                     ));
                 }
+                SpawnType::Fighter => {
+                    commands.spawn((
+                        Fighter,
+                        NeedsFighterVisual,
+                        Collider { radius: config.fighter_radius },
+                        Health {
+                            current: config.fighter_health,
+                            max: config.fighter_health,
+                        },
+                        Velocity(Vec2::ZERO),
+                        Transform::from_translation(timer.position.extend(0.0)),
+                    ));
+                }
+                SpawnType::HeavyCruiser => {
+                    commands.spawn((
+                        HeavyCruiser,
+                        NeedsHeavyCruiserVisual,
+                        Collider { radius: config.heavy_cruiser_radius },
+                        Health {
+                            current: config.heavy_cruiser_health,
+                            max: config.heavy_cruiser_health,
+                        },
+                        Velocity(Vec2::ZERO),
+                        Transform::from_translation(timer.position.extend(0.0)),
+                    ));
+                }
+                SpawnType::Sniper => {
+                    commands.spawn((
+                        Sniper,
+                        NeedsSniperVisual,
+                        Collider { radius: config.sniper_radius },
+                        Health {
+                            current: config.sniper_health,
+                            max: config.sniper_health,
+                        },
+                        Velocity(Vec2::ZERO),
+                        Transform::from_translation(timer.position.extend(0.0)),
+                    ));
+                }
             }
             commands.entity(entity).despawn();
         }
     }
 }
 
-/// Applies velocity to all drifting entities (Asteroid and ScoutDrone).
+/// Applies velocity to all drifting entities (Asteroid, ScoutDrone, and new enemy types).
 /// Separate from Player's apply_velocity which includes drag/thrust.
 #[allow(clippy::type_complexity)]
 pub fn drift_entities(
     time: Res<Time>,
-    mut query: Query<(&Velocity, &mut Transform), Or<(With<Asteroid>, With<ScoutDrone>)>>,
+    mut query: Query<
+        (&Velocity, &mut Transform),
+        Or<(With<Asteroid>, With<ScoutDrone>, With<Fighter>, With<HeavyCruiser>, With<Sniper>)>,
+    >,
 ) {
     let dt = time.delta_secs();
     for (velocity, mut transform) in query.iter_mut() {
@@ -633,5 +779,126 @@ mod tests {
         assert_eq!(timer.spawn_type, SpawnType::ScoutDrone);
         assert!((timer.position.x - 50.0).abs() < f32::EPSILON);
         assert!((timer.position.y - 60.0).abs() < f32::EPSILON);
+    }
+
+    // ── Story 4-2: Fighter tests ──
+
+    #[test]
+    fn spawning_config_default_has_fighter_stats() {
+        let config = SpawningConfig::default();
+        assert!(config.fighter_health > 0.0, "Fighter health should be positive");
+        assert!(config.fighter_radius > 0.0, "Fighter radius should be positive");
+        assert!(config.fighter_respawn_delay > 0.0, "Fighter respawn delay should be positive");
+    }
+
+    #[test]
+    fn spawn_respawn_timers_creates_timer_for_destroyed_fighter() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(SpawningConfig::default());
+        app.add_systems(Update, spawn_respawn_timers);
+
+        app.world_mut().spawn((
+            Fighter,
+            Health { current: 0.0, max: 50.0 },
+            Collider { radius: 12.0 },
+            Transform::from_translation(Vec3::new(100.0, 200.0, 0.0)),
+        ));
+
+        app.update();
+
+        let timer_count = app
+            .world_mut()
+            .query_filtered::<Entity, With<RespawnTimer>>()
+            .iter(app.world())
+            .count();
+        assert_eq!(timer_count, 1, "Should create respawn timer for destroyed fighter");
+
+        let mut query = app.world_mut().query::<&RespawnTimer>();
+        let timer = query.iter(app.world()).next().expect("Should have timer");
+        assert_eq!(timer.spawn_type, SpawnType::Fighter);
+    }
+
+    // ── Story 4-3: Heavy Cruiser tests ──
+
+    #[test]
+    fn spawning_config_default_has_heavy_cruiser_stats() {
+        let config = SpawningConfig::default();
+        assert!(config.heavy_cruiser_health >= 200.0, "Heavy Cruiser health should be >=200");
+        assert!(config.heavy_cruiser_radius > 0.0, "Heavy Cruiser radius should be positive");
+        assert!(config.heavy_cruiser_respawn_delay > 0.0, "Heavy Cruiser respawn delay should be positive");
+    }
+
+    #[test]
+    fn spawn_respawn_timers_creates_timer_for_destroyed_heavy_cruiser() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(SpawningConfig::default());
+        app.add_systems(Update, spawn_respawn_timers);
+
+        app.world_mut().spawn((
+            HeavyCruiser,
+            Health { current: 0.0, max: 200.0 },
+            Collider { radius: 25.0 },
+            Transform::from_translation(Vec3::new(50.0, 75.0, 0.0)),
+        ));
+
+        app.update();
+
+        let timer_count = app
+            .world_mut()
+            .query_filtered::<Entity, With<RespawnTimer>>()
+            .iter(app.world())
+            .count();
+        assert_eq!(timer_count, 1, "Should create respawn timer for destroyed heavy cruiser");
+
+        let mut query = app.world_mut().query::<&RespawnTimer>();
+        let timer = query.iter(app.world()).next().expect("Should have timer");
+        assert_eq!(timer.spawn_type, SpawnType::HeavyCruiser);
+    }
+
+    // ── Story 4-4: Sniper tests ──
+
+    #[test]
+    fn spawning_config_default_has_sniper_stats() {
+        let config = SpawningConfig::default();
+        assert!(config.sniper_health > 0.0, "Sniper health should be positive");
+        assert!(config.sniper_radius > 0.0, "Sniper radius should be positive");
+        assert!(config.sniper_respawn_delay > 0.0, "Sniper respawn delay should be positive");
+    }
+
+    #[test]
+    fn spawn_respawn_timers_creates_timer_for_destroyed_sniper() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(SpawningConfig::default());
+        app.add_systems(Update, spawn_respawn_timers);
+
+        app.world_mut().spawn((
+            Sniper,
+            Health { current: 0.0, max: 40.0 },
+            Collider { radius: 10.0 },
+            Transform::from_translation(Vec3::new(300.0, 400.0, 0.0)),
+        ));
+
+        app.update();
+
+        let timer_count = app
+            .world_mut()
+            .query_filtered::<Entity, With<RespawnTimer>>()
+            .iter(app.world())
+            .count();
+        assert_eq!(timer_count, 1, "Should create respawn timer for destroyed sniper");
+
+        let mut query = app.world_mut().query::<&RespawnTimer>();
+        let timer = query.iter(app.world()).next().expect("Should have timer");
+        assert_eq!(timer.spawn_type, SpawnType::Sniper);
+    }
+
+    #[test]
+    fn preferred_range_component_valid() {
+        let pref = PreferredRange { min: 150.0, max: 280.0 };
+        assert!(pref.min > 0.0);
+        assert!(pref.max > pref.min, "max ({}) should exceed min ({})", pref.max, pref.min);
     }
 }

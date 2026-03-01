@@ -253,6 +253,248 @@ pub fn update_scout_drone_ai(
     }
 }
 
+/// Updates Fighter AI: aggressive pursuit with larger aggro range.
+/// Fighters chase relentlessly, only flee at very low HP.
+#[allow(clippy::type_complexity)]
+pub fn update_fighter_ai(
+    time: Res<Time>,
+    player_query: Query<&Transform, With<crate::core::flight::Player>>,
+    mut fighter_query: Query<
+        (
+            &Transform,
+            &crate::core::collision::Health,
+            &mut crate::shared::components::Velocity,
+            &mut AiState,
+            &crate::social::faction::AggroRange,
+            &crate::social::faction::AttackRange,
+            &crate::social::faction::FleeThreshold,
+            &mut EnemyFireCooldown,
+        ),
+        With<crate::core::spawning::Fighter>,
+    >,
+    mut pending_shots: ResMut<PendingEnemyShotQueue>,
+) {
+    let dt = time.delta_secs();
+    let Ok(player_transform) = player_query.single() else {
+        return;
+    };
+    let player_pos = Vec2::new(
+        player_transform.translation.x,
+        player_transform.translation.y,
+    );
+
+    for (transform, health, mut velocity, mut ai_state, aggro, attack, flee, mut cooldown) in
+        fighter_query.iter_mut()
+    {
+        let pos = Vec2::new(transform.translation.x, transform.translation.y);
+        let to_player = player_pos - pos;
+        let distance = to_player.length();
+        let health_ratio = if health.max > 0.0 { health.current / health.max } else { 0.0 };
+
+        let ctx = AiContext {
+            distance_to_player: distance,
+            health_ratio,
+            aggro_range: aggro.0,
+            attack_range: attack.0,
+            flee_threshold: flee.0,
+        };
+        *ai_state = next_state(&ai_state, &ctx);
+
+        const FIGHTER_SPEED: f32 = 120.0;
+        match *ai_state {
+            AiState::Chase | AiState::Attack => {
+                let dir = if distance > 0.0 { to_player.normalize() } else { Vec2::X };
+                velocity.0 = dir * FIGHTER_SPEED;
+                // Attack state: shoot
+                if *ai_state == AiState::Attack {
+                    cooldown.timer -= dt;
+                    if cooldown.timer <= 0.0 {
+                        cooldown.timer = 0.8; // Faster fire rate than drones
+                        pending_shots.shots.push(PendingEnemyShot {
+                            origin: pos,
+                            target: player_pos,
+                            damage: 8.0,
+                        });
+                    }
+                }
+            }
+            AiState::Flee => {
+                let dir = if distance > 0.0 { -to_player.normalize() } else { Vec2::X };
+                velocity.0 = dir * FIGHTER_SPEED * 1.2;
+            }
+            AiState::Idle | AiState::Patrol => {
+                velocity.0 = velocity.0 * 0.95;
+            }
+        }
+    }
+}
+
+/// Updates Heavy Cruiser AI: slow but powerful, high health, attack from range.
+#[allow(clippy::type_complexity)]
+pub fn update_heavy_cruiser_ai(
+    time: Res<Time>,
+    player_query: Query<&Transform, With<crate::core::flight::Player>>,
+    mut cruiser_query: Query<
+        (
+            &Transform,
+            &crate::core::collision::Health,
+            &mut crate::shared::components::Velocity,
+            &mut AiState,
+            &crate::social::faction::AggroRange,
+            &crate::social::faction::AttackRange,
+            &crate::social::faction::FleeThreshold,
+            &mut EnemyFireCooldown,
+        ),
+        With<crate::core::spawning::HeavyCruiser>,
+    >,
+    mut pending_shots: ResMut<PendingEnemyShotQueue>,
+) {
+    let dt = time.delta_secs();
+    let Ok(player_transform) = player_query.single() else {
+        return;
+    };
+    let player_pos = Vec2::new(
+        player_transform.translation.x,
+        player_transform.translation.y,
+    );
+
+    for (transform, health, mut velocity, mut ai_state, aggro, attack, flee, mut cooldown) in
+        cruiser_query.iter_mut()
+    {
+        let pos = Vec2::new(transform.translation.x, transform.translation.y);
+        let to_player = player_pos - pos;
+        let distance = to_player.length();
+        let health_ratio = if health.max > 0.0 { health.current / health.max } else { 0.0 };
+
+        let ctx = AiContext {
+            distance_to_player: distance,
+            health_ratio,
+            aggro_range: aggro.0,
+            attack_range: attack.0,
+            flee_threshold: flee.0,
+        };
+        *ai_state = next_state(&ai_state, &ctx);
+
+        // Heavy Cruisers are SLOW
+        const CRUISER_SPEED: f32 = 40.0;
+        match *ai_state {
+            AiState::Chase => {
+                let dir = if distance > 0.0 { to_player.normalize() } else { Vec2::X };
+                velocity.0 = dir * CRUISER_SPEED;
+            }
+            AiState::Attack => {
+                // Slow down while firing
+                velocity.0 = velocity.0 * 0.9;
+                cooldown.timer -= dt;
+                if cooldown.timer <= 0.0 {
+                    cooldown.timer = 2.0; // Slow fire rate, high damage
+                    pending_shots.shots.push(PendingEnemyShot {
+                        origin: pos,
+                        target: player_pos,
+                        damage: 20.0, // High damage per shot
+                    });
+                }
+            }
+            AiState::Flee => {
+                let dir = if distance > 0.0 { -to_player.normalize() } else { Vec2::X };
+                velocity.0 = dir * CRUISER_SPEED;
+            }
+            AiState::Idle | AiState::Patrol => {
+                velocity.0 = velocity.0 * 0.99;
+            }
+        }
+    }
+}
+
+/// Updates Sniper AI: keeps preferred distance band, shoots from range.
+#[allow(clippy::type_complexity)]
+pub fn update_sniper_ai(
+    time: Res<Time>,
+    player_query: Query<&Transform, With<crate::core::flight::Player>>,
+    mut sniper_query: Query<
+        (
+            &Transform,
+            &crate::core::collision::Health,
+            &mut crate::shared::components::Velocity,
+            &mut AiState,
+            &crate::social::faction::AggroRange,
+            &crate::social::faction::AttackRange,
+            &crate::social::faction::FleeThreshold,
+            &crate::core::spawning::PreferredRange,
+            &mut EnemyFireCooldown,
+        ),
+        With<crate::core::spawning::Sniper>,
+    >,
+    mut pending_shots: ResMut<PendingEnemyShotQueue>,
+) {
+    let dt = time.delta_secs();
+    let Ok(player_transform) = player_query.single() else {
+        return;
+    };
+    let player_pos = Vec2::new(
+        player_transform.translation.x,
+        player_transform.translation.y,
+    );
+
+    for (transform, health, mut velocity, mut ai_state, aggro, attack, flee, pref_range, mut cooldown) in
+        sniper_query.iter_mut()
+    {
+        let pos = Vec2::new(transform.translation.x, transform.translation.y);
+        let to_player = player_pos - pos;
+        let distance = to_player.length();
+        let health_ratio = if health.max > 0.0 { health.current / health.max } else { 0.0 };
+
+        let ctx = AiContext {
+            distance_to_player: distance,
+            health_ratio,
+            aggro_range: aggro.0,
+            attack_range: attack.0,
+            flee_threshold: flee.0,
+        };
+        *ai_state = next_state(&ai_state, &ctx);
+
+        const SNIPER_SPEED: f32 = 60.0;
+        match *ai_state {
+            AiState::Chase | AiState::Attack => {
+                // Preferred range behavior: maintain distance band
+                if distance < pref_range.min {
+                    // Too close — back away
+                    let dir = if distance > 0.0 { -to_player.normalize() } else { Vec2::X };
+                    velocity.0 = dir * SNIPER_SPEED;
+                } else if distance > pref_range.max {
+                    // Too far — approach
+                    let dir = if distance > 0.0 { to_player.normalize() } else { Vec2::X };
+                    velocity.0 = dir * SNIPER_SPEED;
+                } else {
+                    // In range — strafe (perpendicular movement)
+                    let perp = Vec2::new(-to_player.y, to_player.x).normalize_or_zero();
+                    velocity.0 = perp * SNIPER_SPEED * 0.5;
+                }
+
+                // Shoot when in attack state
+                if *ai_state == AiState::Attack {
+                    cooldown.timer -= dt;
+                    if cooldown.timer <= 0.0 {
+                        cooldown.timer = 2.0; // Slow rate, high damage
+                        pending_shots.shots.push(PendingEnemyShot {
+                            origin: pos,
+                            target: player_pos,
+                            damage: 15.0,
+                        });
+                    }
+                }
+            }
+            AiState::Flee => {
+                let dir = if distance > 0.0 { -to_player.normalize() } else { Vec2::X };
+                velocity.0 = dir * SNIPER_SPEED * 1.5;
+            }
+            AiState::Idle | AiState::Patrol => {
+                velocity.0 = velocity.0 * 0.98;
+            }
+        }
+    }
+}
+
 /// A pending laser shot from an enemy, to be processed by collision systems.
 #[derive(Debug, Clone)]
 pub struct PendingEnemyShot {
@@ -537,5 +779,264 @@ mod tests {
         app.update();
         let queue = app.world().resource::<PendingEnemyShotQueue>();
         assert!(!queue.shots.is_empty(), "Drone in attack state with ready cooldown should queue a shot");
+    }
+
+    // ── Fighter AI tests ──
+
+    fn setup_fighter_ai_app() -> App {
+        use crate::core::flight::Player;
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f64(1.0 / 60.0),
+        ));
+        app.init_resource::<PendingEnemyShotQueue>();
+        app.add_systems(Update, update_fighter_ai);
+
+        app.world_mut().spawn((
+            Player,
+            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+        ));
+        app
+    }
+
+    fn spawn_fighter_at(app: &mut App, pos: Vec2, ai_state: AiState) -> Entity {
+        use crate::core::collision::Health;
+        use crate::core::spawning::Fighter;
+        use crate::shared::components::Velocity;
+        use crate::social::faction::{AggroRange, AttackRange, FleeThreshold};
+
+        app.world_mut().spawn((
+            Fighter,
+            Transform::from_translation(pos.extend(0.0)),
+            Velocity(Vec2::ZERO),
+            Health { current: 50.0, max: 50.0 },
+            ai_state,
+            AggroRange(400.0), // Larger aggro range
+            AttackRange(100.0),
+            FleeThreshold(0.1), // Only flee at 10% health
+            EnemyFireCooldown::default(),
+        )).id()
+    }
+
+    #[test]
+    fn fighter_has_larger_aggro_range_than_drone() {
+        // Fighters should have AggroRange(400.0) vs Scout Drone AggroRange(200.0)
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        use crate::core::collision::Health;
+        use crate::core::spawning::Fighter;
+        use crate::shared::components::Velocity;
+        use crate::social::faction::{AggroRange, AttackRange, FleeThreshold};
+
+        let fighter = app.world_mut().spawn((
+            Fighter,
+            Transform::default(),
+            Velocity(Vec2::ZERO),
+            Health { current: 50.0, max: 50.0 },
+            AiState::Idle,
+            AggroRange(400.0),
+            AttackRange(100.0),
+            FleeThreshold(0.1),
+            EnemyFireCooldown::default(),
+        )).id();
+
+        let aggro = app.world().entity(fighter).get::<AggroRange>()
+            .expect("Fighter should have AggroRange");
+        assert!(aggro.0 > 200.0, "Fighter aggro range ({}) should exceed Scout Drone (200.0)", aggro.0);
+    }
+
+    #[test]
+    fn fighter_chases_player_when_in_aggro_range() {
+        let mut app = setup_fighter_ai_app();
+        // Player at origin, fighter at 300 units (within fighter aggro 400)
+        let fighter = spawn_fighter_at(&mut app, Vec2::new(300.0, 0.0), AiState::Idle);
+        app.update(); // prime
+        app.update();
+        let state = app.world().entity(fighter).get::<AiState>()
+            .expect("Fighter should have AiState");
+        assert_eq!(*state, AiState::Chase, "Fighter should chase when player within aggro range");
+    }
+
+    #[test]
+    fn fighter_moves_toward_player_in_chase() {
+        use crate::shared::components::Velocity;
+        let mut app = setup_fighter_ai_app();
+        let fighter = spawn_fighter_at(&mut app, Vec2::new(200.0, 0.0), AiState::Chase);
+        app.update(); // prime
+        app.update();
+        let vel = app.world().entity(fighter).get::<Velocity>()
+            .expect("Fighter should have Velocity");
+        assert!(vel.0.x < 0.0, "Chasing fighter should move toward player (negative X), got {}", vel.0.x);
+    }
+
+    #[test]
+    fn fighter_attack_queues_shot_with_ready_cooldown() {
+        let mut app = setup_fighter_ai_app();
+        use crate::core::collision::Health;
+        use crate::core::spawning::Fighter;
+        use crate::shared::components::Velocity;
+        use crate::social::faction::{AggroRange, AttackRange, FleeThreshold};
+        app.world_mut().spawn((
+            Fighter,
+            Transform::from_translation(Vec3::new(50.0, 0.0, 0.0)),
+            Velocity(Vec2::ZERO),
+            Health { current: 50.0, max: 50.0 },
+            AiState::Attack,
+            AggroRange(400.0),
+            AttackRange(100.0),
+            FleeThreshold(0.1),
+            EnemyFireCooldown { timer: 0.0 },
+        ));
+        app.update(); // prime
+        app.update();
+        let queue = app.world().resource::<PendingEnemyShotQueue>();
+        assert!(!queue.shots.is_empty(), "Fighter should fire when in attack state with ready cooldown");
+    }
+
+    // ── Heavy Cruiser AI tests ──
+
+    #[test]
+    fn heavy_cruiser_has_high_health() {
+        use crate::core::collision::Health;
+        use crate::core::spawning::HeavyCruiser;
+        use crate::shared::components::Velocity;
+        use crate::social::faction::{AggroRange, AttackRange, FleeThreshold};
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        let cruiser = app.world_mut().spawn((
+            HeavyCruiser,
+            Transform::default(),
+            Velocity(Vec2::ZERO),
+            Health { current: 200.0, max: 200.0 },
+            AiState::Idle,
+            AggroRange(300.0),
+            AttackRange(120.0),
+            FleeThreshold(0.05),
+            EnemyFireCooldown::default(),
+        )).id();
+
+        let health = app.world().entity(cruiser).get::<crate::core::collision::Health>()
+            .expect("Heavy Cruiser should have Health");
+        assert!(health.max >= 200.0, "Heavy Cruiser should have high health (>=200), got {}", health.max);
+    }
+
+    #[test]
+    fn heavy_cruiser_fires_high_damage_shot() {
+        use crate::core::flight::Player;
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f64(1.0 / 60.0),
+        ));
+        app.init_resource::<PendingEnemyShotQueue>();
+        app.add_systems(Update, update_heavy_cruiser_ai);
+        app.world_mut().spawn((Player, Transform::default()));
+
+        use crate::core::collision::Health;
+        use crate::core::spawning::HeavyCruiser;
+        use crate::shared::components::Velocity;
+        use crate::social::faction::{AggroRange, AttackRange, FleeThreshold};
+        app.world_mut().spawn((
+            HeavyCruiser,
+            Transform::from_translation(Vec3::new(80.0, 0.0, 0.0)),
+            Velocity(Vec2::ZERO),
+            Health { current: 200.0, max: 200.0 },
+            AiState::Attack,
+            AggroRange(300.0),
+            AttackRange(120.0),
+            FleeThreshold(0.05),
+            EnemyFireCooldown { timer: 0.0 },
+        ));
+        app.update(); // prime
+        app.update();
+
+        let queue = app.world().resource::<PendingEnemyShotQueue>();
+        assert!(!queue.shots.is_empty(), "Heavy Cruiser should fire when in attack state");
+        assert!(
+            queue.shots[0].damage >= 20.0,
+            "Heavy Cruiser shot damage ({}) should be high (>=20)",
+            queue.shots[0].damage
+        );
+    }
+
+    // ── Sniper AI tests ──
+
+    #[test]
+    fn sniper_backs_away_when_too_close() {
+        use crate::core::flight::Player;
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f64(1.0 / 60.0),
+        ));
+        app.init_resource::<PendingEnemyShotQueue>();
+        app.add_systems(Update, update_sniper_ai);
+        app.world_mut().spawn((Player, Transform::default()));
+
+        use crate::core::collision::Health;
+        use crate::core::spawning::{PreferredRange, Sniper};
+        use crate::shared::components::Velocity;
+        use crate::social::faction::{AggroRange, AttackRange, FleeThreshold};
+        // Sniper at 50 units, min preferred range is 150 — too close
+        let sniper = app.world_mut().spawn((
+            Sniper,
+            Transform::from_translation(Vec3::new(50.0, 0.0, 0.0)),
+            Velocity(Vec2::ZERO),
+            Health { current: 40.0, max: 40.0 },
+            AiState::Chase,
+            AggroRange(350.0),
+            AttackRange(300.0),
+            FleeThreshold(0.15),
+            PreferredRange { min: 150.0, max: 280.0 },
+            EnemyFireCooldown::default(),
+        )).id();
+        app.update(); // prime
+        app.update();
+
+        let vel = app.world().entity(sniper).get::<crate::shared::components::Velocity>()
+            .expect("Sniper should have Velocity");
+        // At 50 units from player (min=150), sniper should back away (positive X from player at origin)
+        assert!(vel.0.x > 0.0, "Sniper too close should back away from player (positive X), got {}", vel.0.x);
+    }
+
+    #[test]
+    fn sniper_approaches_when_too_far() {
+        use crate::core::flight::Player;
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f64(1.0 / 60.0),
+        ));
+        app.init_resource::<PendingEnemyShotQueue>();
+        app.add_systems(Update, update_sniper_ai);
+        app.world_mut().spawn((Player, Transform::default()));
+
+        use crate::core::collision::Health;
+        use crate::core::spawning::{PreferredRange, Sniper};
+        use crate::shared::components::Velocity;
+        use crate::social::faction::{AggroRange, AttackRange, FleeThreshold};
+        // Sniper at 350 units, max preferred range is 280 — too far
+        let sniper = app.world_mut().spawn((
+            Sniper,
+            Transform::from_translation(Vec3::new(350.0, 0.0, 0.0)),
+            Velocity(Vec2::ZERO),
+            Health { current: 40.0, max: 40.0 },
+            AiState::Chase,
+            AggroRange(400.0),
+            AttackRange(300.0),
+            FleeThreshold(0.15),
+            PreferredRange { min: 150.0, max: 280.0 },
+            EnemyFireCooldown::default(),
+        )).id();
+        app.update(); // prime
+        app.update();
+
+        let vel = app.world().entity(sniper).get::<crate::shared::components::Velocity>()
+            .expect("Sniper should have Velocity");
+        // At 350 units (max=280), sniper should approach (negative X toward player at origin)
+        assert!(vel.0.x < 0.0, "Sniper too far should approach player (negative X), got {}", vel.0.x);
     }
 }

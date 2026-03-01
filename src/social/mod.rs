@@ -5,7 +5,10 @@ pub mod faction;
 
 use bevy::prelude::*;
 
-use self::enemy_ai::{update_scout_drone_ai, PendingEnemyShotQueue};
+use self::enemy_ai::{
+    update_fighter_ai, update_heavy_cruiser_ai, update_scout_drone_ai, update_sniper_ai,
+    PendingEnemyShotQueue,
+};
 
 pub struct SocialPlugin;
 
@@ -14,5 +17,11 @@ impl Plugin for SocialPlugin {
         // Story 4-1: Scout Drone AI
         app.init_resource::<PendingEnemyShotQueue>();
         app.add_systems(Update, update_scout_drone_ai);
+        // Story 4-2: Fighter AI
+        app.add_systems(Update, update_fighter_ai);
+        // Story 4-3: Heavy Cruiser AI
+        app.add_systems(Update, update_heavy_cruiser_ai);
+        // Story 4-4: Sniper AI
+        app.add_systems(Update, update_sniper_ai);
     }
 }
