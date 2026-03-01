@@ -46,7 +46,8 @@ use self::upgrades::{
 };
 use self::tutorial::{
     advance_phase_on_wreck_shot, apply_gravity_well, check_generator_destroyed,
-    check_tutorial_wave_complete, dock_at_station, spawn_tutorial_enemies, spawn_tutorial_zone,
+    check_tutorial_wave_complete, dock_at_station, restore_tutorial_components_on_load,
+    spawn_tutorial_enemies, spawn_tutorial_zone,
     start_destruction_cascade, tick_cascade_timer, unlock_laser_at_wreck, update_weapons_lock,
     validate_tutorial_config, TutorialConfig, TutorialPhase,
 };
@@ -183,8 +184,11 @@ impl Plugin for CorePlugin {
                 .in_set(CoreSet::Physics),
         );
 
-        // Tutorial zone spawn
-        app.add_systems(Startup, spawn_tutorial_zone);
+        // Tutorial zone spawn — PostStartup so load_game runs first and sets tutorial_complete
+        app.add_systems(PostStartup, spawn_tutorial_zone);
+
+        // Restore SpreadUnlocked/WeaponsLocked components on load — must run after load_game
+        app.add_systems(PostStartup, restore_tutorial_components_on_load.after(spawn_tutorial_zone));
 
         // Startup validation: warn if max_speed exceeds chunk generation capacity
         app.add_systems(Startup, validate_speed_cap);

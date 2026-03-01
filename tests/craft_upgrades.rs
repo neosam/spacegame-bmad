@@ -172,6 +172,7 @@ fn upgrade_save_load_roundtrip() {
         companions: Vec::new(),
         logbook_entries: Vec::new(),
         cleared_wormholes: Vec::new(),
+            tutorial_complete: false,
     };
 
     let ron_str = save.to_ron().expect("Should serialize to RON");

@@ -182,7 +182,7 @@ development_status:
   10-4-atmospheric-background: done
   10-5-music-crossfade: done
   10-6-ambient-audio: done
-  epic-10-retrospective: optional
+  epic-10-retrospective: done
 
   # ── Epic 11: Platform & Release (Could | Dependencies: All MVP epics) ──
   epic-11: backlog

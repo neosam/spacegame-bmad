@@ -366,6 +366,7 @@ pub fn validate_tutorial_seed(
 // ── Spawn System ────────────────────────────────────────────────────────
 
 /// Startup system: generates and spawns the tutorial zone entities.
+/// Skipped if a save was loaded that already had the tutorial completed.
 pub fn spawn_tutorial_zone(
     mut commands: Commands,
     config: Res<TutorialConfig>,
@@ -374,7 +375,11 @@ pub fn spawn_tutorial_zone(
     mut game_events: bevy::ecs::message::MessageWriter<crate::shared::events::GameEvent>,
     time: Res<Time>,
     severity_config: Res<crate::infrastructure::events::EventSeverityConfig>,
+    save_state: Option<Res<crate::infrastructure::save::SaveState>>,
 ) {
+    if save_state.map(|s| s.tutorial_complete).unwrap_or(false) {
+        return;
+    }
     let seed = world_config.seed;
     let layout = generate_tutorial_zone(seed, &config);
 
@@ -475,6 +480,24 @@ pub fn update_weapons_lock(
         } else if !should_lock && has_lock.is_some() {
             commands.entity(entity).remove::<WeaponsLocked>();
         }
+    }
+}
+
+/// PostStartup system: restores tutorial-granted components when loading a completed save.
+/// Needed because `OnEnter(TutorialPhase::SpreadUnlocked)` never fires when jumping
+/// directly to `TutorialPhase::TutorialComplete` via `NextState` during load.
+pub fn restore_tutorial_components_on_load(
+    mut commands: Commands,
+    save_state: Option<Res<crate::infrastructure::save::SaveState>>,
+    player_query: Query<Entity, With<crate::core::flight::Player>>,
+) {
+    if !save_state.map(|s| s.tutorial_complete).unwrap_or(false) {
+        return;
+    }
+    for entity in player_query.iter() {
+        commands.entity(entity)
+            .insert(SpreadUnlocked)
+            .remove::<WeaponsLocked>();
     }
 }
 

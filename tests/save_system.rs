@@ -1,5 +1,6 @@
 mod helpers;
 
+use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use helpers::{spawn_player, test_app};
 use std::fs;
@@ -7,7 +8,7 @@ use std::fs;
 use void_drifter::core::collision::Collider;
 use void_drifter::core::input::ActionState;
 use void_drifter::infrastructure::logbook::Logbook;
-use void_drifter::infrastructure::save::{SaveConfig, SaveState, save_game, load_game};
+use void_drifter::infrastructure::save::{AutoSaveTrigger, SaveConfig, SaveState, save_game, load_game};
 use void_drifter::infrastructure::save::player_save::PlayerSave;
 use void_drifter::infrastructure::save::world_save::WorldSave;
 use void_drifter::infrastructure::save::schema::SAVE_VERSION;
@@ -58,6 +59,7 @@ fn save_then_load_restores_player_position() {
     let mut app = test_app();
     app.insert_resource(SaveConfig { save_dir: save_dir.to_string() });
     app.init_resource::<SaveState>();
+    app.init_resource::<AutoSaveTrigger>();
     let player = spawn_player(&mut app);
 
     // Run load_game
@@ -132,6 +134,7 @@ fn save_then_load_restores_explored_chunks() {
     let mut app = test_app();
     app.insert_resource(SaveConfig { save_dir: save_dir.to_string() });
     app.init_resource::<SaveState>();
+    app.init_resource::<AutoSaveTrigger>();
     let _player = spawn_player(&mut app);
 
     // Run load_game
@@ -168,6 +171,7 @@ fn load_missing_files_starts_fresh() {
     let mut app = test_app();
     app.insert_resource(SaveConfig { save_dir: save_dir.to_string() });
     app.init_resource::<SaveState>();
+    app.init_resource::<AutoSaveTrigger>();
     let player = spawn_player(&mut app);
 
     // Load with no save files — should not panic and player stays at origin
@@ -210,6 +214,7 @@ fn load_corrupt_file_starts_fresh() {
     let mut app = test_app();
     app.insert_resource(SaveConfig { save_dir: save_dir.to_string() });
     app.init_resource::<SaveState>();
+    app.init_resource::<AutoSaveTrigger>();
     let player = spawn_player(&mut app);
 
     // Load with corrupt files — should not panic, player stays at defaults
@@ -269,6 +274,7 @@ fn load_restores_world_seed() {
     let mut app = test_app();
     app.insert_resource(SaveConfig { save_dir: save_dir.to_string() });
     app.init_resource::<SaveState>();
+    app.init_resource::<AutoSaveTrigger>();
     let _player = spawn_player(&mut app);
 
     // Verify seed is NOT 9999 before load
@@ -294,6 +300,7 @@ fn save_game_creates_files() {
     let mut app = test_app();
     app.insert_resource(SaveConfig { save_dir: save_dir.to_string() });
     app.init_resource::<SaveState>();
+    app.init_resource::<AutoSaveTrigger>();
     app.add_systems(Update, save_game);
     let _player = spawn_player(&mut app);
 
@@ -333,6 +340,7 @@ fn save_game_emits_game_saved_event() {
     let mut app = test_app();
     app.insert_resource(SaveConfig { save_dir: save_dir.to_string() });
     app.init_resource::<SaveState>();
+    app.init_resource::<AutoSaveTrigger>();
     app.add_systems(Update, save_game);
     let _player = spawn_player(&mut app);
 
@@ -391,6 +399,7 @@ fn v1_save_loads_with_empty_deltas() {
     let mut app = test_app();
     app.insert_resource(SaveConfig { save_dir: save_dir.to_string() });
     app.init_resource::<SaveState>();
+    app.init_resource::<AutoSaveTrigger>();
     let _player = spawn_player(&mut app);
 
     app.add_systems(Update, load_game);
@@ -449,6 +458,7 @@ fn save_preserves_deltas_across_sessions() {
     let mut app = test_app();
     app.insert_resource(SaveConfig { save_dir: save_dir.to_string() });
     app.init_resource::<SaveState>();
+    app.init_resource::<AutoSaveTrigger>();
     let _player = spawn_player(&mut app);
 
     app.add_systems(Update, load_game);
@@ -504,6 +514,7 @@ fn empty_deltas_same_as_no_deltas() {
     let mut app = test_app();
     app.insert_resource(SaveConfig { save_dir: save_dir.to_string() });
     app.init_resource::<SaveState>();
+    app.init_resource::<AutoSaveTrigger>();
     let _player = spawn_player(&mut app);
 
     app.add_systems(Update, load_game);
@@ -566,6 +577,7 @@ fn destroy_entity_then_save_load_stays_destroyed() {
         save_dir: save_dir.to_string(),
     });
     app.init_resource::<SaveState>();
+    app.init_resource::<AutoSaveTrigger>();
     app.world_mut().resource_mut::<ActionState>().save = true;
     app.add_systems(Update, save_game);
     app.update();
@@ -605,6 +617,7 @@ fn destroy_entity_then_save_load_stays_destroyed() {
     app2.init_resource::<void_drifter::infrastructure::logbook::Logbook>();
     app2.insert_resource(SaveConfig { save_dir: save_dir.to_string() });
     app2.init_resource::<SaveState>();
+    app2.init_resource::<AutoSaveTrigger>();
 
     // Add load_game to Startup so it runs BEFORE update_chunks
     app2.add_systems(Startup, load_game);
@@ -679,6 +692,7 @@ fn wasm_save_guard_native_save_still_works() {
     let mut app = test_app();
     app.insert_resource(SaveConfig { save_dir: save_dir.to_string() });
     app.init_resource::<SaveState>();
+    app.init_resource::<AutoSaveTrigger>();
     app.add_systems(Update, save_game);
     let _player = spawn_player(&mut app);
 
@@ -700,6 +714,7 @@ fn wasm_save_guard_native_save_still_works() {
     let mut app2 = test_app();
     app2.insert_resource(SaveConfig { save_dir: save_dir.to_string() });
     app2.init_resource::<SaveState>();
+    app2.init_resource::<AutoSaveTrigger>();
     app2.add_systems(Update, load_game);
     let _player2 = spawn_player(&mut app2);
     app2.update();
@@ -781,6 +796,7 @@ fn e2e_damage_track_save_load_filters_entity() {
         save_dir: save_dir.to_string(),
     });
     app.init_resource::<SaveState>();
+    app.init_resource::<AutoSaveTrigger>();
     app.world_mut().resource_mut::<ActionState>().save = true;
     app.add_systems(Update, save_game);
     app.update();
@@ -814,6 +830,7 @@ fn e2e_damage_track_save_load_filters_entity() {
     app2.init_resource::<void_drifter::infrastructure::logbook::Logbook>();
     app2.insert_resource(SaveConfig { save_dir: save_dir.to_string() });
     app2.init_resource::<SaveState>();
+    app2.init_resource::<AutoSaveTrigger>();
 
     app2.add_systems(Startup, load_game);
     app2.add_systems(FixedUpdate, void_drifter::world::update_chunks);
@@ -861,6 +878,59 @@ fn e2e_damage_track_save_load_filters_entity() {
         !entities_after.contains(&target_seed_idx),
         "Destroyed entity seed index {} should not be present after reload",
         target_seed_idx
+    );
+
+    cleanup_save_dir(save_dir);
+}
+
+#[test]
+fn auto_save_triggers_on_station_docked_event() {
+    use void_drifter::infrastructure::save::check_auto_save_events;
+    use void_drifter::shared::events::{GameEvent, GameEventKind};
+    use bevy::ecs::message::MessageWriter;
+    use void_drifter::infrastructure::events::EventSeverityConfig;
+
+    let save_dir = "target/test_saves/auto_save_event/";
+    cleanup_save_dir(save_dir);
+
+    let mut app = test_app();
+    app.insert_resource(SaveConfig { save_dir: save_dir.to_string() });
+    app.init_resource::<SaveState>();
+    app.init_resource::<AutoSaveTrigger>();
+    app.add_systems(Update, (check_auto_save_events, save_game).chain());
+    let _player = spawn_player(&mut app);
+
+    // Confirm trigger starts false
+    assert!(
+        !app.world().resource::<AutoSaveTrigger>().fire,
+        "AutoSaveTrigger should start false"
+    );
+
+    // Emit StationDocked event
+    app.world_mut()
+        .run_system_once(|mut writer: MessageWriter<GameEvent>, config: Res<EventSeverityConfig>| {
+            let kind = GameEventKind::StationDocked;
+            writer.write(GameEvent {
+                severity: config.severity_for(&kind),
+                kind,
+                position: Vec2::ZERO,
+                game_time: 0.0,
+            });
+        })
+        .expect("run_system_once should succeed");
+
+    app.update(); // check_auto_save_events sets trigger, save_game fires
+
+    // Files should exist
+    assert!(
+        fs::metadata(format!("{save_dir}player.ron")).is_ok(),
+        "player.ron should exist after auto-save on StationDocked"
+    );
+
+    // Trigger should be reset to false after save
+    assert!(
+        !app.world().resource::<AutoSaveTrigger>().fire,
+        "AutoSaveTrigger should be reset to false after save"
     );
 
     cleanup_save_dir(save_dir);

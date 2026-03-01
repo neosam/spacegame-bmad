@@ -130,6 +130,10 @@ pub struct PlayerSave {
     /// Defaults to empty for backward compatibility with v1–v7 saves.
     #[serde(default)]
     pub cleared_wormholes: Vec<[i32; 2]>,
+    /// Whether the tutorial has been completed.
+    /// Defaults to false for backward compatibility with v1–v8 saves.
+    #[serde(default)]
+    pub tutorial_complete: bool,
 }
 
 impl Default for PlayerSave {
@@ -164,6 +168,7 @@ impl Default for PlayerSave {
             companions: Vec::new(),
             logbook_entries: Vec::new(),
             cleared_wormholes: Vec::new(),
+            tutorial_complete: false,
         }
     }
 }
@@ -212,6 +217,7 @@ impl PlayerSave {
             companions: Vec::new(),
             logbook_entries: Vec::new(),
             cleared_wormholes: Vec::new(),
+            tutorial_complete: false,
         }
     }
 
@@ -462,6 +468,7 @@ mod tests {
             companions: Vec::new(),
             logbook_entries: Vec::new(),
             cleared_wormholes: Vec::new(),
+            tutorial_complete: false,
         }
     }
 

@@ -31,6 +31,7 @@ use crate::core::weapons::{
 };
 use crate::shared::components::Velocity;
 use crate::world::WorldConfig;
+use crate::infrastructure::save::SaveState;
 
 use self::effects::{
     apply_screen_shake, blink_invincible, load_juice_settings, remove_just_damaged_without_material,
@@ -109,6 +110,9 @@ impl Plugin for RenderingPlugin {
         // Bark HUD (companion one-liners)
         app.add_systems(Startup, spawn_bark_hud);
         app.add_systems(Update, update_bark_hud);
+        // Save indicator HUD ("Saved ✓")
+        app.add_systems(Startup, spawn_save_indicator);
+        app.add_systems(Update, update_save_indicator);
         // Coords HUD (above minimap, top-right)
         app.add_systems(Startup, spawn_coords_hud);
         app.add_systems(Update, update_coords_hud);
@@ -1930,4 +1934,47 @@ fn attach_wormhole_visual(
             ))
             .remove::<NeedsWormholeVisual>();
     }
+}
+
+// ── Save Indicator HUD ────────────────────────────────────────────────────
+
+const SAVE_INDICATOR_DURATION: f64 = 2.0;
+
+/// Marker for the save indicator HUD text node.
+#[derive(Component)]
+pub struct SaveIndicatorMarker;
+
+/// Spawns the save indicator: "Saved ✓" shown briefly after saving.
+pub fn spawn_save_indicator(mut commands: Commands) {
+    commands.spawn((
+        SaveIndicatorMarker,
+        Text::new("Saved ✓"),
+        TextFont {
+            font_size: 14.0,
+            ..default()
+        },
+        TextColor(Color::srgba(0.4, 1.0, 0.4, 1.0)),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(8.0),
+            right: Val::Px(8.0),
+            ..default()
+        },
+        Visibility::Hidden,
+    ));
+}
+
+/// Shows "Saved ✓" for `SAVE_INDICATOR_DURATION` seconds after the last save.
+pub fn update_save_indicator(
+    save_state: Res<SaveState>,
+    time: Res<Time>,
+    mut query: Query<&mut Visibility, With<SaveIndicatorMarker>>,
+) {
+    let Ok(mut visibility) = query.single_mut() else {
+        return;
+    };
+    *visibility = match save_state.last_save_time {
+        Some(t) if time.elapsed_secs_f64() - t < SAVE_INDICATOR_DURATION => Visibility::Visible,
+        _ => Visibility::Hidden,
+    };
 }

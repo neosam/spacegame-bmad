@@ -7,7 +7,7 @@ pub mod world_save;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 
-use bevy::ecs::message::MessageWriter;
+use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::prelude::*;
 
 use crate::core::collision::Health;
@@ -18,9 +18,8 @@ use crate::core::input::ActionState;
 use crate::core::weapons::{ActiveWeapon, Energy};
 use crate::infrastructure::events::EventSeverityConfig;
 use crate::shared::components::Velocity;
-use crate::shared::events::GameEvent;
-#[cfg(not(target_arch = "wasm32"))]
-use crate::shared::events::GameEventKind;
+use crate::shared::events::{GameEvent, GameEventKind};
+use crate::core::tutorial::TutorialPhase;
 use crate::world::{ExploredChunks, WorldConfig};
 
 use self::delta::WorldDeltas;
@@ -48,13 +47,48 @@ impl Default for SaveConfig {
 pub struct SaveState {
     pub last_save_time: Option<f64>,
     pub loaded_from_save: bool,
+    /// Set to true if a save was loaded that had tutorial_complete = true.
+    /// Used by `spawn_tutorial_zone` to skip tutorial setup on reload.
+    pub tutorial_complete: bool,
 }
 
-/// System that saves the game when `ActionState.save` is true.
+/// Signals that a save should be triggered on the next `save_game` run.
+/// `tutorial_just_completed` is set when the trigger comes from a `TutorialComplete`
+/// event — needed because the Bevy state transition hasn't applied yet in that frame.
+#[derive(Resource, Default)]
+pub struct AutoSaveTrigger {
+    pub fire: bool,
+    pub tutorial_just_completed: bool,
+}
+
+/// Reads GameEvent messages and sets `AutoSaveTrigger` for save-worthy events.
+pub fn check_auto_save_events(
+    mut events: MessageReader<GameEvent>,
+    mut trigger: ResMut<AutoSaveTrigger>,
+) {
+    for event in events.read() {
+        match &event.kind {
+            GameEventKind::TutorialComplete => {
+                trigger.fire = true;
+                trigger.tutorial_just_completed = true;
+                break;
+            }
+            GameEventKind::StationDocked
+            | GameEventKind::WormholeCleared { .. }
+            | GameEventKind::PlayerDeath => {
+                trigger.fire = true;
+                break;
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Saves the game when the application is exiting.
 #[allow(clippy::too_many_arguments)]
 #[cfg_attr(target_arch = "wasm32", allow(unused_variables, unused_mut))]
-pub fn save_game(
-    action_state: Res<ActionState>,
+pub fn save_on_exit(
+    mut exit_events: MessageReader<AppExit>,
     config: Res<SaveConfig>,
     player_query: Query<
         (&Transform, &Velocity, &Health, &ActiveWeapon, &Energy),
@@ -69,8 +103,68 @@ pub fn save_game(
     time: Res<Time>,
     severity_config: Res<EventSeverityConfig>,
     mut save_state: ResMut<SaveState>,
+    tutorial_phase: Option<Res<State<TutorialPhase>>>,
 ) {
-    if !action_state.save {
+    if exit_events.read().next().is_none() {
+        return;
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        return;
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let tutorial_complete = tutorial_phase
+            .as_ref()
+            .map(|p| matches!(p.get(), TutorialPhase::TutorialComplete | TutorialPhase::StationVisited | TutorialPhase::GeneratorDestroyed))
+            .unwrap_or(false);
+        perform_save(
+            &config,
+            &player_query,
+            &credits,
+            &inventory,
+            &world_config,
+            &explored_chunks,
+            &world_deltas,
+            &mut game_events,
+            &time,
+            &severity_config,
+            &mut save_state,
+            tutorial_complete,
+        );
+    }
+}
+
+/// System that saves the game when `ActionState.save` (F5) or `AutoSaveTrigger` is true.
+#[allow(clippy::too_many_arguments)]
+#[cfg_attr(target_arch = "wasm32", allow(unused_variables, unused_mut))]
+pub fn save_game(
+    action_state: Res<ActionState>,
+    mut auto_save: ResMut<AutoSaveTrigger>,
+    config: Res<SaveConfig>,
+    player_query: Query<
+        (&Transform, &Velocity, &Health, &ActiveWeapon, &Energy),
+        With<Player>,
+    >,
+    credits: Res<Credits>,
+    inventory: Res<PlayerInventory>,
+    world_config: Res<WorldConfig>,
+    explored_chunks: Res<ExploredChunks>,
+    world_deltas: Res<WorldDeltas>,
+    mut game_events: MessageWriter<GameEvent>,
+    time: Res<Time>,
+    severity_config: Res<EventSeverityConfig>,
+    mut save_state: ResMut<SaveState>,
+    tutorial_phase: Option<Res<State<TutorialPhase>>>,
+) {
+    let triggered = action_state.save || auto_save.fire;
+    let tutorial_just_completed = auto_save.tutorial_just_completed;
+    auto_save.fire = false;
+    auto_save.tutorial_just_completed = false;
+
+    if !triggered {
         return;
     }
 
@@ -82,73 +176,112 @@ pub fn save_game(
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        // Create save directory if it doesn't exist
-        if let Err(e) = std::fs::create_dir_all(&config.save_dir) {
-            warn!("Failed to create save directory '{}': {e}", config.save_dir);
-            return;
-        }
-
-        // Build PlayerSave from query
-        let player_save = {
-            let Some((transform, velocity, health, active_weapon, energy)) =
-                player_query.iter().next()
-            else {
-                warn!("No player entity found for save");
-                return;
-            };
-
-            let mut ps = PlayerSave::from_components(transform, velocity, health, active_weapon, energy);
-            ps.credits = credits.balance;
-            ps.inventory_common_scrap = inventory.items.get(&MaterialType::CommonScrap).copied().unwrap_or(0);
-            ps.inventory_rare_alloy = inventory.items.get(&MaterialType::RareAlloy).copied().unwrap_or(0);
-            ps.inventory_energy_core = inventory.items.get(&MaterialType::EnergyCore).copied().unwrap_or(0);
-            ps
-        };
-
-        // Build WorldSave
-        let world_save =
-            WorldSave::from_resources(world_config.seed, &explored_chunks, &world_deltas);
-
-        // Serialize and write
-        let player_ron = match player_save.to_ron() {
-            Ok(s) => s,
-            Err(e) => {
-                warn!("Failed to serialize player save: {e}");
-                return;
-            }
-        };
-        let world_ron = match world_save.to_ron() {
-            Ok(s) => s,
-            Err(e) => {
-                warn!("Failed to serialize world save: {e}");
-                return;
-            }
-        };
-
-        let player_path = Path::new(&config.save_dir).join("player.ron");
-        let world_path = Path::new(&config.save_dir).join("world.ron");
-
-        if let Err(e) = std::fs::write(&player_path, &player_ron) {
-            warn!("Failed to write {}: {e}", player_path.display());
-            return;
-        }
-        if let Err(e) = std::fs::write(&world_path, &world_ron) {
-            warn!("Failed to write {}: {e}", world_path.display());
-            return;
-        }
-
-        save_state.last_save_time = Some(time.elapsed_secs_f64());
-
-        // Emit GameSaved event
-        let position = Vec2::new(player_save.position.0, player_save.position.1);
-        let kind = GameEventKind::GameSaved;
-        game_events.write(GameEvent {
-            severity: severity_config.severity_for(&kind),
-            kind,
-            position,
-            game_time: time.elapsed_secs_f64(),
-        });
+        let tutorial_complete = tutorial_just_completed || tutorial_phase
+            .as_ref()
+            .map(|p| matches!(p.get(), TutorialPhase::TutorialComplete | TutorialPhase::StationVisited | TutorialPhase::GeneratorDestroyed))
+            .unwrap_or(false);
+        perform_save(
+            &config,
+            &player_query,
+            &credits,
+            &inventory,
+            &world_config,
+            &explored_chunks,
+            &world_deltas,
+            &mut game_events,
+            &time,
+            &severity_config,
+            &mut save_state,
+            tutorial_complete,
+        );
     }
+}
+
+/// Shared save logic used by both `save_game` and `save_on_exit`.
+#[cfg(not(target_arch = "wasm32"))]
+fn perform_save(
+    config: &SaveConfig,
+    player_query: &Query<
+        (&Transform, &Velocity, &Health, &ActiveWeapon, &Energy),
+        With<Player>,
+    >,
+    credits: &Credits,
+    inventory: &PlayerInventory,
+    world_config: &WorldConfig,
+    explored_chunks: &ExploredChunks,
+    world_deltas: &WorldDeltas,
+    game_events: &mut MessageWriter<GameEvent>,
+    time: &Time,
+    severity_config: &EventSeverityConfig,
+    save_state: &mut SaveState,
+    tutorial_complete: bool,
+) {
+    // Create save directory if it doesn't exist
+    if let Err(e) = std::fs::create_dir_all(&config.save_dir) {
+        warn!("Failed to create save directory '{}': {e}", config.save_dir);
+        return;
+    }
+
+    // Build PlayerSave from query
+    let player_save = {
+        let Some((transform, velocity, health, active_weapon, energy)) =
+            player_query.iter().next()
+        else {
+            warn!("No player entity found for save");
+            return;
+        };
+
+        let mut ps = PlayerSave::from_components(transform, velocity, health, active_weapon, energy);
+        ps.credits = credits.balance;
+        ps.inventory_common_scrap = inventory.items.get(&MaterialType::CommonScrap).copied().unwrap_or(0);
+        ps.inventory_rare_alloy = inventory.items.get(&MaterialType::RareAlloy).copied().unwrap_or(0);
+        ps.inventory_energy_core = inventory.items.get(&MaterialType::EnergyCore).copied().unwrap_or(0);
+        ps.tutorial_complete = tutorial_complete;
+        ps
+    };
+
+    // Build WorldSave
+    let world_save = WorldSave::from_resources(world_config.seed, explored_chunks, world_deltas);
+
+    // Serialize and write
+    let player_ron = match player_save.to_ron() {
+        Ok(s) => s,
+        Err(e) => {
+            warn!("Failed to serialize player save: {e}");
+            return;
+        }
+    };
+    let world_ron = match world_save.to_ron() {
+        Ok(s) => s,
+        Err(e) => {
+            warn!("Failed to serialize world save: {e}");
+            return;
+        }
+    };
+
+    let player_path = Path::new(&config.save_dir).join("player.ron");
+    let world_path = Path::new(&config.save_dir).join("world.ron");
+
+    if let Err(e) = std::fs::write(&player_path, &player_ron) {
+        warn!("Failed to write {}: {e}", player_path.display());
+        return;
+    }
+    if let Err(e) = std::fs::write(&world_path, &world_ron) {
+        warn!("Failed to write {}: {e}", world_path.display());
+        return;
+    }
+
+    save_state.last_save_time = Some(time.elapsed_secs_f64());
+
+    // Emit GameSaved event
+    let position = Vec2::new(player_save.position.0, player_save.position.1);
+    let kind = GameEventKind::GameSaved;
+    game_events.write(GameEvent {
+        severity: severity_config.severity_for(&kind),
+        kind,
+        position,
+        game_time: time.elapsed_secs_f64(),
+    });
 }
 
 /// System that loads the game at startup if save files exist.
@@ -166,6 +299,7 @@ pub fn load_game(
     mut world_deltas: ResMut<WorldDeltas>,
     mut save_state: ResMut<SaveState>,
     mut world_config: ResMut<WorldConfig>,
+    mut next_tutorial_phase: Option<ResMut<NextState<TutorialPhase>>>,
 ) {
     #[cfg(target_arch = "wasm32")]
     {
@@ -212,6 +346,12 @@ pub fn load_game(
                                 inventory.items.insert(MaterialType::EnergyCore, player_save.inventory_energy_core);
                             }
                             save_state.loaded_from_save = true;
+                            if player_save.tutorial_complete {
+                                save_state.tutorial_complete = true;
+                                if let Some(ref mut phase) = next_tutorial_phase {
+                                    phase.set(TutorialPhase::TutorialComplete);
+                                }
+                            }
                         }
                     }
                     Err(e) => {
@@ -269,7 +409,8 @@ impl Plugin for SavePlugin {
         app.insert_resource(SaveConfig::default());
         app.init_resource::<SaveState>();
         app.init_resource::<WorldDeltas>();
-        app.add_systems(Startup, load_game);
+        app.init_resource::<AutoSaveTrigger>();
+        app.add_systems(PostStartup, load_game);
         app.add_systems(
             FixedUpdate,
             delta::track_destroyed_entities
@@ -278,8 +419,14 @@ impl Plugin for SavePlugin {
         );
         app.add_systems(
             FixedUpdate,
-            save_game.in_set(crate::core::CoreSet::Events),
+            (
+                check_auto_save_events,
+                save_game,
+            )
+                .chain()
+                .in_set(crate::core::CoreSet::Events),
         );
+        app.add_systems(Last, save_on_exit);
         #[cfg(target_arch = "wasm32")]
         app.add_systems(Startup, warn_saves_disabled_on_wasm);
     }
