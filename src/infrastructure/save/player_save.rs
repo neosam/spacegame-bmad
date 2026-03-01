@@ -125,6 +125,10 @@ pub struct PlayerSave {
     /// Defaults to empty for backward compatibility with v1–v6 saves.
     #[serde(default)]
     pub logbook_entries: Vec<LogbookEntrySave>,
+    /// Cleared wormhole coordinates (chunk [x, y]).
+    /// Defaults to empty for backward compatibility with v1–v7 saves.
+    #[serde(default)]
+    pub cleared_wormholes: Vec<[i32; 2]>,
 }
 
 impl Default for PlayerSave {
@@ -158,6 +162,7 @@ impl Default for PlayerSave {
             upgrade_weapon_energy_efficiency: 0,
             companions: Vec::new(),
             logbook_entries: Vec::new(),
+            cleared_wormholes: Vec::new(),
         }
     }
 }
@@ -205,6 +210,7 @@ impl PlayerSave {
             upgrade_weapon_energy_efficiency: 0,
             companions: Vec::new(),
             logbook_entries: Vec::new(),
+            cleared_wormholes: Vec::new(),
         }
     }
 
@@ -427,6 +433,7 @@ mod tests {
             upgrade_weapon_energy_efficiency: 0,
             companions: Vec::new(),
             logbook_entries: Vec::new(),
+            cleared_wormholes: Vec::new(),
         }
     }
 

@@ -8,6 +8,7 @@ pub mod station;
 pub mod tutorial;
 pub mod upgrades;
 pub mod weapons;
+pub mod wormhole;
 
 use bevy::prelude::*;
 

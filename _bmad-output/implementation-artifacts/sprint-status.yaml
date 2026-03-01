@@ -163,7 +163,7 @@ development_status:
   8-2-severity-filtering: done
   8-3-milestone-chapters: done
   8-4-logbook-save: done
-  epic-8-retrospective: optional
+  epic-8-retrospective: done
 
   # ── Epic 9: Wormhole Mini-Levels (Could | Dependencies: Epic 4, 5) ──
   epic-9: backlog

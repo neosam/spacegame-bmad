@@ -24,6 +24,10 @@
 - Jede neue spielerrelevante Mechanik braucht einen Integrationstest
 - State-Machine-Änderungen: `tutorial_happy_path_full_flow` updaten wenn neue Phasen hinzukommen
 
+### Config-Sync
+
+- **`assets/config/event_severity.ron`** muss bei jedem neuen `GameEventKind`-Variant aktualisiert werden. Fehlende Keys fallen auf `Tier3` zurück und werden vom Logbuch-Filter still herausgefiltert.
+
 ## Technisches Setup
 
 - **Sprache:** Rust, Bevy 0.18.0, lyon_tessellation, bevy_kira_audio

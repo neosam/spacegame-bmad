@@ -15,4 +15,6 @@ pub enum GameState {
 pub enum PlayingSubState {
     #[default]
     Flying,
+    /// Player is inside a wormhole arena. Open-world systems are suspended.
+    InWormhole,
 }

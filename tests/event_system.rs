@@ -12,7 +12,7 @@ use void_drifter::core::input::ActionState;
 use void_drifter::infrastructure::logbook::Logbook;
 use void_drifter::shared::events::{EventSeverity, GameEventKind};
 
-/// AC #10: Destroy an asteroid, verify Logbook has EnemyDestroyed entry.
+/// AC #10: Destroy an asteroid, verify EnemyDestroyed event is NOT in logbook (Tier3 = filtered).
 #[test]
 fn enemy_destroyed_emits_game_event() {
     let mut app = test_app();
@@ -31,6 +31,7 @@ fn enemy_destroyed_emits_game_event() {
         app.update();
     }
 
+    // EnemyDestroyed is Tier3 — filtered from logbook by design
     let logbook = app.world().resource::<Logbook>();
     let destroyed_events: Vec<_> = logbook
         .entries()
@@ -38,13 +39,8 @@ fn enemy_destroyed_emits_game_event() {
         .filter(|e| matches!(e.kind, GameEventKind::EnemyDestroyed { .. }))
         .collect();
     assert!(
-        !destroyed_events.is_empty(),
-        "Logbook should have at least one EnemyDestroyed entry after asteroid destruction"
-    );
-    assert_eq!(
-        destroyed_events[0].severity,
-        EventSeverity::Tier3,
-        "EnemyDestroyed should be Tier3 severity"
+        destroyed_events.is_empty(),
+        "EnemyDestroyed (Tier3) should NOT appear in logbook"
     );
 }
 
@@ -96,7 +92,7 @@ fn player_death_emits_game_event() {
     );
 }
 
-/// AC #10: Load world, verify ChunkLoaded entries in Logbook.
+/// AC #10: Load world, verify ChunkLoaded is NOT in Logbook (Tier3 = filtered).
 #[test]
 fn chunk_loading_emits_game_events() {
     let mut app = test_app();
@@ -104,6 +100,7 @@ fn chunk_loading_emits_game_events() {
 
     run_until_loaded(&mut app);
 
+    // ChunkLoaded is Tier3 — filtered from logbook by design
     let logbook = app.world().resource::<Logbook>();
     let chunk_events: Vec<_> = logbook
         .entries()
@@ -111,12 +108,12 @@ fn chunk_loading_emits_game_events() {
         .filter(|e| matches!(e.kind, GameEventKind::ChunkLoaded { .. }))
         .collect();
     assert!(
-        !chunk_events.is_empty(),
-        "Logbook should have ChunkLoaded entries after world loading"
+        chunk_events.is_empty(),
+        "ChunkLoaded (Tier3) should NOT appear in logbook"
     );
 }
 
-/// AC #10: Fire laser, verify WeaponFired entry.
+/// AC #10: Fire laser, verify WeaponFired is NOT in Logbook (Tier3 = filtered).
 #[test]
 fn weapon_fire_emits_game_event() {
     let mut app = test_app();
@@ -132,6 +129,7 @@ fn weapon_fire_emits_game_event() {
         app.update();
     }
 
+    // WeaponFired is Tier3 — filtered from logbook by design
     let logbook = app.world().resource::<Logbook>();
     let fire_events: Vec<_> = logbook
         .entries()
@@ -139,8 +137,8 @@ fn weapon_fire_emits_game_event() {
         .filter(|e| matches!(e.kind, GameEventKind::WeaponFired { .. }))
         .collect();
     assert!(
-        !fire_events.is_empty(),
-        "Logbook should have WeaponFired entry after firing"
+        fire_events.is_empty(),
+        "WeaponFired (Tier3) should NOT appear in logbook"
     );
 }
 

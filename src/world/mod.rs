@@ -25,6 +25,7 @@ use crate::social::faction::{
     faction_at_position, AggroRange, AttackRange, FacingDirection, FactionId, FleeThreshold,
     PatrolRadius, TurnRate,
 };
+use crate::game_states::PlayingSubState;
 
 // ── World Config ─────────────────────────────────────────────────────────
 
@@ -628,7 +629,9 @@ impl Plugin for WorldPlugin {
         app.add_systems(Startup, init_tutorial_zone_chunks);
         app.add_systems(
             FixedUpdate,
-            update_chunks.before(crate::core::CoreSet::Collision),
+            update_chunks
+                .before(crate::core::CoreSet::Collision)
+                .run_if(in_state(PlayingSubState::Flying)),
         );
     }
 }
