@@ -161,6 +161,8 @@ pub enum SpawnType {
     Fighter,
     HeavyCruiser,
     Sniper,
+    /// Swarm respawn: spawns a new swarm of fighters at the position.
+    Swarm,
 }
 
 /// Timer entity that counts down and then spawns a replacement entity.
@@ -221,6 +223,9 @@ pub struct SpawningConfig {
     pub sniper_radius: f32,
     #[serde(default = "default_sniper_respawn_delay")]
     pub sniper_respawn_delay: f32,
+    // Story 4-12: Swarm respawn delay
+    #[serde(default = "default_swarm_respawn_delay")]
+    pub swarm_respawn_delay: f32,
 }
 
 fn default_fighter_health() -> f32 { 50.0 }
@@ -232,6 +237,7 @@ fn default_heavy_respawn_delay() -> f32 { 15.0 }
 fn default_sniper_health() -> f32 { 40.0 }
 fn default_sniper_radius() -> f32 { 10.0 }
 fn default_sniper_respawn_delay() -> f32 { 10.0 }
+fn default_swarm_respawn_delay() -> f32 { 12.0 }
 
 impl Default for SpawningConfig {
     fn default() -> Self {
@@ -267,6 +273,7 @@ impl Default for SpawningConfig {
             sniper_health: default_sniper_health(),
             sniper_radius: default_sniper_radius(),
             sniper_respawn_delay: default_sniper_respawn_delay(),
+            swarm_respawn_delay: default_swarm_respawn_delay(),
         }
     }
 }
@@ -330,6 +337,7 @@ pub fn spawn_initial_entities(mut commands: Commands, config: Res<SpawningConfig
 /// Runs BEFORE despawn_destroyed in the Damage chain so we can detect entities with
 /// health <= 0 and record their position and spawn type before they are removed.
 /// TutorialEnemy entities are excluded — they must NOT respawn when destroyed.
+/// SwarmFollowers are excluded — only SwarmLeaders trigger swarm respawn.
 #[allow(clippy::type_complexity)]
 pub fn spawn_respawn_timers(
     mut commands: Commands,
@@ -343,10 +351,13 @@ pub fn spawn_respawn_timers(
             Option<&Fighter>,
             Option<&HeavyCruiser>,
             Option<&Sniper>,
+            Option<&SwarmLeader>,
         ),
         (
             Without<Player>,
             Without<crate::core::tutorial::TutorialEnemy>,
+            // SwarmFollowers are intentionally excluded — they die without respawn
+            Without<SwarmFollower>,
             Or<(
                 With<Asteroid>,
                 With<ScoutDrone>,
@@ -357,13 +368,16 @@ pub fn spawn_respawn_timers(
         ),
     >,
 ) {
-    for (health, transform, asteroid, drone, fighter, heavy, sniper) in query.iter() {
+    for (health, transform, asteroid, drone, fighter, heavy, sniper, swarm_leader) in query.iter() {
         if health.current <= 0.0 {
             let position = Vec2::new(transform.translation.x, transform.translation.y);
             let (spawn_type, delay) = if asteroid.is_some() {
                 (SpawnType::Asteroid, config.respawn_delay)
             } else if drone.is_some() {
                 (SpawnType::ScoutDrone, config.respawn_delay)
+            } else if swarm_leader.is_some() {
+                // Story 4-12: SwarmLeader respawns as a new swarm
+                (SpawnType::Swarm, config.swarm_respawn_delay)
             } else if fighter.is_some() {
                 (SpawnType::Fighter, config.fighter_respawn_delay)
             } else if heavy.is_some() {
@@ -469,6 +483,11 @@ pub fn tick_respawn_timers(
                         Velocity(Vec2::ZERO),
                         Transform::from_translation(timer.position.extend(0.0)),
                     ));
+                }
+                SpawnType::Swarm => {
+                    // Story 4-12: Respawn a new swarm of 3 fighters at the leader's last position
+                    let swarm_id = (timer.position.x as u32).wrapping_add(timer.position.y as u32);
+                    spawn_swarm(&mut commands, timer.position, swarm_id, 3, &config);
                 }
             }
             commands.entity(entity).despawn();
@@ -1234,5 +1253,162 @@ mod tests {
             .iter(app.world())
             .count();
         assert!(fighter_count <= 5, "Swarm count should be clamped to max 5, got {fighter_count}");
+    }
+
+    // ── Story 4-12: Enemy Respawn tests ──
+
+    #[test]
+    fn spawning_config_default_has_swarm_respawn_delay() {
+        let config = SpawningConfig::default();
+        assert!(
+            config.swarm_respawn_delay > 0.0,
+            "swarm_respawn_delay should be positive, got {}",
+            config.swarm_respawn_delay
+        );
+    }
+
+    #[test]
+    fn spawn_type_swarm_variant_exists() {
+        // Verify SpawnType::Swarm is usable (compile-time check via pattern match)
+        let spawn_type = SpawnType::Swarm;
+        let is_swarm = matches!(spawn_type, SpawnType::Swarm);
+        assert!(is_swarm, "SpawnType::Swarm should exist and match");
+    }
+
+    #[test]
+    fn swarm_follower_excluded_from_respawn_timers() {
+        use bevy::time::TimeUpdateStrategy;
+        use std::time::Duration;
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)));
+        app.insert_resource(SpawningConfig::default());
+        app.add_systems(
+            bevy::app::Update,
+            (spawn_respawn_timers, despawn_destroyed_for_test).chain(),
+        );
+        app.update(); // prime
+
+        // Spawn a dummy leader entity so SwarmFollower has a valid Entity reference
+        let dummy_leader = app.world_mut().spawn(()).id();
+
+        // Spawn a SwarmFollower with 0 health — it should NOT trigger a RespawnTimer
+        let _follower = app.world_mut().spawn((
+            Fighter,
+            SwarmFollower { leader: dummy_leader },
+            Swarm { swarm_id: 1 },
+            crate::core::collision::Health { current: 0.0, max: 50.0 },
+            crate::core::collision::Collider { radius: 12.0 },
+            crate::shared::components::Velocity(Vec2::ZERO),
+            Transform::default(),
+        )).id();
+
+        app.update();
+
+        let respawn_count = app
+            .world_mut()
+            .query::<&RespawnTimer>()
+            .iter(app.world())
+            .count();
+        assert_eq!(respawn_count, 0, "SwarmFollower should not create a RespawnTimer, got {respawn_count}");
+    }
+
+    #[test]
+    fn swarm_leader_destroyed_creates_swarm_respawn_timer() {
+        use bevy::time::TimeUpdateStrategy;
+        use std::time::Duration;
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)));
+        app.insert_resource(SpawningConfig::default());
+        app.add_systems(
+            bevy::app::Update,
+            (spawn_respawn_timers, despawn_destroyed_for_test).chain(),
+        );
+        app.update(); // prime
+
+        // Spawn a SwarmLeader with 0 health
+        let _leader = app.world_mut().spawn((
+            Fighter,
+            SwarmLeader,
+            Swarm { swarm_id: 42 },
+            crate::core::collision::Health { current: 0.0, max: 100.0 },
+            crate::core::collision::Collider { radius: 12.0 },
+            crate::shared::components::Velocity(Vec2::ZERO),
+            Transform::default(),
+        )).id();
+
+        app.update();
+
+        let respawn_timers: Vec<_> = app
+            .world_mut()
+            .query::<&RespawnTimer>()
+            .iter(app.world())
+            .collect();
+        assert_eq!(respawn_timers.len(), 1, "SwarmLeader should create exactly one RespawnTimer");
+        assert_eq!(
+            respawn_timers[0].spawn_type,
+            SpawnType::Swarm,
+            "RespawnTimer for SwarmLeader should have SpawnType::Swarm"
+        );
+    }
+
+    #[test]
+    fn swarm_respawn_timer_spawns_new_swarm() {
+        use bevy::time::TimeUpdateStrategy;
+        use std::time::Duration;
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        // Use 1-second frames so timer expires quickly
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(15.0)));
+        app.insert_resource(SpawningConfig::default());
+        app.add_systems(bevy::app::Update, tick_respawn_timers);
+        app.update(); // prime
+
+        // Manually create a Swarm respawn timer
+        app.world_mut().spawn(RespawnTimer {
+            timer: 0.01, // nearly expired
+            spawn_type: SpawnType::Swarm,
+            position: Vec2::new(100.0, 200.0),
+        });
+
+        app.update(); // timer expires, spawns swarm
+
+        // New swarm should contain Fighters
+        let fighter_count = app
+            .world_mut()
+            .query_filtered::<Entity, With<Fighter>>()
+            .iter(app.world())
+            .count();
+        assert!(
+            fighter_count >= 3,
+            "Swarm respawn should spawn at least 3 fighters, got {fighter_count}"
+        );
+
+        // Swarm timer entity should be despawned
+        let timer_count = app
+            .world_mut()
+            .query::<&RespawnTimer>()
+            .iter(app.world())
+            .count();
+        assert_eq!(timer_count, 0, "RespawnTimer entity should be despawned after swarm spawn");
+    }
+}
+
+/// Helper system for tests: despawns entities with health <= 0 (simplified version).
+#[cfg(test)]
+fn despawn_destroyed_for_test(
+    mut commands: Commands,
+    query: Query<(Entity, &crate::core::collision::Health)>,
+) {
+    for (entity, health) in query.iter() {
+        if health.current <= 0.0 {
+            if let Ok(mut e) = commands.get_entity(entity) {
+                e.despawn();
+            }
+        }
     }
 }
