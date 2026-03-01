@@ -159,10 +159,10 @@ impl Default for CompanionFlight {
     fn default() -> Self {
         Self {
             angle: 0.0,
-            turn_rate: 3.5,
-            thrust_force: 220.0,
-            max_speed: 200.0,
-            drag: 2.5,
+            turn_rate: 6.0,    // schneller drehen (war 3.5)
+            thrust_force: 400.0, // mehr Schub (war 220)
+            max_speed: 320.0,  // höhere Maximalgeschwindigkeit (war 200)
+            drag: 1.5,         // weniger Bremsung (war 2.5)
         }
     }
 }
