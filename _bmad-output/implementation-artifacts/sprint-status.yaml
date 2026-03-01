@@ -86,7 +86,7 @@ development_status:
   # ── Epic 3: Stations & Economy (Must | Dependencies: Epic 1) ──
   epic-3: in-progress
   3-1-station-docking: done
-  3-2-station-shop-ui: backlog
+  3-2-station-shop-ui: done
   3-3-earn-credits: backlog
   3-4-material-drops: backlog
   3-5-death-credit-loss: backlog

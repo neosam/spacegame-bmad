@@ -10,7 +10,7 @@ use crate::core::camera::camera_follow_player;
 use crate::core::collision::{Collider, Health};
 use crate::core::flight::Player;
 use crate::core::spawning::{NeedsAsteroidVisual, NeedsDroneVisual, SpawningConfig};
-use crate::core::station::NeedsStationVisual;
+use crate::core::station::{Docked, NeedsStationVisual, Station};
 use crate::core::tutorial::{generate_tutorial_zone, GravityWellBoundary, GravityWellGenerator, TutorialConfig, TutorialStation, TutorialWreck};
 use crate::core::weapons::{
     ActiveWeapon, Energy, FireCooldown, NeedsLaserVisual, NeedsProjectileVisual, WeaponConfig,
@@ -116,6 +116,12 @@ impl Plugin for RenderingPlugin {
                 update_tutorial_station_visual,
                 trigger_damage_flash,
             ),
+        );
+
+        // Station Shop UI: spawn on dock, despawn on undock
+        app.add_systems(
+            Update,
+            (spawn_station_ui, despawn_station_ui).chain(),
         );
 
         // Update systems: visual effects + minimap
@@ -522,4 +528,117 @@ fn setup_player(
         MeshMaterial2d(material_handle),
         Transform::from_translation(spawn_pos),
     ));
+}
+
+// ── Station Shop UI ──────────────────────────────────────────────────────
+
+/// Marker component placed on the root UI entity of the station shop panel.
+/// Used for despawning and test queries.
+#[derive(Component, Debug)]
+pub struct StationUiRoot;
+
+/// Spawns a station shop UI panel when the player gains a `Docked` component.
+///
+/// Reacts to `Added<Docked>` — fires on the frame the player docks.
+/// Looks up the station name from the `Docked.station` entity reference.
+pub fn spawn_station_ui(
+    player_query: Query<&Docked, (Added<Docked>, With<Player>)>,
+    station_query: Query<&Station>,
+    mut commands: Commands,
+) {
+    let Ok(docked) = player_query.single() else {
+        return;
+    };
+
+    // Look up station name; fall back gracefully if station entity is missing
+    let station_name = station_query
+        .get(docked.station)
+        .map(|s| s.name)
+        .unwrap_or("Unknown Station");
+
+    // Root panel — full-width strip anchored to the bottom of the screen
+    let root = commands
+        .spawn((
+            StationUiRoot,
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Px(180.0),
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(0.0),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                padding: UiRect::all(Val::Px(12.0)),
+                row_gap: Val::Px(6.0),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.05, 0.05, 0.15, 0.88)),
+            GlobalZIndex(50),
+        ))
+        .id();
+
+    // Station name title
+    let title = commands
+        .spawn((
+            Text(station_name.to_string()),
+            TextFont {
+                font_size: 22.0,
+                ..default()
+            },
+            TextColor(Color::WHITE),
+        ))
+        .id();
+
+    // Shop row (placeholder)
+    let shop_row = commands
+        .spawn((
+            Text("Shop  —  coming in Story 3-3".to_string()),
+            TextFont {
+                font_size: 16.0,
+                ..default()
+            },
+            TextColor(Color::srgba(0.7, 0.7, 0.7, 1.0)),
+        ))
+        .id();
+
+    // Repair row (placeholder)
+    let repair_row = commands
+        .spawn((
+            Text("Repair  —  not yet available".to_string()),
+            TextFont {
+                font_size: 16.0,
+                ..default()
+            },
+            TextColor(Color::srgba(0.7, 0.7, 0.7, 1.0)),
+        ))
+        .id();
+
+    // Hint
+    let hint = commands
+        .spawn((
+            Text("Press E to undock".to_string()),
+            TextFont {
+                font_size: 13.0,
+                ..default()
+            },
+            TextColor(Color::srgba(0.5, 0.5, 0.5, 1.0)),
+        ))
+        .id();
+
+    commands
+        .entity(root)
+        .add_children(&[title, shop_row, repair_row, hint]);
+}
+
+/// Despawns all `StationUiRoot` entities when the player's `Docked` component is removed.
+pub fn despawn_station_ui(
+    mut removed: RemovedComponents<Docked>,
+    query: Query<Entity, With<StationUiRoot>>,
+    mut commands: Commands,
+) {
+    if removed.read().next().is_some() {
+        for entity in query.iter() {
+            commands.entity(entity).despawn();
+        }
+    }
 }
