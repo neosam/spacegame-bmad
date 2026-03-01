@@ -1,9 +1,9 @@
-# Sprint Report — Epic 9: Wormhole Mini-Levels
+# Sprint Report — Epic 10: Art & Audio Polish (Iteration 1)
 
 **Datum:** 2026-03-01
-**Epic:** 9 — Wormhole Mini-Levels
-**Tests bei Sprint-Start:** 723 (nach Epic 8)
-**Tests bei Sprint-Ende:** 756 (+33)
+**Epic:** 10 — Art & Audio Polish
+**Tests bei Sprint-Start:** 756 (nach Epic 9)
+**Tests bei Sprint-Ende:** 788 (+32)
 
 ---
 
@@ -11,13 +11,15 @@
 
 | Story | Titel | Status | Tests |
 |-------|-------|--------|-------|
-| 9-5 | Isolated Scene Architecture | ✅ done | +5 (728) |
-| 9-1 | Wormhole Visuals | ✅ done | +6 (734) |
-| 9-2 | Enter Wormhole | ✅ done | +8 (742) |
-| 9-3 | Arena Combat | ✅ done | +9 (751) |
-| 9-4 | Arena Rewards | ✅ done | +5 (756) |
+| 10-4 | Atmospheric Background | ✅ done | +3 (759) |
+| 10-2 | Visual & Audio Juice | ✅ done | +5 (764) |
+| 10-1 | Vector Art (Ship-Varianten) | ✅ done | +10 (774) |
+| 10-5 | Music Crossfade | ✅ done | +5 (779) |
+| 10-3 | Juice Settings | ✅ done | +6 (785) |
+| 10-6 | Ambient Audio | ✅ done | +3 (788) |
 
-**5 / 5 Stories abgeschlossen (100%)**
+**6 / 6 Stories abgeschlossen (100%)**
+**Parallelisierung:** 10-4, 10-2, 10-1, 10-5 parallel implementiert.
 
 ---
 
@@ -25,54 +27,56 @@
 
 | Datei | Änderung |
 |-------|----------|
-| `src/game_states.rs` | `PlayingSubState::InWormhole` hinzugefügt |
-| `src/core/wormhole.rs` | Neue Datei: `WormholeEntrance`, `ArenaState`, `Wormhole`, `ArenaEnemy`, `ArenaBoundary`, `ClearedWormholes`, alle Arena-Systeme |
-| `src/core/mod.rs` | `wormhole` Modul, alle Arena-Systeme registriert |
-| `src/world/mod.rs` | `update_chunks .run_if(Flying)`, Wormhole-Spawn beim Chunk-Load |
-| `src/social/mod.rs` | Boss-AI Systeme `.run_if(Flying)` — laufen nicht in Arena |
-| `src/rendering/mod.rs` | `WormholeAssets`, `attach_wormhole_visual` (Cyan/Grau) |
-| `src/shared/events.rs` | `WormholeEntered { coord }`, `WormholeCleared { coord }` Events |
-| `src/infrastructure/events.rs` | Neue Events in Default-Mappings + `severity_for()` |
-| `src/infrastructure/save/player_save.rs` | `cleared_wormholes: Vec<[i32; 2]>`, Save/Load-Integration |
-| `assets/config/event_severity.ron` | `WormholeEntered: Tier1`, `WormholeCleared: Tier1` |
+| `src/rendering/background.rs` | `NebulaConfig`, `setup_nebula_background`, 4. Starfield-Layer |
+| `src/rendering/effects.rs` | `ThrusterParticle`, `ThrusterAssets`, `JuiceSettings`, alle Juice-Systeme |
+| `src/rendering/vector_art.rs` | Tier-basierte Spieler-Meshes (3 Silhouetten), `generate_scout_drone_mesh()` |
+| `src/rendering/mod.rs` | Alle neuen Systeme registriert |
+| `src/infrastructure/audio.rs` | `MusicState`, `MusicTrack`, `AudioAssets`, `AudioInfrastructurePlugin`, `play_event_sfx` |
+| `src/infrastructure/mod.rs` | `audio` Modul exportiert |
+| `assets/config/juice.ron` | Neue Config-Datei für visuelle Effekte |
 
 ---
 
 ## Feature-Überblick
 
-### State-basierte Isolation
-`PlayingSubState::InWormhole` trennt Arena-Gameplay vollständig vom Open-World-Betrieb:
-- Chunk-Loading pausiert (`.run_if(Flying)`)
-- Boss-AI pausiert (`.run_if(Flying)`)
-- Arena-Systeme laufen nur in `InWormhole`
+### Atmospheric Background (10-4)
+- 4. Starfield-Layer: sehr dim, sehr langsame Parallax (0.005) für Tiefenwirkung
+- 5 statische Nebula-Wolken (Radius 400–1200) in blau-lila, orange-rot, cyan-grün
+- `NebulaConfig { enabled, base_alpha }` zum Ein/Ausschalten
 
-### Wormhole-Spawn
-- Hash-basiert deterministisch, ca. 1/8 Chunks ab Distanz >= 2
-- Pulsierender Cyan-Kreis (Radius 40), Grau wenn gecleared
-- Beim Chunk-Unload/-Load: Cleared-Status aus `ClearedWormholes` Resource persistent
+### Visual Juice (10-2)
+- Thruster-Trail: orange Partikel (radius 3) am Schiff-Heck wenn velocity > 10
+- Fade-out über 0.15s, max 20 Partikel gleichzeitig
+- Laser-Impact-Flash: bereits vorhanden, keine Änderung nötig
 
-### Arena-Mechanik
-- 3 Wellen: ScoutDrones → Fighters → HeavyCruisers
-- Kreisförmige Arena (Radius 800), Boundary-Enforcement (Position clamp + Velocity reset)
-- Alle Arena-Feinde mit `ArenaEnemy` markiert → sauberes Cleanup bei Exit
-- Player respawnt bei Tod in Arena an `WormholeEntrance.world_position`
+### Juice Settings (10-3)
+- `assets/config/juice.ron` — 5 Toggle-Felder
+- `JuiceSettings` Resource, aus RON geladen (Fallback: Default)
+- Alle Juice-Systeme respektieren ihre Settings-Flags
 
-### Rewards & Persistence
-- Credits: `calculate_arena_reward(distance)` → 200–1000 Credits
-- 3–5 MaterialDrops bei Completion
-- `cleared_wormholes: Vec<[i32; 2]>` in PlayerSave (SAVE_VERSION 8)
-- Gecleared Wormholes bleiben permanent inaktiv (grau, nicht betretbar)
+### Vector Art (10-1)
+- `generate_player_mesh(tier)`: 3 Silhouetten — Tier 1–2 (original), Tier 3–4 (breitere Flügel), Tier 5 (Doppelflügel)
+- `generate_scout_drone_mesh()`: gleichseitiges Dreieck (neu)
+- Fighter, HeavyCruiser, Boss hatten bereits faction-spezifische Meshes
 
----
+### Music Crossfade (10-5)
+- `bevy_kira_audio::AudioPlugin` registriert (kein Konflikt da Bevy ohne default audio features)
+- `MusicState` enum: None/Exploration/Combat/Arena/Docked
+- `detect_music_state`: InWormhole → Arena, Flying → Exploration
 
-## Carry-Over Action Items
-
-| Item | Priorität | Status |
-|------|-----------|--------|
-| End-to-End-Test Enemy-Schüsse (Epic 7 Retro) | Medium | Offen |
-| Boss-Spawn auf Noise-basiert (Epic 7 Retro) | Low | Backlog |
-| Config-Sync DoD: `event_severity.ron` bei neuen Events | High | ✅ Eingehalten |
+### Ambient Audio (10-6)
+- `AudioAssets`: 7 SFX-Slots (alle Optional, graceful wenn Dateien fehlen)
+- `play_event_sfx`: WeaponFired, EnemyDestroyed, PlayerDeath, StationDocked, WormholeEntered → SFX
+- Lazy Loading via AssetServer — kein Crash ohne .ogg-Dateien
 
 ---
 
-## Tests: 756 — alle grün ✅
+## Hinweis: Simon Playtest erforderlich
+
+Gemäß Epic-10-DoD ist Simon's Playtest-Feedback das primäre Acceptance Criteria. Dieser Sprint hat die technische Infrastruktur geliefert — der Playtest entscheidet ob weitere Iteration nötig ist.
+
+**Keine echten Audio-Assets vorhanden** — Audio-Infrastruktur compiliert und läuft, aber es sind noch `.ogg`-Dateien in `assets/audio/sfx/` einzupflegen für tatsächlichen Sound.
+
+---
+
+## Tests: 788 — alle grün ✅

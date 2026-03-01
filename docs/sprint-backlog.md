@@ -12,12 +12,12 @@
 
 | Story ID | Titel | Status | Abhängigkeiten |
 |----------|-------|:------:|----------------|
-| 10-4 | Atmospheric Background | todo | keine |
-| 10-2 | Visual & Audio Juice | todo | keine |
-| 10-3 | Juice Settings | todo | 10-2 |
-| 10-1 | Vector Art (Ship-Varianten) | todo | keine |
-| 10-5 | Music Crossfade | todo | keine |
-| 10-6 | Ambient Audio | todo | 10-5 |
+| 10-4 | Atmospheric Background | done | keine |
+| 10-2 | Visual & Audio Juice | done | keine |
+| 10-3 | Juice Settings | done | 10-2 |
+| 10-1 | Vector Art (Ship-Varianten) | done | keine |
+| 10-5 | Music Crossfade | done | keine |
+| 10-6 | Ambient Audio | done | 10-5 |
 
 **Parallelisierung:** 10-4, 10-2, 10-1 und 10-5 können parallel starten.
 
