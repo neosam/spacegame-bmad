@@ -338,7 +338,7 @@ Modified files:
 **Date:** 2026-02-27
 **Outcome:** Approved after fixes
 
-### Findings (6 fixed, 4 low noted)
+### Review 1 Findings (6 fixed, 4 low noted)
 - **H1 FIXED:** `track_destroyed_entities` was missing from test_app — added to helpers/mod.rs chain + wrote E2E integration test `e2e_damage_track_save_load_filters_entity`
 - **M1 FIXED:** Removed unused `WorldDeltas` import in delta_roundtrip.rs
 - **M2 FIXED:** Added `warn!()` for missing WorldDeltas in `apply_to_world()` (world_save.rs)
@@ -350,7 +350,15 @@ Modified files:
 - **L3 NOTED:** proptest `world_save_delta_roundtrip` can generate duplicate destroyed indices
 - **L4 NOTED:** Migration unit test uses inline RON, not golden fixture
 
+### Review 2 Findings (1 fixed, 4 low noted) — 2026-02-28
+- **M1 FIXED:** `WorldSave::from_ron` now uses two-phase deserialization — corrupt chunk_deltas are discarded with `warn!()` while preserving explored_chunks (architecture: "corrupt deltas → regenerate from seed"). Added 2 tests: `world_save_corrupt_deltas_recovers_core_fields`, `world_save_fully_corrupt_still_errors`.
+- **L1 NOTED:** `destroyed.contains()` in update_chunks is O(n) linear scan — HashSet would be faster at scale
+- **L2 NOTED:** `destroyed` Vec within ChunkDelta is unsorted (non-deterministic serialization)
+- **L3 NOTED:** E2E tests duplicate ~25 lines of app setup — could extract helper
+- **L4 NOTED:** proptest `world_save_delta_roundtrip` only tests single chunk at (0,0)
+
 ## Change Log
 
 - 2026-02-27: Story 1.9 Delta-Based Save implemented. Added delta types (SeedIndex, SeededEntityId, ChunkDelta, WorldDeltas), destroyed entity tracking, WorldSave chunk_deltas field, schema v1→v2 migration, delta filtering on chunk load, proptest roundtrip, golden v1 fixture. 22 new tests (304 total).
 - 2026-02-27: Code review fixes — added track_destroyed_entities to test_app, E2E pipeline test, removed unused import, added warn!() for missing WorldDeltas, documented check_version design, expanded proptest coordinates, fixed File List. 305 total tests.
+- 2026-02-28: Code review 2 fix — graceful degradation for corrupt chunk_deltas in WorldSave::from_ron (two-phase deserialization). 2 new tests. 307 total tests.

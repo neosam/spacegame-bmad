@@ -129,12 +129,40 @@ impl WorldSave {
     }
 
     /// Deserializes from RON with version check and auto-migration.
+    /// Graceful degradation: if chunk_deltas is corrupt but core fields are valid,
+    /// discards deltas and warns (architecture: "corrupt deltas → regenerate from seed").
     pub fn from_ron(ron_str: &str) -> Result<Self, SaveError> {
         let version = check_version(ron_str)?;
         if version == 1 {
             return super::migration::migrate_world_v1_to_v2(ron_str);
         }
-        ron::from_str(ron_str).map_err(|e| SaveError::ParseError(format!("{e}")))
+        match ron::from_str::<WorldSave>(ron_str) {
+            Ok(save) => Ok(save),
+            Err(full_err) => {
+                // Try parsing without chunk_deltas (graceful degradation)
+                #[derive(Deserialize)]
+                struct WorldSaveCore {
+                    schema_version: u32,
+                    seed: u64,
+                    explored_chunks: Vec<((i32, i32), String)>,
+                }
+                match ron::from_str::<WorldSaveCore>(ron_str) {
+                    Ok(core) => {
+                        warn!(
+                            "Corrupt chunk_deltas in save file, discarding deltas: {full_err}. \
+                             Destroyed entities will regenerate from seed."
+                        );
+                        Ok(WorldSave {
+                            schema_version: core.schema_version,
+                            seed: core.seed,
+                            explored_chunks: core.explored_chunks,
+                            chunk_deltas: Vec::new(),
+                        })
+                    }
+                    Err(_) => Err(SaveError::ParseError(format!("{full_err}"))),
+                }
+            }
+        }
     }
 }
 
@@ -259,5 +287,32 @@ mod tests {
         let restored = WorldSave::from_ron(&ron_str).expect("Should deserialize");
 
         assert!(restored.chunk_deltas.is_empty());
+    }
+
+    #[test]
+    fn world_save_corrupt_deltas_recovers_core_fields() {
+        // Valid core fields but malformed chunk_deltas
+        let ron_str = r#"(
+            schema_version: 2,
+            seed: 42,
+            explored_chunks: [
+                ((0, 0), "DeepSpace"),
+                ((1, 0), "AsteroidField"),
+            ],
+            chunk_deltas: "NOT_A_VALID_DELTA_LIST",
+        )"#;
+
+        let save = WorldSave::from_ron(ron_str)
+            .expect("Should recover core fields despite corrupt deltas");
+        assert_eq!(save.schema_version, SAVE_VERSION);
+        assert_eq!(save.seed, 42);
+        assert_eq!(save.explored_chunks.len(), 2);
+        assert!(save.chunk_deltas.is_empty(), "Corrupt deltas should be discarded");
+    }
+
+    #[test]
+    fn world_save_fully_corrupt_still_errors() {
+        let result = WorldSave::from_ron("completely invalid {{ garbage");
+        assert!(result.is_err(), "Fully corrupt save should return error");
     }
 }
