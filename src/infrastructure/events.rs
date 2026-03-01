@@ -123,6 +123,11 @@ pub fn record_game_events(
     mut logbook: ResMut<Logbook>,
 ) {
     for event in events.read() {
+        // Tier3 events (WeaponFired, ChunkLoaded, EnemyDestroyed etc.) are
+        // too noisy — only record events the player actually cares about.
+        if event.severity == EventSeverity::Tier3 {
+            continue;
+        }
         let label = event_kind_label(&event.kind);
         logbook.push(LogbookEntry {
             kind: event.kind.clone(),

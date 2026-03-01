@@ -116,7 +116,6 @@ impl Plugin for RenderingPlugin {
 
         // Epic 8: Logbook UI
         app.init_resource::<LogbookUiOpen>();
-        app.init_resource::<LogbookFilter>();
         app.init_resource::<LogbookMilestones>();
         app.add_systems(Update, (
             toggle_logbook_ui,
@@ -1614,14 +1613,6 @@ pub fn update_boss_warning_visual(
 #[derive(Resource, Default, Debug)]
 pub struct LogbookUiOpen(pub bool);
 
-/// Filter level for the logbook display.
-#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LogbookFilter {
-    #[default]
-    ImportantOnly, // Tier1 + Tier2
-    All,           // Tier1 + Tier2 + Tier3
-}
-
 /// Milestone flags tracked for chapter headings.
 #[derive(Resource, Default, Debug)]
 pub struct LogbookMilestones {
@@ -1639,20 +1630,13 @@ pub struct LogbookUiRoot;
 #[derive(Component, Debug)]
 pub struct LogbookContentNode;
 
-/// Toggles the logbook on L key press. Tab cycles filter when open.
+/// Toggles the logbook on L key press.
 pub fn toggle_logbook_ui(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut logbook_open: ResMut<LogbookUiOpen>,
-    mut filter: ResMut<LogbookFilter>,
 ) {
     if keyboard.just_pressed(KeyCode::KeyL) {
         logbook_open.0 = !logbook_open.0;
-    }
-    if logbook_open.0 && keyboard.just_pressed(KeyCode::Tab) {
-        *filter = match *filter {
-            LogbookFilter::ImportantOnly => LogbookFilter::All,
-            LogbookFilter::All => LogbookFilter::ImportantOnly,
-        };
     }
 }
 
@@ -1708,12 +1692,11 @@ fn milestone_heading_for(entry_idx: usize, logbook: &Logbook) -> Option<&'static
 /// Spawns the logbook UI overlay when `LogbookUiOpen` becomes true.
 pub fn spawn_logbook_ui(
     logbook_open: Res<LogbookUiOpen>,
-    filter: Res<LogbookFilter>,
     logbook: Res<Logbook>,
     existing: Query<Entity, With<LogbookUiRoot>>,
     mut commands: Commands,
 ) {
-    if !logbook_open.is_changed() && !filter.is_changed() && !logbook.is_changed() {
+    if !logbook_open.is_changed() && !logbook.is_changed() {
         return;
     }
     // Despawn existing UI before rebuilding
@@ -1724,20 +1707,12 @@ pub fn spawn_logbook_ui(
         return;
     }
 
-    let filter_label = match *filter {
-        LogbookFilter::ImportantOnly => "Important",
-        LogbookFilter::All => "All",
-    };
-    let header_text = format!("LOGBUCH  [Filter: {}]  L=Schließen  Tab=Filter", filter_label);
+    let header_text = "LOGBUCH  [L] Schließen".to_string();
 
-    // Collect visible entries (filtered, last 30)
+    // Show last 30 entries (Logbook already contains only Tier1+Tier2)
     let all_entries: Vec<_> = logbook.entries().iter().enumerate().collect();
     let visible: Vec<_> = all_entries
         .iter()
-        .filter(|(_, e)| match *filter {
-            LogbookFilter::ImportantOnly => e.severity != EventSeverity::Tier3,
-            LogbookFilter::All => true,
-        })
         .rev()
         .take(30)
         .collect::<Vec<_>>()
@@ -1831,27 +1806,6 @@ pub fn spawn_logbook_ui(
                 .id();
             commands.entity(root).add_child(row);
         }
-    }
-}
-
-/// Rebuilds logbook UI if logbook data changed while open.
-pub fn update_logbook_ui(
-    logbook_open: Res<LogbookUiOpen>,
-    logbook: Res<Logbook>,
-    filter: Res<LogbookFilter>,
-    existing: Query<Entity, With<LogbookUiRoot>>,
-    mut commands: Commands,
-) {
-    if !logbook_open.0 {
-        return;
-    }
-    if logbook.is_changed() || filter.is_changed() {
-        for entity in existing.iter() {
-            commands.entity(entity).despawn();
-        }
-        // spawn_logbook_ui will rebuild on next frame because logbook_open doesn't change
-        // We mark it changed via a dummy — instead just leave despawn and let spawn handle it
-        // Actually spawn_logbook_ui checks logbook.is_changed() so it will run.
     }
 }
 
