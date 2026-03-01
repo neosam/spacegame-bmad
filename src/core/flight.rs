@@ -12,6 +12,20 @@ pub struct FlightConfig {
     pub max_speed: f32,
     pub drag_coefficient: f32,
     pub rotation_speed: f32,
+    /// Fraction of chunk generation speed at which the speed cap fully engages.
+    #[serde(default = "default_speed_cap_fraction")]
+    pub speed_cap_fraction: f32,
+    /// Deceleration lerp factor when speed exceeds the cap (0..1, higher = slower decel).
+    #[serde(default = "default_speed_cap_decel")]
+    pub speed_cap_decel: f32,
+}
+
+fn default_speed_cap_fraction() -> f32 {
+    0.85
+}
+
+fn default_speed_cap_decel() -> f32 {
+    0.92
 }
 
 impl Default for FlightConfig {
@@ -21,6 +35,8 @@ impl Default for FlightConfig {
             max_speed: 400.0,
             drag_coefficient: 1.5,
             rotation_speed: 5.0,
+            speed_cap_fraction: default_speed_cap_fraction(),
+            speed_cap_decel: default_speed_cap_decel(),
         }
     }
 }
@@ -96,6 +112,70 @@ pub fn apply_drag(
         // Stop completely if near zero to avoid floating point drift
         if velocity.0.length_squared() < 0.01 {
             velocity.0 = Vec2::ZERO;
+        }
+    }
+}
+
+/// Compute the maximum speed at which chunks can be generated fast enough.
+/// `chunk_size * max_chunks_per_frame * fixed_hz / load_radius`
+pub fn compute_chunk_gen_speed(
+    world_config: &crate::world::WorldConfig,
+    timestep_secs: f32,
+) -> Option<f32> {
+    if timestep_secs <= 0.0 {
+        return None;
+    }
+    Some(
+        world_config.chunk_size
+            * world_config.max_chunks_per_frame as f32
+            * (1.0 / timestep_secs)
+            / world_config.load_radius as f32,
+    )
+}
+
+/// Startup validation: warns if max_speed exceeds chunk generation capacity.
+pub fn validate_speed_cap(
+    config: Res<FlightConfig>,
+    world_config: Res<crate::world::WorldConfig>,
+    time: Res<Time<Fixed>>,
+) {
+    let Some(chunk_gen_speed) =
+        compute_chunk_gen_speed(&world_config, time.timestep().as_secs_f32())
+    else {
+        return;
+    };
+    let capped_max = chunk_gen_speed * config.speed_cap_fraction;
+
+    if config.max_speed > capped_max {
+        warn!(
+            "FlightConfig: max_speed ({}) exceeds chunk generation capacity ({}). Speed will be soft-capped at {}.",
+            config.max_speed, chunk_gen_speed, capped_max
+        );
+    }
+}
+
+/// Clamp player speed to prevent outrunning chunk generation.
+/// Applies smooth deceleration (lerp) when speed exceeds the computed cap.
+/// Cap = min(max_speed, chunk_gen_speed * speed_cap_fraction).
+pub fn clamp_speed(
+    config: Res<FlightConfig>,
+    world_config: Res<crate::world::WorldConfig>,
+    time: Res<Time<Fixed>>,
+    mut query: Query<&mut Velocity, With<Player>>,
+) {
+    let Some(chunk_gen_speed) =
+        compute_chunk_gen_speed(&world_config, time.timestep().as_secs_f32())
+    else {
+        return;
+    };
+    let effective_cap = (chunk_gen_speed * config.speed_cap_fraction).min(config.max_speed);
+    let decel = config.speed_cap_decel.clamp(0.0, 1.0);
+
+    for mut velocity in query.iter_mut() {
+        let speed = velocity.0.length();
+        if speed > effective_cap {
+            let target_speed = speed.lerp(effective_cap, 1.0 - decel);
+            velocity.0 = velocity.0.normalize_or_zero() * target_speed;
         }
     }
 }
@@ -300,6 +380,281 @@ mod tests {
         assert_eq!(config.max_speed, 200.0);
         assert_eq!(config.drag_coefficient, 1.0);
         assert_eq!(config.rotation_speed, 3.0);
+    }
+
+    fn setup_speed_cap_test_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<ActionState>();
+        app.insert_resource(FlightConfig::default());
+        app.insert_resource(crate::world::WorldConfig::default());
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
+            1.0 / 60.0,
+        )));
+        // Prime time — first frame always has dt=0
+        app.update();
+        app
+    }
+
+    /// Fixed timestep used in speed cap test app (must match setup_speed_cap_test_app).
+    const TEST_FIXED_TIMESTEP: f32 = 1.0 / 64.0;
+
+    /// Compute effective_cap from WorldConfig defaults and test timestep.
+    fn compute_test_effective_cap(flight_config: &FlightConfig) -> f32 {
+        let wc = crate::world::WorldConfig::default();
+        let chunk_gen_speed = compute_chunk_gen_speed(&wc, TEST_FIXED_TIMESTEP)
+            .expect("timestep should be positive");
+        (chunk_gen_speed * flight_config.speed_cap_fraction).min(flight_config.max_speed)
+    }
+
+    #[test]
+    fn clamp_speed_limits_velocity_above_cap() {
+        let mut app = setup_speed_cap_test_app();
+
+        // Make max_speed very high so chunk_gen cap engages instead
+        let mut config = app.world_mut().resource_mut::<FlightConfig>();
+        config.max_speed = 200_000.0;
+        let effective_cap = compute_test_effective_cap(&config);
+
+        let entity = spawn_player(&mut app);
+
+        let above_cap_speed = effective_cap * 1.08;
+        app.world_mut()
+            .entity_mut(entity)
+            .get_mut::<Velocity>()
+            .expect("Player should have Velocity")
+            .0 = Vec2::new(0.0, above_cap_speed);
+
+        app.add_systems(FixedUpdate, clamp_speed);
+        app.update();
+
+        let velocity = app
+            .world()
+            .entity(entity)
+            .get::<Velocity>()
+            .expect("Player should have Velocity");
+        assert!(
+            velocity.0.length() < above_cap_speed,
+            "clamp_speed should reduce velocity when above cap, got {}",
+            velocity.0.length()
+        );
+    }
+
+    #[test]
+    fn clamp_speed_does_nothing_below_cap() {
+        let mut app = setup_speed_cap_test_app();
+        let entity = spawn_player(&mut app);
+
+        let config = app.world().resource::<FlightConfig>().clone();
+        let effective_cap = compute_test_effective_cap(&config);
+        let below_cap_speed = effective_cap * 0.5;
+
+        app.world_mut()
+            .entity_mut(entity)
+            .get_mut::<Velocity>()
+            .expect("Player should have Velocity")
+            .0 = Vec2::new(0.0, below_cap_speed);
+
+        app.add_systems(FixedUpdate, clamp_speed);
+        app.update();
+
+        let velocity = app
+            .world()
+            .entity(entity)
+            .get::<Velocity>()
+            .expect("Player should have Velocity");
+        assert!(
+            (velocity.0.length() - below_cap_speed).abs() < f32::EPSILON,
+            "clamp_speed should not modify velocity below cap, got {}",
+            velocity.0.length()
+        );
+    }
+
+    #[test]
+    fn clamp_speed_smooth_deceleration() {
+        let mut app = setup_speed_cap_test_app();
+
+        let mut config = app.world_mut().resource_mut::<FlightConfig>();
+        config.max_speed = 200_000.0;
+        let effective_cap = compute_test_effective_cap(&config);
+
+        let entity = spawn_player(&mut app);
+
+        let above_cap_speed = effective_cap * 1.08;
+        app.world_mut()
+            .entity_mut(entity)
+            .get_mut::<Velocity>()
+            .expect("Player should have Velocity")
+            .0 = Vec2::new(0.0, above_cap_speed);
+
+        app.add_systems(FixedUpdate, clamp_speed);
+        app.update();
+
+        let velocity = app
+            .world()
+            .entity(entity)
+            .get::<Velocity>()
+            .expect("Player should have Velocity");
+        let speed_after_one_frame = velocity.0.length();
+
+        // Should NOT hard-cut to cap — should be between cap and original speed
+        assert!(
+            speed_after_one_frame > effective_cap,
+            "Should not hard-cut to cap (smooth deceleration), got {}",
+            speed_after_one_frame
+        );
+        assert!(
+            speed_after_one_frame < above_cap_speed,
+            "Should be reducing toward cap, got {}",
+            speed_after_one_frame
+        );
+    }
+
+    #[test]
+    fn speed_cap_config_defaults_when_missing_from_ron() {
+        // RON without speed_cap fields — serde defaults should apply
+        let ron_str = "(thrust_power: 100.0, max_speed: 200.0, drag_coefficient: 1.0, rotation_speed: 3.0)";
+        let config = FlightConfig::from_ron(ron_str).expect("Should parse RON without speed cap fields");
+        assert!(
+            (config.speed_cap_fraction - 0.85).abs() < f32::EPSILON,
+            "speed_cap_fraction should default to 0.85"
+        );
+        assert!(
+            (config.speed_cap_decel - 0.92).abs() < f32::EPSILON,
+            "speed_cap_decel should default to 0.92"
+        );
+    }
+
+    #[test]
+    fn validate_speed_cap_condition_true_when_max_speed_exceeds_chunk_gen() {
+        // Directly test the condition that triggers the warning
+        let wc = crate::world::WorldConfig::default();
+        let chunk_gen_speed = compute_chunk_gen_speed(&wc, TEST_FIXED_TIMESTEP)
+            .expect("timestep should be positive");
+        let capped_max = chunk_gen_speed * default_speed_cap_fraction();
+
+        let high_max_speed = 200_000.0;
+        assert!(
+            high_max_speed > capped_max,
+            "max_speed {} should exceed capped_max {} to trigger warning",
+            high_max_speed, capped_max
+        );
+    }
+
+    #[test]
+    fn validate_speed_cap_condition_false_when_below() {
+        // Directly test the condition — default max_speed should NOT trigger warning
+        let wc = crate::world::WorldConfig::default();
+        let chunk_gen_speed = compute_chunk_gen_speed(&wc, TEST_FIXED_TIMESTEP)
+            .expect("timestep should be positive");
+        let capped_max = chunk_gen_speed * default_speed_cap_fraction();
+
+        let config = FlightConfig::default();
+        assert!(
+            config.max_speed <= capped_max,
+            "default max_speed {} should not exceed capped_max {}",
+            config.max_speed, capped_max
+        );
+    }
+
+    #[test]
+    fn validate_speed_cap_system_runs_without_panic() {
+        let mut app = setup_speed_cap_test_app();
+
+        let mut config = app.world_mut().resource_mut::<FlightConfig>();
+        config.max_speed = 200_000.0;
+
+        app.add_systems(Startup, validate_speed_cap);
+        app.update();
+        // System ran without panic — warning emitted (log capture not feasible in unit tests)
+    }
+
+    #[test]
+    fn flight_config_default_includes_speed_cap_fields() {
+        let config = FlightConfig::default();
+        assert!(
+            (config.speed_cap_fraction - 0.85).abs() < f32::EPSILON,
+            "Default speed_cap_fraction should be 0.85"
+        );
+        assert!(
+            (config.speed_cap_decel - 0.92).abs() < f32::EPSILON,
+            "Default speed_cap_decel should be 0.92"
+        );
+    }
+
+    #[test]
+    fn compute_chunk_gen_speed_returns_none_for_zero_timestep() {
+        let wc = crate::world::WorldConfig::default();
+        assert!(
+            compute_chunk_gen_speed(&wc, 0.0).is_none(),
+            "Should return None for zero timestep"
+        );
+    }
+
+    #[test]
+    fn clamp_speed_hard_cut_when_decel_zero() {
+        let mut app = setup_speed_cap_test_app();
+
+        let mut config = app.world_mut().resource_mut::<FlightConfig>();
+        config.max_speed = 200_000.0;
+        config.speed_cap_decel = 0.0; // lerp factor = 1.0 → instant snap
+        let effective_cap = compute_test_effective_cap(&config);
+
+        let entity = spawn_player(&mut app);
+
+        let above_cap_speed = effective_cap * 1.5;
+        app.world_mut()
+            .entity_mut(entity)
+            .get_mut::<Velocity>()
+            .expect("Player should have Velocity")
+            .0 = Vec2::new(0.0, above_cap_speed);
+
+        app.add_systems(FixedUpdate, clamp_speed);
+        app.update();
+
+        let velocity = app
+            .world()
+            .entity(entity)
+            .get::<Velocity>()
+            .expect("Player should have Velocity");
+        assert!(
+            (velocity.0.length() - effective_cap).abs() < 1.0,
+            "decel=0.0 should snap to cap, got {} (expected ~{})",
+            velocity.0.length(), effective_cap
+        );
+    }
+
+    #[test]
+    fn clamp_speed_no_decel_when_decel_one() {
+        let mut app = setup_speed_cap_test_app();
+
+        let mut config = app.world_mut().resource_mut::<FlightConfig>();
+        config.max_speed = 200_000.0;
+        config.speed_cap_decel = 1.0; // lerp factor = 0.0 → no movement
+        let effective_cap = compute_test_effective_cap(&config);
+
+        let entity = spawn_player(&mut app);
+
+        let above_cap_speed = effective_cap * 1.5;
+        app.world_mut()
+            .entity_mut(entity)
+            .get_mut::<Velocity>()
+            .expect("Player should have Velocity")
+            .0 = Vec2::new(0.0, above_cap_speed);
+
+        app.add_systems(FixedUpdate, clamp_speed);
+        app.update();
+
+        let velocity = app
+            .world()
+            .entity(entity)
+            .get::<Velocity>()
+            .expect("Player should have Velocity");
+        assert!(
+            (velocity.0.length() - above_cap_speed).abs() < 1.0,
+            "decel=1.0 should not decelerate, got {} (expected ~{})",
+            velocity.0.length(), above_cap_speed
+        );
     }
 
 }

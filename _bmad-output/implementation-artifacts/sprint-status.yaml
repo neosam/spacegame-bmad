@@ -64,7 +64,7 @@ development_status:
   1-8-save-system: done
   1-9-delta-save: done
   1-10-wasm-build: done
-  1-11-soft-speed-cap: backlog
+  1-11-soft-speed-cap: done
   epic-1-retrospective: optional
 
   # ── Epic 2: Tutorial Zone (Must | Dependencies: Epic 1) ──

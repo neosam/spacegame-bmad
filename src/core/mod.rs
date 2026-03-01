@@ -13,7 +13,7 @@ use self::collision::{
     despawn_destroyed, handle_player_death, tick_contact_cooldown, tick_invincibility, DamageQueue,
     DestroyedPositions, LaserHitPositions,
 };
-use self::flight::{apply_drag, apply_rotation, apply_thrust, apply_velocity, FlightConfig};
+use self::flight::{apply_drag, apply_rotation, apply_thrust, apply_velocity, clamp_speed, validate_speed_cap, FlightConfig};
 use self::input::{read_input, ActionState};
 use self::spawning::{
     drift_entities, spawn_respawn_timers, tick_respawn_timers,
@@ -129,6 +129,17 @@ impl Plugin for CorePlugin {
             (apply_thrust, apply_rotation, apply_drag, apply_velocity)
                 .chain()
                 .in_set(CoreSet::Physics),
+        );
+
+        // Startup validation: warn if max_speed exceeds chunk generation capacity
+        app.add_systems(Startup, validate_speed_cap);
+
+        // Speed clamping after Physics, before Collision
+        app.add_systems(
+            FixedUpdate,
+            clamp_speed
+                .after(CoreSet::Physics)
+                .before(CoreSet::Collision),
         );
 
         // Weapon systems after Physics, before Collision
