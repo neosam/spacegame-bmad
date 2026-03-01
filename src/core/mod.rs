@@ -23,8 +23,8 @@ use self::spawning::{
 use self::tutorial::{
     advance_phase_on_wreck_shot, apply_gravity_well, check_generator_destroyed,
     check_tutorial_wave_complete, dock_at_station, spawn_tutorial_enemies, spawn_tutorial_zone,
-    start_destruction_cascade, tick_cascade_timer, update_weapons_lock, TutorialConfig,
-    TutorialPhase,
+    start_destruction_cascade, tick_cascade_timer, update_weapons_lock, validate_tutorial_config,
+    TutorialConfig, TutorialPhase,
 };
 use self::weapons::{
     fire_weapon, move_spread_projectiles, regenerate_energy, switch_weapon, tick_fire_cooldown,
@@ -163,6 +163,9 @@ impl Plugin for CorePlugin {
 
         // Startup validation: warn if max_speed exceeds chunk generation capacity
         app.add_systems(Startup, validate_speed_cap);
+
+        // Startup validation: warn if any TutorialConfig constraint is violated
+        app.add_systems(Startup, validate_tutorial_config);
 
         // Gravity well pull after Physics, before Collision
         app.add_systems(

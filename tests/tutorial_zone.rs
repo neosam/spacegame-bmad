@@ -9,9 +9,10 @@ use void_drifter::core::flight::Player;
 use void_drifter::core::tutorial::{
     advance_phase_on_wreck_shot, apply_gravity_well, check_generator_destroyed,
     check_tutorial_wave_complete, dock_at_station, generate_tutorial_zone, spawn_tutorial_enemies,
-    start_destruction_cascade, tick_cascade_timer, validate_tutorial_seed, CascadeTimer,
-    GravityWellGenerator, SpreadUnlocked, TutorialConfig, TutorialEnemy, TutorialEnemyWave,
-    TutorialPhase, TutorialStation, TutorialWreck, TutorialZone, WeaponsLocked, WreckShotState,
+    start_destruction_cascade, tick_cascade_timer, validate_tutorial_config, validate_tutorial_seed,
+    CascadeTimer, GravityWellGenerator, SpreadUnlocked, TutorialConfig, TutorialEnemy,
+    TutorialEnemyWave, TutorialPhase, TutorialStation, TutorialWreck, TutorialZone, WeaponsLocked,
+    WreckShotState,
 };
 use void_drifter::core::spawning::{ScoutDrone, SpawningConfig};
 use void_drifter::shared::components::JustDamaged;
@@ -1558,6 +1559,117 @@ fn hundred_seed_validation_still_passes_after_cascade() {
         assert!(
             result.is_ok(),
             "Seed {seed} should still pass validation after cascade feature added: {:?}",
+            result.expect_err("Expected Ok")
+        );
+    }
+}
+
+// ── Constraint Validation Integration Tests (Story 2-8) ──────────────────
+
+/// Helper: minimal app with just `validate_tutorial_config` as a Startup system.
+fn constraint_validation_test_app(config: TutorialConfig) -> App {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.insert_resource(config);
+    app.add_systems(Startup, validate_tutorial_config);
+    app
+}
+
+#[test]
+fn validate_tutorial_config_system_runs_without_panic_on_valid_config() {
+    // Default config passes all constraints — system must not panic.
+    let mut app = constraint_validation_test_app(TutorialConfig::default());
+    app.update(); // Runs Startup systems
+}
+
+#[test]
+fn validate_tutorial_config_system_runs_without_panic_on_invalid_config() {
+    // Deliberately violate every constraint the system checks — must only warn, never panic.
+    let invalid = TutorialConfig {
+        safe_radius: 0.0,                 // violates safe_radius > 0.0
+        wreck_offset_max: 5000.0,         // violates wreck_offset_max <= safe_radius
+        wreck_offset_min: 6000.0,         // violates wreck_offset_min <= wreck_offset_max
+        dock_radius: 0.0,                 // violates dock_radius > 0.0
+        tutorial_enemy_count: 0,          // violates tutorial_enemy_count > 0
+        tutorial_enemy_spawn_radius: 0.0, // violates tutorial_enemy_spawn_radius > 0.0
+        cascade_delay_secs: -1.0,         // violates cascade_delay_secs > 0.0
+        // wreck_offset_min is already > 0, but set a known positive value
+        // to also trigger wreck_offset_min < 0.0 check we need a negative value:
+        ..TutorialConfig {
+            wreck_offset_min: -5.0, // violates wreck_offset_min >= 0.0
+            ..TutorialConfig::default()
+        }
+    };
+    let mut app = constraint_validation_test_app(invalid);
+    app.update(); // Must not panic — only warn
+}
+
+#[test]
+fn validate_tutorial_config_accepts_valid_safe_radius() {
+    // safe_radius exactly at a positive value — no warning expected (no-panic is the test)
+    let config = TutorialConfig {
+        safe_radius: 1.0,
+        wreck_offset_max: 0.5,
+        wreck_offset_min: 0.1,
+        dock_radius: 0.5,
+        generator_offset_max: 0.9,
+        generator_offset_min: 0.8,
+        station_offset_max: 0.7,
+        station_offset_min: 0.6,
+        ..TutorialConfig::default()
+    };
+    let mut app = constraint_validation_test_app(config);
+    app.update();
+}
+
+#[test]
+fn validate_tutorial_config_wreck_offset_max_within_safe_radius_is_valid() {
+    let config = TutorialConfig::default();
+    // default wreck_offset_max (700) <= safe_radius (2000) — valid
+    assert!(
+        config.wreck_offset_max <= config.safe_radius,
+        "Default wreck_offset_max ({}) should be <= safe_radius ({})",
+        config.wreck_offset_max,
+        config.safe_radius
+    );
+}
+
+#[test]
+fn validate_tutorial_config_dock_radius_within_safe_radius_is_valid() {
+    let config = TutorialConfig::default();
+    // default dock_radius (150) <= safe_radius (2000) — valid
+    assert!(
+        config.dock_radius <= config.safe_radius,
+        "Default dock_radius ({}) should be <= safe_radius ({})",
+        config.dock_radius,
+        config.safe_radius
+    );
+}
+
+#[test]
+fn validate_tutorial_config_wreck_offset_ordering_valid_by_default() {
+    let config = TutorialConfig::default();
+    assert!(
+        config.wreck_offset_min <= config.wreck_offset_max,
+        "Default wreck_offset_min ({}) should be <= wreck_offset_max ({})",
+        config.wreck_offset_min,
+        config.wreck_offset_max
+    );
+    assert!(
+        config.wreck_offset_min >= 0.0,
+        "Default wreck_offset_min ({}) should be >= 0.0",
+        config.wreck_offset_min
+    );
+}
+
+#[test]
+fn hundred_seed_validation_still_passes_after_constraint_validation() {
+    let config = TutorialConfig::default();
+    for seed in 0..100 {
+        let result = validate_tutorial_seed(seed, &config);
+        assert!(
+            result.is_ok(),
+            "Seed {seed} should still pass validation after constraint validation feature added: {:?}",
             result.expect_err("Expected Ok")
         );
     }

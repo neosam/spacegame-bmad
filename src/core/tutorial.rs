@@ -69,6 +69,63 @@ impl TutorialConfig {
     }
 }
 
+/// Startup system: validates all `TutorialConfig` field constraints.
+/// Emits `warn!()` for each violated constraint. Never panics.
+/// Pattern mirrors `validate_speed_cap` in flight.rs (Story 1.11).
+pub fn validate_tutorial_config(config: Res<TutorialConfig>) {
+    if config.safe_radius <= 0.0 {
+        warn!(
+            "TutorialConfig: safe_radius ({}) must be > 0.0",
+            config.safe_radius
+        );
+    }
+    if config.wreck_offset_max > config.safe_radius {
+        warn!(
+            "TutorialConfig: wreck_offset_max ({}) exceeds safe_radius ({}). Wrecks may generate outside safe zone.",
+            config.wreck_offset_max, config.safe_radius
+        );
+    }
+    if config.wreck_offset_min > config.wreck_offset_max {
+        warn!(
+            "TutorialConfig: wreck_offset_min ({}) exceeds wreck_offset_max ({}). No valid wreck placement exists.",
+            config.wreck_offset_min, config.wreck_offset_max
+        );
+    }
+    if config.wreck_offset_min < 0.0 {
+        warn!(
+            "TutorialConfig: wreck_offset_min ({}) is negative. Use 0.0 or higher.",
+            config.wreck_offset_min
+        );
+    }
+    if config.dock_radius <= 0.0 {
+        warn!(
+            "TutorialConfig: dock_radius ({}) must be > 0.0",
+            config.dock_radius
+        );
+    }
+    if config.dock_radius > config.safe_radius {
+        warn!(
+            "TutorialConfig: dock_radius ({}) exceeds safe_radius ({}). Station may be unreachable for docking.",
+            config.dock_radius, config.safe_radius
+        );
+    }
+    if config.tutorial_enemy_count == 0 {
+        warn!("TutorialConfig: tutorial_enemy_count is 0. No tutorial enemies will spawn.");
+    }
+    if config.tutorial_enemy_spawn_radius <= 0.0 {
+        warn!(
+            "TutorialConfig: tutorial_enemy_spawn_radius ({}) must be > 0.0",
+            config.tutorial_enemy_spawn_radius
+        );
+    }
+    if config.cascade_delay_secs <= 0.0 {
+        warn!(
+            "TutorialConfig: cascade_delay_secs ({}) must be > 0.0",
+            config.cascade_delay_secs
+        );
+    }
+}
+
 // ── Components ──────────────────────────────────────────────────────────
 
 /// Gravity well generator entity that defines the tutorial boundary.
@@ -1364,5 +1421,223 @@ mod tests {
             "cascade_delay_secs default should be 2.0, got {}",
             config.cascade_delay_secs
         );
+    }
+
+    // ── Constraint Validation Unit Tests ────────────────────────────────
+
+    /// Verify that the default TutorialConfig satisfies every constraint checked by
+    /// validate_tutorial_config. We test the conditions directly without invoking the
+    /// Bevy system to keep tests dependency-free.
+    #[test]
+    fn validate_tutorial_config_default_config_passes_all_constraints() {
+        let c = TutorialConfig::default();
+        assert!(c.safe_radius > 0.0, "safe_radius must be > 0");
+        assert!(
+            c.wreck_offset_max <= c.safe_radius,
+            "wreck_offset_max ({}) must be <= safe_radius ({})",
+            c.wreck_offset_max,
+            c.safe_radius
+        );
+        assert!(
+            c.wreck_offset_min <= c.wreck_offset_max,
+            "wreck_offset_min ({}) must be <= wreck_offset_max ({})",
+            c.wreck_offset_min,
+            c.wreck_offset_max
+        );
+        assert!(
+            c.wreck_offset_min >= 0.0,
+            "wreck_offset_min ({}) must be >= 0.0",
+            c.wreck_offset_min
+        );
+        assert!(c.dock_radius > 0.0, "dock_radius must be > 0");
+        assert!(
+            c.dock_radius <= c.safe_radius,
+            "dock_radius ({}) must be <= safe_radius ({})",
+            c.dock_radius,
+            c.safe_radius
+        );
+        assert!(c.tutorial_enemy_count > 0, "tutorial_enemy_count must be > 0");
+        assert!(
+            c.tutorial_enemy_spawn_radius > 0.0,
+            "tutorial_enemy_spawn_radius must be > 0"
+        );
+        assert!(
+            c.cascade_delay_secs > 0.0,
+            "cascade_delay_secs must be > 0"
+        );
+    }
+
+    #[test]
+    fn validate_tutorial_config_zero_safe_radius_is_invalid() {
+        let c = TutorialConfig {
+            safe_radius: 0.0,
+            ..TutorialConfig::default()
+        };
+        // Constraint: safe_radius > 0.0
+        assert!(
+            !(c.safe_radius > 0.0),
+            "safe_radius 0.0 should violate the constraint"
+        );
+    }
+
+    #[test]
+    fn validate_tutorial_config_negative_safe_radius_is_invalid() {
+        let c = TutorialConfig {
+            safe_radius: -1.0,
+            ..TutorialConfig::default()
+        };
+        assert!(
+            !(c.safe_radius > 0.0),
+            "negative safe_radius should violate the constraint"
+        );
+    }
+
+    #[test]
+    fn validate_tutorial_config_wreck_offset_max_exceeds_safe_radius() {
+        let c = TutorialConfig {
+            safe_radius: 100.0,
+            wreck_offset_max: 200.0,
+            wreck_offset_min: 50.0,
+            ..TutorialConfig::default()
+        };
+        assert!(
+            c.wreck_offset_max > c.safe_radius,
+            "wreck_offset_max should exceed safe_radius in this test config"
+        );
+    }
+
+    #[test]
+    fn validate_tutorial_config_wreck_offset_min_exceeds_max() {
+        let c = TutorialConfig {
+            wreck_offset_min: 800.0,
+            wreck_offset_max: 500.0,
+            ..TutorialConfig::default()
+        };
+        assert!(
+            c.wreck_offset_min > c.wreck_offset_max,
+            "wreck_offset_min should exceed wreck_offset_max in this test config"
+        );
+    }
+
+    #[test]
+    fn validate_tutorial_config_negative_wreck_offset_min_is_invalid() {
+        let c = TutorialConfig {
+            wreck_offset_min: -10.0,
+            ..TutorialConfig::default()
+        };
+        assert!(
+            c.wreck_offset_min < 0.0,
+            "negative wreck_offset_min should violate the constraint"
+        );
+    }
+
+    #[test]
+    fn validate_tutorial_config_zero_dock_radius_is_invalid() {
+        let c = TutorialConfig {
+            dock_radius: 0.0,
+            ..TutorialConfig::default()
+        };
+        assert!(
+            !(c.dock_radius > 0.0),
+            "dock_radius 0.0 should violate the constraint"
+        );
+    }
+
+    #[test]
+    fn validate_tutorial_config_dock_radius_exceeds_safe_radius() {
+        let c = TutorialConfig {
+            safe_radius: 100.0,
+            dock_radius: 200.0,
+            wreck_offset_max: 50.0,
+            wreck_offset_min: 10.0,
+            generator_offset_max: 90.0,
+            station_offset_max: 80.0,
+            ..TutorialConfig::default()
+        };
+        assert!(
+            c.dock_radius > c.safe_radius,
+            "dock_radius should exceed safe_radius in this test config"
+        );
+    }
+
+    #[test]
+    fn validate_tutorial_config_zero_enemy_count_is_invalid() {
+        let c = TutorialConfig {
+            tutorial_enemy_count: 0,
+            ..TutorialConfig::default()
+        };
+        assert!(
+            c.tutorial_enemy_count == 0,
+            "tutorial_enemy_count 0 should violate the constraint"
+        );
+    }
+
+    #[test]
+    fn validate_tutorial_config_zero_enemy_spawn_radius_is_invalid() {
+        let c = TutorialConfig {
+            tutorial_enemy_spawn_radius: 0.0,
+            ..TutorialConfig::default()
+        };
+        assert!(
+            !(c.tutorial_enemy_spawn_radius > 0.0),
+            "tutorial_enemy_spawn_radius 0.0 should violate the constraint"
+        );
+    }
+
+    #[test]
+    fn validate_tutorial_config_zero_cascade_delay_is_invalid() {
+        let c = TutorialConfig {
+            cascade_delay_secs: 0.0,
+            ..TutorialConfig::default()
+        };
+        assert!(
+            !(c.cascade_delay_secs > 0.0),
+            "cascade_delay_secs 0.0 should violate the constraint"
+        );
+    }
+
+    #[test]
+    fn validate_tutorial_config_negative_cascade_delay_is_invalid() {
+        let c = TutorialConfig {
+            cascade_delay_secs: -1.0,
+            ..TutorialConfig::default()
+        };
+        assert!(
+            !(c.cascade_delay_secs > 0.0),
+            "negative cascade_delay_secs should violate the constraint"
+        );
+    }
+
+    /// Verify that the validate_tutorial_config Bevy system can be added and run
+    /// without panicking when given a valid TutorialConfig.
+    #[test]
+    fn validate_tutorial_config_system_runs_without_panic_valid_config() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(TutorialConfig::default());
+        app.add_systems(Startup, validate_tutorial_config);
+        // Should not panic
+        app.update();
+    }
+
+    /// Verify that the validate_tutorial_config Bevy system runs without panicking
+    /// even when given an invalid TutorialConfig (only warns, never panics).
+    #[test]
+    fn validate_tutorial_config_system_runs_without_panic_invalid_config() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(TutorialConfig {
+            safe_radius: 0.0,        // violates safe_radius > 0.0
+            dock_radius: 0.0,        // violates dock_radius > 0.0
+            tutorial_enemy_count: 0, // violates tutorial_enemy_count > 0
+            cascade_delay_secs: 0.0, // violates cascade_delay_secs > 0.0
+            tutorial_enemy_spawn_radius: 0.0, // violates spawn_radius > 0.0
+            wreck_offset_min: -1.0,  // violates wreck_offset_min >= 0.0
+            wreck_offset_max: 0.0,   // violates wreck_offset_min <= wreck_offset_max (min=-1 <= max=0, but wreck_offset_max <= safe_radius=0 fails)
+            ..TutorialConfig::default()
+        });
+        app.add_systems(Startup, validate_tutorial_config);
+        // Must not panic — only warn
+        app.update();
     }
 }

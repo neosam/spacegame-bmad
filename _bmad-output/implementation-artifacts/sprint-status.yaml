@@ -68,7 +68,7 @@ development_status:
   epic-1-retrospective: done
 
   # ── Epic 2: Tutorial Zone (Must | Dependencies: Epic 1) ──
-  epic-2: in-progress
+  epic-2: done
   2-1-tutorial-spawn: done
   2-2-gravity-well: done
   2-3-laser-at-wreck: done
@@ -76,7 +76,7 @@ development_status:
   2-5-station-spread-weapon: done
   2-6-destroy-generator: done
   2-7-destruction-cascade: done
-  2-8-constraint-validation: backlog
+  2-8-constraint-validation: done
   epic-2-retrospective: optional
 
   # ── Epic 3: Stations & Economy (Must | Dependencies: Epic 1) ──
