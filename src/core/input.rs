@@ -49,6 +49,11 @@ pub fn read_input(
         action_state.switch_weapon = true;
     }
 
+    // Keyboard: interact (rising edge only) — dock at stations
+    if keyboard.just_pressed(KeyCode::KeyE) {
+        action_state.interact = true;
+    }
+
     // Keyboard: save (rising edge only)
     if keyboard.just_pressed(KeyCode::F5) {
         action_state.save = true;
@@ -83,6 +88,11 @@ pub fn read_input(
         // Note: In Bevy 0.18, GamepadButton::LeftTrigger maps to the Left Bumper (LB) button
         if gamepad.just_pressed(GamepadButton::LeftTrigger) {
             action_state.switch_weapon = true;
+        }
+
+        // Interact: East button (rising edge only) — dock at stations
+        if gamepad.just_pressed(GamepadButton::East) {
+            action_state.interact = true;
         }
     }
 
@@ -253,5 +263,23 @@ mod tests {
 
         let state = app.world().resource::<ActionState>();
         assert_eq!(state.rotate, -1.0);
+    }
+
+    #[test]
+    fn read_input_e_key_sets_interact() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<ActionState>();
+        app.init_resource::<ButtonInput<KeyCode>>();
+        app.add_systems(Update, read_input);
+
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyE);
+
+        app.update();
+
+        let state = app.world().resource::<ActionState>();
+        assert!(state.interact, "E key should set interact to true");
     }
 }

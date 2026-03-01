@@ -59,6 +59,8 @@ pub fn determine_biome(seed: u64, coord: ChunkCoord, config: &BiomeConfig) -> Bi
 pub enum BlueprintType {
     Asteroid,
     ScoutDrone,
+    /// Open-world trading station (rare spawn, ~5% per WreckField chunk)
+    Station,
 }
 
 /// Describes a single entity to spawn within a chunk.
@@ -71,6 +73,9 @@ pub struct EntityBlueprint {
     pub radius: f32,
     pub biome: BiomeType,
 }
+
+/// Probability (0.0–1.0) that a WreckField chunk contains a trading station.
+const STATION_SPAWN_CHANCE: f32 = 0.05;
 
 // ── Generation ──────────────────────────────────────────────────────────
 
@@ -126,6 +131,23 @@ pub fn generate_chunk_content(
             radius: params.drone_radius,
             biome,
         });
+    }
+
+    // Occasionally spawn a trading station in WreckField chunks (~5% chance)
+    if biome == BiomeType::WreckField {
+        let station_roll: f32 = rng.random_range(0.0..1.0);
+        if station_roll < STATION_SPAWN_CHANCE {
+            let x = chunk_origin.x + rng.random_range(0.0..chunk_size);
+            let y = chunk_origin.y + rng.random_range(0.0..chunk_size);
+            blueprints.push(EntityBlueprint {
+                entity_type: BlueprintType::Station,
+                position: Vec2::new(x, y),
+                velocity: Vec2::ZERO,
+                health: 0.0,
+                radius: 35.0,
+                biome,
+            });
+        }
     }
 
     blueprints
@@ -223,7 +245,10 @@ mod tests {
         let blueprints = generate_chunk_content(TEST_SEED, coord, TEST_CHUNK_SIZE, biome, &config);
 
         for bp in &blueprints {
-            assert!(bp.health > 0.0);
+            // Stations have no health (they are not destructible in story 3-1)
+            if bp.entity_type != BlueprintType::Station {
+                assert!(bp.health > 0.0, "Entity {:?} should have positive health", bp.entity_type);
+            }
             assert!(bp.radius > 0.0);
             assert_eq!(bp.biome, biome);
             let speed = bp.velocity.length();
@@ -248,6 +273,13 @@ mod tests {
                         "Drone speed {speed} should be in [{}, {}]",
                         params.drone_velocity_min,
                         params.drone_velocity_max
+                    );
+                }
+                BlueprintType::Station => {
+                    // Stations are static, no velocity constraint
+                    assert!(
+                        speed < f32::EPSILON,
+                        "Station should have zero velocity, got {speed}"
                     );
                 }
             }
@@ -317,6 +349,10 @@ mod tests {
                         (speed - 15.0).abs() < 0.01,
                         "Drone speed should be 15.0 when min==max, got {speed}"
                     );
+                }
+                BlueprintType::Station => {
+                    // Stations have zero velocity
+                    assert!(speed < f32::EPSILON, "Station speed should be 0, got {speed}");
                 }
             }
         }

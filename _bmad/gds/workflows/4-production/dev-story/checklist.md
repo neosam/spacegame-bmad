@@ -55,6 +55,12 @@ validation-rules:
 - [ ] **Review Follow-ups:** All review follow-up tasks (marked [AI-Review]) completed and corresponding review items marked resolved (if applicable)
 - [ ] **Story Structure Compliance:** Only permitted sections of story file were modified
 
+## 🎮 Playability Check
+
+- [ ] **Player-facing entities are visible:** Any entity the player must see or interact with has rendering components (Mesh2d + MeshMaterial2d) — no invisible gameplay objects
+- [ ] **Game flow intact:** The tutorial happy-path test (`tutorial_happy_path_full_flow`) passes — no phase transitions broken
+- [ ] **Core loop playable:** Player can fly, shoot, and interact with the story's new feature without being blocked by a missing prerequisite
+
 ## 🔚 Final Status Verification
 
 - [ ] **Story Status Updated:** Story Status set to "review"

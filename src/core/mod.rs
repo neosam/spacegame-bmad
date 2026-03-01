@@ -3,6 +3,7 @@ pub mod collision;
 pub mod flight;
 pub mod input;
 pub mod spawning;
+pub mod station;
 pub mod tutorial;
 pub mod weapons;
 
@@ -20,6 +21,7 @@ use self::spawning::{
     drift_entities, spawn_respawn_timers, tick_respawn_timers,
     SpawningConfig,
 };
+use self::station::{update_docking, update_undocking};
 use self::tutorial::{
     advance_phase_on_wreck_shot, apply_gravity_well, check_generator_destroyed,
     check_tutorial_wave_complete, dock_at_station, spawn_tutorial_enemies, spawn_tutorial_zone,
@@ -245,6 +247,14 @@ impl Plugin for CorePlugin {
                 drift_entities,
             )
                 .after(CoreSet::Damage),
+        );
+
+        // Station docking/undocking: runs in CoreSet::Events (update_docking before update_undocking)
+        app.add_systems(
+            FixedUpdate,
+            (update_docking, update_undocking)
+                .chain()
+                .in_set(CoreSet::Events),
         );
 
         // Flying → Shooting trigger: runs in CoreSet::Events, fires once when player reaches wreck

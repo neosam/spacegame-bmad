@@ -15,6 +15,7 @@ use std::collections::VecDeque;
 use crate::core::collision::{Collider, Health};
 use crate::core::flight::Player;
 use crate::core::spawning::{Asteroid, NeedsAsteroidVisual, NeedsDroneVisual, ScoutDrone};
+use crate::core::station::{NeedsStationVisual, Station, StationType};
 use crate::infrastructure::events::EventSeverityConfig;
 use crate::infrastructure::save::delta::{SeedIndex, WorldDeltas};
 use crate::shared::components::Velocity;
@@ -372,6 +373,20 @@ pub fn update_chunks(
                             max: blueprint.health,
                         },
                         Velocity(blueprint.velocity),
+                        Transform::from_translation(blueprint.position.extend(0.0)),
+                        chunk_marker,
+                        biome,
+                        seed_index,
+                    ))
+                    .id(),
+                generation::BlueprintType::Station => commands
+                    .spawn((
+                        Station {
+                            name: "Trading Post",
+                            dock_radius: 120.0,
+                            station_type: StationType::Trading,
+                        },
+                        NeedsStationVisual,
                         Transform::from_translation(blueprint.position.extend(0.0)),
                         chunk_marker,
                         biome,

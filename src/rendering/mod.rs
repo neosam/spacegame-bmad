@@ -10,6 +10,7 @@ use crate::core::camera::camera_follow_player;
 use crate::core::collision::{Collider, Health};
 use crate::core::flight::Player;
 use crate::core::spawning::{NeedsAsteroidVisual, NeedsDroneVisual, SpawningConfig};
+use crate::core::station::NeedsStationVisual;
 use crate::core::tutorial::{generate_tutorial_zone, GravityWellBoundary, GravityWellGenerator, TutorialConfig, TutorialStation, TutorialWreck};
 use crate::core::weapons::{
     ActiveWeapon, Energy, FireCooldown, NeedsLaserVisual, NeedsProjectileVisual, WeaponConfig,
@@ -87,6 +88,7 @@ impl Plugin for RenderingPlugin {
                 setup_projectile_assets,
                 setup_asteroid_assets,
                 setup_drone_assets,
+                setup_station_assets,
                 setup_tutorial_station_assets,
                 setup_tutorial_wreck_assets,
                 setup_tutorial_generator_assets,
@@ -106,6 +108,7 @@ impl Plugin for RenderingPlugin {
                 render_spread_projectiles,
                 render_asteroids,
                 render_drones,
+                render_stations,
                 render_tutorial_stations,
                 render_tutorial_wrecks,
                 render_tutorial_generators,
@@ -443,6 +446,44 @@ pub fn setup_gravity_well_boundary_visual(
             Mesh2d(mesh),
             MeshMaterial2d(material),
         ));
+    }
+}
+
+/// Cached mesh and material handles for open-world Station entities.
+#[derive(Resource)]
+struct StationAssets {
+    mesh: Handle<Mesh>,
+    material: Handle<ColorMaterial>,
+}
+
+/// Initialize Station visual assets once at startup.
+/// Uses a larger hexagon (radius 35) in a distinct medium-teal color
+/// so open-world stations are visually different from TutorialStation.
+fn setup_station_assets(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let mesh = meshes.add(generate_tutorial_station_mesh(35.0));
+    // Medium-teal: distinct from tutorial station (dim/bright teal)
+    let material = materials.add(ColorMaterial::from(Color::srgb(0.2, 0.7, 0.6)));
+    commands.insert_resource(StationAssets { mesh, material });
+}
+
+/// Attaches cached mesh and material to newly spawned Station entities (NeedsStationVisual).
+fn render_stations(
+    mut commands: Commands,
+    assets: Res<StationAssets>,
+    query: Query<Entity, With<NeedsStationVisual>>,
+) {
+    for entity in query.iter() {
+        commands
+            .entity(entity)
+            .insert((
+                Mesh2d(assets.mesh.clone()),
+                MeshMaterial2d(assets.material.clone()),
+            ))
+            .remove::<NeedsStationVisual>();
     }
 }
 
