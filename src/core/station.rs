@@ -45,7 +45,31 @@ pub struct Docked {
 #[derive(Component, Debug)]
 pub struct NeedsStationVisual;
 
+// ── Resources ─────────────────────────────────────────────────────────────
+
+/// Persistent record of every station world-position the player has ever loaded.
+/// Populated whenever a `Station` entity is spawned; survives chunk unloads.
+/// Used by the world map to show stations even when their chunks are not active.
+#[derive(Resource, Default, Debug)]
+pub struct DiscoveredStations {
+    pub positions: Vec<Vec2>,
+}
+
 // ── Systems ──────────────────────────────────────────────────────────────
+
+/// Records newly spawned Station positions into `DiscoveredStations`.
+/// Runs every frame; only acts on entities with `Added<Station>`.
+pub fn record_discovered_stations(
+    query: Query<&Transform, Added<Station>>,
+    mut discovered: ResMut<DiscoveredStations>,
+) {
+    for transform in query.iter() {
+        let pos = transform.translation.truncate();
+        if !discovered.positions.contains(&pos) {
+            discovered.positions.push(pos);
+        }
+    }
+}
 
 /// Checks whether the player is within dock_radius of a Station AND pressed interact.
 /// If so, inserts `Docked { station }` on the player and emits `GameEventKind::StationDocked`.

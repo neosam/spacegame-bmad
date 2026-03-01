@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use serde::Deserialize;
 
 use crate::core::flight::Player;
+use crate::core::station::DiscoveredStations;
 use crate::world::{ChunkCoord, ExploredChunks};
 use crate::world::chunk::world_to_chunk;
 
@@ -30,6 +31,8 @@ pub struct WorldMapConfig {
     pub color_player: [f32; 4],
     /// Overlay background color RGBA.
     pub color_background: [f32; 4],
+    /// Station marker color RGBA.
+    pub color_station: [f32; 4],
 }
 
 impl Default for WorldMapConfig {
@@ -44,6 +47,7 @@ impl Default for WorldMapConfig {
             color_wreck_field: [0.6, 0.4, 0.15, 0.9],
             color_player: [1.0, 1.0, 1.0, 1.0],
             color_background: [0.0, 0.0, 0.0, 0.75],
+            color_station: [0.2, 0.9, 0.2, 1.0],
         }
     }
 }
@@ -89,6 +93,25 @@ pub fn biome_map_color(biome: BiomeType, config: &WorldMapConfig) -> Color {
     Color::srgba(arr[0], arr[1], arr[2], arr[3])
 }
 
+/// Convert a world-space position to map-space pixel position (sub-chunk precision).
+///
+/// Returns `(left, top)` in pixels from the map container's top-left corner.
+/// **Y-axis flip:** World Y-up → UI Y-down.
+pub fn world_to_map_position(
+    world_pos: Vec2,
+    player_world_pos: Vec2,
+    chunk_size: f32,
+    map_center: Vec2,
+    tile_size: f32,
+) -> Vec2 {
+    let offset = world_pos - player_world_pos;
+    let map_offset = offset / chunk_size * tile_size;
+    Vec2::new(
+        map_center.x + map_offset.x,
+        map_center.y - map_offset.y, // Y-flip
+    )
+}
+
 /// Check whether a chunk tile would be visible within the map container.
 pub fn is_tile_visible(
     chunk: ChunkCoord,
@@ -119,6 +142,13 @@ pub struct WorldMapTile;
 #[derive(Component)]
 pub struct WorldMapPlayerMarker;
 
+/// Marks a station marker on the world map, storing the station's world position
+/// so it can be repositioned when the player moves to a new chunk.
+#[derive(Component)]
+pub struct WorldMapStationMarker {
+    pub world_pos: Vec2,
+}
+
 // ── Resources ───────────────────────────────────────────────────────────
 
 /// Whether the world map overlay is currently open.
@@ -147,6 +177,7 @@ pub fn toggle_world_map(
     player_query: Query<&Transform, With<Player>>,
     world_config: Res<crate::world::WorldConfig>,
     root_query: Query<Entity, With<WorldMapRoot>>,
+    discovered_stations: Option<Res<DiscoveredStations>>,
 ) {
     if !keyboard.just_pressed(KeyCode::KeyM) {
         return;
@@ -161,7 +192,7 @@ pub fn toggle_world_map(
         map_state.map_container = None;
         map_open.0 = false;
     } else {
-        // Open the map
+        // Open the map — use persistent discovered positions (survive chunk unloads)
         map_open.0 = true;
         open_world_map(
             &mut commands,
@@ -170,6 +201,7 @@ pub fn toggle_world_map(
             &player_query,
             world_config.chunk_size,
             &mut map_state,
+            discovered_stations.as_ref().map(|d| d.positions.as_slice()).unwrap_or(&[]),
         );
     }
 }
@@ -182,11 +214,13 @@ fn open_world_map(
     player_query: &Query<&Transform, With<Player>>,
     chunk_size: f32,
     map_state: &mut WorldMapState,
+    station_positions: &[Vec2],
 ) {
-    let player_chunk = if let Ok(tf) = player_query.single() {
-        world_to_chunk(tf.translation.truncate(), chunk_size)
+    let (player_world_pos, player_chunk) = if let Ok(tf) = player_query.single() {
+        let wp = tf.translation.truncate();
+        (wp, world_to_chunk(wp, chunk_size))
     } else {
-        ChunkCoord { x: 0, y: 0 }
+        (Vec2::ZERO, ChunkCoord { x: 0, y: 0 })
     };
 
     let map_center = Vec2::new(config.map_width / 2.0, config.map_height / 2.0);
@@ -279,6 +313,39 @@ fn open_world_map(
         .id();
 
     commands.entity(container).add_child(marker);
+
+    // Station markers — bright green squares, always visible
+    let station_color = Color::srgba(
+        config.color_station[0],
+        config.color_station[1],
+        config.color_station[2],
+        config.color_station[3],
+    );
+    let station_size = config.player_marker_size + 2.0;
+    for &station_world_pos in station_positions {
+        let pos = world_to_map_position(
+            station_world_pos,
+            player_world_pos,
+            chunk_size,
+            map_center,
+            config.tile_size,
+        );
+        let station_marker = commands
+            .spawn((
+                WorldMapStationMarker { world_pos: station_world_pos },
+                Node {
+                    width: Val::Px(station_size),
+                    height: Val::Px(station_size),
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(pos.x - station_size / 2.0),
+                    top: Val::Px(pos.y - station_size / 2.0),
+                    ..default()
+                },
+                BackgroundColor(station_color),
+            ))
+            .id();
+        commands.entity(container).add_child(station_marker);
+    }
 }
 
 /// Update the world map while it is open: reposition tiles when player moves,
@@ -292,7 +359,8 @@ pub fn update_world_map(
     mut map_state: ResMut<WorldMapState>,
     player_query: Query<&Transform, With<Player>>,
     world_config: Res<crate::world::WorldConfig>,
-    mut tile_query: Query<&mut Node, With<WorldMapTile>>,
+    mut tile_query: Query<&mut Node, (With<WorldMapTile>, Without<WorldMapStationMarker>)>,
+    mut station_marker_query: Query<(&WorldMapStationMarker, &mut Node), Without<WorldMapTile>>,
 ) {
     if !map_open.0 {
         return;
@@ -302,10 +370,11 @@ pub fn update_world_map(
         return;
     };
 
-    let player_chunk = if let Ok(tf) = player_query.single() {
-        world_to_chunk(tf.translation.truncate(), world_config.chunk_size)
+    let (player_world_pos, player_chunk) = if let Ok(tf) = player_query.single() {
+        let wp = tf.translation.truncate();
+        (wp, world_to_chunk(wp, world_config.chunk_size))
     } else {
-        ChunkCoord { x: 0, y: 0 }
+        (Vec2::ZERO, ChunkCoord { x: 0, y: 0 })
     };
 
     let map_center = Vec2::new(config.map_width / 2.0, config.map_height / 2.0);
@@ -330,6 +399,20 @@ pub fn update_world_map(
             map_state.rendered_chunks.remove(&coord);
         }
         map_state.center_chunk = player_chunk;
+
+        // Reposition station markers
+        let station_size = config.player_marker_size + 2.0;
+        for (marker, mut node) in station_marker_query.iter_mut() {
+            let pos = world_to_map_position(
+                marker.world_pos,
+                player_world_pos,
+                world_config.chunk_size,
+                map_center,
+                config.tile_size,
+            );
+            node.left = Val::Px(pos.x - station_size / 2.0);
+            node.top = Val::Px(pos.y - station_size / 2.0);
+        }
     }
 
     // Add tiles for newly explored chunks (or chunks that scrolled into view)
@@ -391,10 +474,40 @@ mod tests {
             color_wreck_field: (0.7, 0.5, 0.2, 1.0),
             color_player: (1.0, 1.0, 1.0, 1.0),
             color_background: (0.0, 0.0, 0.0, 0.8),
+            color_station: (0.2, 0.9, 0.2, 1.0),
         )"#;
         let config = WorldMapConfig::from_ron(ron_str).expect("Should parse WorldMapConfig RON");
         assert!((config.tile_size - 16.0).abs() < f32::EPSILON);
         assert!((config.map_width - 1000.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn world_to_map_position_player_at_origin() {
+        // Station directly to the right of the player
+        let pos = world_to_map_position(
+            Vec2::new(500.0, 0.0),
+            Vec2::ZERO,
+            1000.0, // chunk_size
+            Vec2::new(400.0, 300.0),
+            12.0,   // tile_size
+        );
+        // offset = (500, 0), map_offset = (500/1000*12, 0) = (6, 0)
+        assert!((pos.x - 406.0).abs() < 0.01, "x should be 406, got {}", pos.x);
+        assert!((pos.y - 300.0).abs() < 0.01, "y should be 300, got {}", pos.y);
+    }
+
+    #[test]
+    fn world_to_map_position_y_flipped() {
+        // Station north of player → appears above center (lower y in UI)
+        let pos = world_to_map_position(
+            Vec2::new(0.0, 500.0),
+            Vec2::ZERO,
+            1000.0,
+            Vec2::new(400.0, 300.0),
+            12.0,
+        );
+        assert!((pos.x - 400.0).abs() < 0.01, "x should be 400, got {}", pos.x);
+        assert!((pos.y - 294.0).abs() < 0.01, "y should be 294 (flipped), got {}", pos.y);
     }
 
     #[test]

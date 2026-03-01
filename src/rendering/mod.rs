@@ -93,6 +93,10 @@ impl Plugin for RenderingPlugin {
         app.add_systems(Startup, spawn_credits_hud);
         app.add_systems(Update, update_credits_hud);
 
+        // Vitals HUD (Health + Energy bars)
+        app.add_systems(Startup, spawn_vitals_hud);
+        app.add_systems(Update, update_vitals_hud);
+
         // Material drop assets + visual attach
         app.init_resource::<MaterialDropAssets>();
         app.add_systems(Startup, setup_material_drop_assets);
@@ -1062,6 +1066,177 @@ pub fn update_credits_hud(
 ) {
     for mut text in text_query.iter_mut() {
         *text = Text(format!("Credits: {}", credits.balance));
+    }
+}
+
+// ── Vitals HUD (Health + Energy) ─────────────────────────────────────────
+
+const VITALS_BAR_WIDTH: f32 = 120.0;
+const VITALS_BAR_HEIGHT: f32 = 10.0;
+
+/// Marker for the health bar fill node.
+#[derive(Component, Debug)]
+pub struct HealthBarFill;
+
+/// Marker for the energy bar fill node.
+#[derive(Component, Debug)]
+pub struct EnergyBarFill;
+
+/// Marker for the health bar text.
+#[derive(Component, Debug)]
+pub struct HealthBarText;
+
+/// Marker for the energy bar text.
+#[derive(Component, Debug)]
+pub struct EnergyBarText;
+
+/// Spawns the bottom-left Health + Energy HUD at startup.
+pub fn spawn_vitals_hud(mut commands: Commands) {
+    let root = commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(8.0),
+                left: Val::Px(8.0),
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(4.0),
+                ..default()
+            },
+            GlobalZIndex(10),
+        ))
+        .id();
+
+    // ── Health row ──
+    let hp_row = commands
+        .spawn(Node {
+            flex_direction: FlexDirection::Row,
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(4.0),
+            ..default()
+        })
+        .id();
+    let hp_label = commands
+        .spawn((
+            Text("HP".to_string()),
+            TextFont { font_size: 12.0, ..default() },
+            TextColor(Color::srgba(0.8, 0.8, 0.8, 1.0)),
+            Node { width: Val::Px(20.0), ..default() },
+        ))
+        .id();
+    let hp_bg = commands
+        .spawn((
+            Node {
+                width: Val::Px(VITALS_BAR_WIDTH),
+                height: Val::Px(VITALS_BAR_HEIGHT),
+                overflow: Overflow::clip(),
+                border_radius: BorderRadius::all(Val::Px(2.0)),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.8)),
+        ))
+        .id();
+    let hp_fill = commands
+        .spawn((
+            HealthBarFill,
+            Node {
+                width: Val::Px(VITALS_BAR_WIDTH),
+                height: Val::Percent(100.0),
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.85, 0.15, 0.15)),
+        ))
+        .id();
+    commands.entity(hp_bg).add_child(hp_fill);
+    let hp_text = commands
+        .spawn((
+            HealthBarText,
+            Text("?/?".to_string()),
+            TextFont { font_size: 11.0, ..default() },
+            TextColor(Color::srgba(0.9, 0.9, 0.9, 1.0)),
+        ))
+        .id();
+    commands.entity(hp_row).add_children(&[hp_label, hp_bg, hp_text]);
+
+    // ── Energy row ──
+    let en_row = commands
+        .spawn(Node {
+            flex_direction: FlexDirection::Row,
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(4.0),
+            ..default()
+        })
+        .id();
+    let en_label = commands
+        .spawn((
+            Text("EN".to_string()),
+            TextFont { font_size: 12.0, ..default() },
+            TextColor(Color::srgba(0.8, 0.8, 0.8, 1.0)),
+            Node { width: Val::Px(20.0), ..default() },
+        ))
+        .id();
+    let en_bg = commands
+        .spawn((
+            Node {
+                width: Val::Px(VITALS_BAR_WIDTH),
+                height: Val::Px(VITALS_BAR_HEIGHT),
+                overflow: Overflow::clip(),
+                border_radius: BorderRadius::all(Val::Px(2.0)),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.8)),
+        ))
+        .id();
+    let en_fill = commands
+        .spawn((
+            EnergyBarFill,
+            Node {
+                width: Val::Px(VITALS_BAR_WIDTH),
+                height: Val::Percent(100.0),
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.1, 0.6, 1.0)),
+        ))
+        .id();
+    commands.entity(en_bg).add_child(en_fill);
+    let en_text = commands
+        .spawn((
+            EnergyBarText,
+            Text("?/?".to_string()),
+            TextFont { font_size: 11.0, ..default() },
+            TextColor(Color::srgba(0.9, 0.9, 0.9, 1.0)),
+        ))
+        .id();
+    commands.entity(en_row).add_children(&[en_label, en_bg, en_text]);
+
+    commands.entity(root).add_children(&[hp_row, en_row]);
+}
+
+/// Updates health and energy bars every frame from the player entity.
+pub fn update_vitals_hud(
+    player_query: Query<(&Health, &Energy), With<crate::core::flight::Player>>,
+    mut hp_fill: Query<&mut Node, (With<HealthBarFill>, Without<EnergyBarFill>)>,
+    mut en_fill: Query<&mut Node, (With<EnergyBarFill>, Without<HealthBarFill>)>,
+    mut hp_text: Query<&mut Text, (With<HealthBarText>, Without<EnergyBarText>)>,
+    mut en_text: Query<&mut Text, (With<EnergyBarText>, Without<HealthBarText>)>,
+) {
+    let Ok((health, energy)) = player_query.single() else {
+        return;
+    };
+
+    let hp_ratio = if health.max > 0.0 { (health.current / health.max).clamp(0.0, 1.0) } else { 0.0 };
+    let en_ratio = if energy.max_capacity > 0.0 { (energy.current / energy.max_capacity).clamp(0.0, 1.0) } else { 0.0 };
+
+    if let Ok(mut node) = hp_fill.single_mut() {
+        node.width = Val::Px(VITALS_BAR_WIDTH * hp_ratio);
+    }
+    if let Ok(mut node) = en_fill.single_mut() {
+        node.width = Val::Px(VITALS_BAR_WIDTH * en_ratio);
+    }
+    if let Ok(mut text) = hp_text.single_mut() {
+        *text = Text(format!("{}/{}", health.current as i32, health.max as i32));
+    }
+    if let Ok(mut text) = en_text.single_mut() {
+        *text = Text(format!("{}/{}", energy.current as i32, energy.max_capacity as i32));
     }
 }
 

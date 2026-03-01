@@ -5,6 +5,7 @@ use serde::Deserialize;
 
 use crate::core::flight::Player;
 use crate::core::spawning::{Asteroid, ScoutDrone};
+use crate::core::station::Station;
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -220,7 +221,10 @@ pub fn setup_minimap(mut commands: Commands, config: Res<MinimapConfig>) {
 pub fn update_minimap_blips(
     mut commands: Commands,
     player_query: Query<&Transform, With<Player>>,
-    entity_query: Query<(Entity, &Transform, Has<Asteroid>), Or<(With<Asteroid>, With<ScoutDrone>)>>,
+    entity_query: Query<
+        (Entity, &Transform, Has<Asteroid>, Has<ScoutDrone>),
+        Or<(With<Asteroid>, With<ScoutDrone>, With<Station>)>,
+    >,
     config: Res<MinimapConfig>,
     mut state: ResMut<MinimapState>,
     minimap_root: Query<Entity, With<MinimapRoot>>,
@@ -243,18 +247,21 @@ pub fn update_minimap_blips(
 
     // Collect entities currently in range
     let mut in_range = HashMap::<Entity, (Vec2, BlipType)>::new();
-    for (entity, transform, is_asteroid) in entity_query.iter() {
+    for (entity, transform, is_asteroid, is_drone) in entity_query.iter() {
         let blip_type = if is_asteroid {
             BlipType::Asteroid
-        } else {
+        } else if is_drone {
             BlipType::ScoutDrone
+        } else {
+            BlipType::Station
         };
 
         let entity_pos = transform.translation.truncate();
         let offset = entity_pos - player_pos;
         let dist_sq = offset.length_squared();
 
-        if is_in_scanner_range(dist_sq, config.scanner_range) {
+        // Stations always appear on minimap regardless of scanner range
+        if blip_type == BlipType::Station || is_in_scanner_range(dist_sq, config.scanner_range) {
             in_range.insert(entity, (offset, blip_type));
         }
     }
@@ -288,18 +295,29 @@ pub fn update_minimap_blips(
         } else {
             // Spawn new blip
             let color = blip_color(*blip_type, &config);
+            // Stations: slightly larger square blip; others: round dot
+            let (blip_w, blip_h, border_r) = if *blip_type == BlipType::Station {
+                let size = config.blip_size + 3.0;
+                (size, size, BorderRadius::all(Val::Px(1.0)))
+            } else {
+                (
+                    config.blip_size,
+                    config.blip_size,
+                    BorderRadius::all(Val::Percent(50.0)),
+                )
+            };
             let blip_id = commands
                 .spawn((
                     MinimapBlip {
                         source_entity: *entity,
                     },
                     Node {
-                        width: Val::Px(config.blip_size),
-                        height: Val::Px(config.blip_size),
+                        width: Val::Px(blip_w),
+                        height: Val::Px(blip_h),
                         position_type: PositionType::Absolute,
                         left: Val::Px(left),
                         top: Val::Px(top),
-                        border_radius: BorderRadius::all(Val::Percent(50.0)),
+                        border_radius: border_r,
                         ..default()
                     },
                     BackgroundColor(color),
