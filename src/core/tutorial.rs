@@ -362,21 +362,6 @@ pub fn spawn_tutorial_zone(
     let seed = world_config.seed;
     let layout = generate_tutorial_zone(seed, &config);
 
-    // Spawn player at tutorial position
-    commands.spawn((
-        crate::core::flight::Player,
-        crate::shared::components::Velocity::default(),
-        crate::core::collision::Health {
-            current: 100.0,
-            max: 100.0,
-        },
-        crate::core::collision::Collider { radius: 12.0 },
-        crate::core::weapons::FireCooldown::default(),
-        crate::core::weapons::Energy::default(),
-        crate::core::weapons::ActiveWeapon::default(),
-        Transform::from_translation(layout.player_spawn.extend(0.0)),
-    ));
-
     // Spawn tutorial station
     commands.spawn((
         TutorialStation { defective: true },

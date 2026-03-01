@@ -10,10 +10,12 @@ use crate::core::camera::camera_follow_player;
 use crate::core::collision::{Collider, Health};
 use crate::core::flight::Player;
 use crate::core::spawning::{NeedsAsteroidVisual, NeedsDroneVisual, SpawningConfig};
+use crate::core::tutorial::{generate_tutorial_zone, TutorialConfig};
 use crate::core::weapons::{
     ActiveWeapon, Energy, FireCooldown, NeedsLaserVisual, NeedsProjectileVisual, WeaponConfig,
 };
 use crate::shared::components::Velocity;
+use crate::world::WorldConfig;
 
 use self::effects::{
     apply_screen_shake, blink_invincible, remove_just_damaged_without_material,
@@ -264,12 +266,18 @@ fn render_drones(
 }
 
 /// Spawn the player entity with lyon-generated mesh, warm bright color.
+/// Position is determined by the tutorial zone layout (player_spawn from TutorialConfig + WorldConfig).
 fn setup_player(
     mut commands: Commands,
-    config: Res<WeaponConfig>,
+    weapon_config: Res<WeaponConfig>,
+    tutorial_config: Res<TutorialConfig>,
+    world_config: Res<WorldConfig>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
+    let layout = generate_tutorial_zone(world_config.seed, &tutorial_config);
+    let spawn_pos = layout.player_spawn.extend(0.0);
+
     let mesh = generate_player_mesh(1);
     let mesh_handle = meshes.add(mesh);
     let material_handle = materials.add(ColorMaterial::from(Color::srgb(1.0, 0.85, 0.2)));
@@ -284,12 +292,12 @@ fn setup_player(
         Collider { radius: 12.0 },
         FireCooldown::default(),
         Energy {
-            current: config.energy_max,
-            max_capacity: config.energy_max,
+            current: weapon_config.energy_max,
+            max_capacity: weapon_config.energy_max,
         },
         ActiveWeapon::default(),
         Mesh2d(mesh_handle),
         MeshMaterial2d(material_handle),
-        Transform::default(),
+        Transform::from_translation(spawn_pos),
     ));
 }

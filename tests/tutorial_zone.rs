@@ -56,6 +56,24 @@ fn tutorial_test_app() -> App {
 
     // Prime + run Startup systems
     app.update();
+
+    // Simulate rendering's setup_player: spawn player at tutorial layout position.
+    // In production, rendering/mod.rs::setup_player does this; tests must replicate it.
+    let player_spawn = {
+        let zone = app.world().resource::<void_drifter::core::tutorial::TutorialZone>();
+        zone.layout.player_spawn
+    };
+    app.world_mut().spawn((
+        Player,
+        Velocity::default(),
+        void_drifter::core::collision::Health { current: 100.0, max: 100.0 },
+        void_drifter::core::collision::Collider { radius: 12.0 },
+        FireCooldown::default(),
+        Energy::default(),
+        ActiveWeapon::default(),
+        Transform::from_translation(player_spawn.extend(0.0)),
+    ));
+
     app
 }
 
