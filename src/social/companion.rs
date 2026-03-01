@@ -1,18 +1,21 @@
-/// Companion Core — Epic 6a
+/// Companion Core — Epic 6a / 6c
 ///
-/// All companion logic: recruitment, follow AI, wingman commands, survival, and visual markers.
+/// All companion logic: recruitment, follow AI, ship flight, wingman commands, survival, visuals.
 /// Design: Pure functions for testable logic. Systems handle ECS state changes.
 /// Core/Rendering separation: Core spawns NeedsCompanionVisual, Rendering attaches mesh.
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::core::collision::{Collider, Health};
 use crate::core::flight::Player;
 use crate::core::input::ActionState;
 use crate::core::station::{Docked, Station};
 use crate::infrastructure::events::EventSeverityConfig;
 use crate::shared::components::Velocity;
 use crate::shared::events::{GameEvent, GameEventKind};
-use crate::social::companion_personality::personality_for_faction;
+use crate::social::companion_personality::{
+    personality_for_faction, CompanionPrevHealth, CompanionTarget, CompanionWeapon,
+};
 use crate::social::faction::FactionId;
 
 // ── Components ────────────────────────────────────────────────────────────
@@ -134,33 +137,86 @@ pub fn str_to_faction_id(s: &str) -> FactionId {
     }
 }
 
+// ── CompanionFlight Component (6c-1) ──────────────────────────────────────
+
+/// Ship-physics flight state for a companion (Epic 6c-1).
+/// The companion rotates toward its target and thrusts in facing direction — not direct velocity.
+#[derive(Component, Debug, Clone)]
+pub struct CompanionFlight {
+    /// Current facing angle in radians (Y-forward convention: 0 = facing +Y).
+    pub angle: f32,
+    /// Rotation speed in radians per second.
+    pub turn_rate: f32,
+    /// Thrust acceleration in world-units per second².
+    pub thrust_force: f32,
+    /// Maximum speed in world-units per second.
+    pub max_speed: f32,
+    /// Drag coefficient applied each frame (higher = more drag).
+    pub drag: f32,
+}
+
+impl Default for CompanionFlight {
+    fn default() -> Self {
+        Self {
+            angle: 0.0,
+            turn_rate: 3.5,
+            thrust_force: 220.0,
+            max_speed: 200.0,
+            drag: 2.5,
+        }
+    }
+}
+
 // ── Pure Functions ─────────────────────────────────────────────────────────
 
 /// Compute the desired velocity for a companion following the player.
-/// Pure function — no ECS access, fully testable.
-///
-/// The companion tries to stay at `player_pos + lateral_offset + behind_offset`.
-/// Returns the desired velocity vector (absolute, not a delta).
+/// Legacy pure function kept for backward compatibility with existing tests.
 pub fn companion_follow_velocity(
     companion_pos: Vec2,
     player_pos: Vec2,
     follow_distance: f32,
     follow_speed: f32,
 ) -> Vec2 {
-    // Target: behind and slightly to the side of the player
     let target = player_pos + Vec2::new(-follow_distance * 0.5, -follow_distance);
     let to_target = target - companion_pos;
     let distance = to_target.length();
-
     if distance < 5.0 {
-        // Already at target — no movement
         return Vec2::ZERO;
     }
-
-    // Proportional speed: full speed at distance >= follow_speed, ramp down when close
     let direction = to_target.normalize_or_zero();
     let speed = follow_speed.min(distance * 3.0);
     direction * speed
+}
+
+/// Pure function: compute follow-slot target position (behind and to the side of the player).
+pub fn companion_follow_target(player_pos: Vec2, follow_distance: f32) -> Vec2 {
+    player_pos + Vec2::new(-follow_distance * 0.5, -follow_distance)
+}
+
+/// Pure function: rotate `current` angle toward `desired` angle, clamped by `max_turn`.
+/// Handles wrapping through ±PI.
+pub fn rotate_toward_angle(current: f32, desired: f32, max_turn: f32) -> f32 {
+    let mut diff = desired - current;
+    while diff > std::f32::consts::PI {
+        diff -= std::f32::consts::TAU;
+    }
+    while diff < -std::f32::consts::PI {
+        diff += std::f32::consts::TAU;
+    }
+    current + diff.clamp(-max_turn, max_turn)
+}
+
+/// Pure function: compute the desired facing angle toward a world position.
+/// Uses Y-forward convention (angle 0 = facing +Y, same as player).
+pub fn angle_toward(from: Vec2, to: Vec2) -> f32 {
+    let dir = (to - from).normalize_or_zero();
+    // atan2(-x, y) gives angle from +Y axis in radians, matching Quat::from_rotation_z convention
+    (-dir.x).atan2(dir.y)
+}
+
+/// Pure function: compute the facing direction vector from an angle (Y-forward convention).
+pub fn facing_from_angle(angle: f32) -> Vec2 {
+    Vec2::new(-angle.sin(), angle.cos())
 }
 
 // ── Systems ────────────────────────────────────────────────────────────────
@@ -201,8 +257,14 @@ pub fn handle_recruit_companion(
                 faction: faction.clone(),
             },
             CompanionFollowAI::default(),
+            CompanionFlight::default(),
+            CompanionTarget::default(),
+            CompanionWeapon::default(),
+            CompanionPrevHealth { value: 100.0 },
             WingmanCommand::Defend,
             personality,
+            Health { current: 100.0, max: 100.0 },
+            Collider { radius: 14.0 },
             NeedsCompanionVisual,
             Velocity::default(),
             Transform::from_translation(companion_pos.extend(0.0)),
@@ -220,12 +282,23 @@ pub fn handle_recruit_companion(
     });
 }
 
-/// Moves companions toward the player using follow AI.
-/// Companions with `CompanionRetreating` are excluded (handled separately).
-pub fn update_companion_follow(
+/// Rotates companions toward their navigation target using ship-physics (Epic 6c-1).
+///
+/// - Attack mode with acquired target → rotate toward target entity
+/// - Otherwise → rotate toward player follow-slot position
+/// - Retreating → rotate toward station (handled in `update_retreating_companions`)
+/// Updates Transform.rotation to match the current facing angle.
+pub fn update_companion_rotation(
     player_query: Query<&Transform, (With<Player>, Without<Companion>)>,
+    target_transforms: Query<&Transform, Without<Companion>>,
     mut companion_query: Query<
-        (&mut Velocity, &Transform, &CompanionFollowAI),
+        (
+            &Transform,
+            &CompanionFollowAI,
+            &WingmanCommand,
+            &CompanionTarget,
+            &mut CompanionFlight,
+        ),
         (With<Companion>, Without<CompanionRetreating>),
     >,
     time: Res<Time>,
@@ -236,16 +309,96 @@ pub fn update_companion_follow(
     let player_pos = player_transform.translation.truncate();
     let dt = time.delta_secs();
 
-    for (mut velocity, companion_transform, follow_ai) in companion_query.iter_mut() {
+    for (companion_transform, follow_ai, command, target, mut flight) in
+        companion_query.iter_mut()
+    {
         let companion_pos = companion_transform.translation.truncate();
-        let target_vel = companion_follow_velocity(
-            companion_pos,
-            player_pos,
-            follow_ai.follow_distance,
-            follow_ai.follow_speed,
-        );
-        // Smooth blend toward desired velocity
-        velocity.0 = velocity.0.lerp(target_vel, (dt * 5.0).min(1.0));
+
+        // Determine desired facing direction
+        let desired_pos = match (command, target.entity) {
+            (WingmanCommand::Attack, Some(target_entity)) => {
+                // Attack mode: face toward acquired enemy
+                target_transforms
+                    .get(target_entity)
+                    .map(|t| t.translation.truncate())
+                    .unwrap_or_else(|_| {
+                        companion_follow_target(player_pos, follow_ai.follow_distance)
+                    })
+            }
+            _ => companion_follow_target(player_pos, follow_ai.follow_distance),
+        };
+
+        let desired_angle = angle_toward(companion_pos, desired_pos);
+        flight.angle = rotate_toward_angle(flight.angle, desired_angle, flight.turn_rate * dt);
+
+        // Update visual rotation to match facing
+        // Companion transform uses same convention as player: Quat::from_rotation_z
+    }
+}
+
+/// Applies thrust and drag to companions based on current facing (Epic 6c-1).
+///
+/// Thrusts when roughly aligned with target (dot > 0.3).
+/// Applies drag every frame. Caps speed at max_speed.
+pub fn update_companion_thrust_and_drag(
+    player_query: Query<&Transform, (With<Player>, Without<Companion>)>,
+    target_transforms: Query<&Transform, Without<Companion>>,
+    mut companion_query: Query<
+        (
+            &Transform,
+            &CompanionFollowAI,
+            &WingmanCommand,
+            &CompanionTarget,
+            &CompanionFlight,
+            &mut Velocity,
+        ),
+        (With<Companion>, Without<CompanionRetreating>),
+    >,
+    time: Res<Time>,
+) {
+    let Ok(player_transform) = player_query.single() else {
+        return;
+    };
+    let player_pos = player_transform.translation.truncate();
+    let dt = time.delta_secs();
+
+    for (companion_transform, follow_ai, command, target, flight, mut velocity) in
+        companion_query.iter_mut()
+    {
+        let companion_pos = companion_transform.translation.truncate();
+
+        // Determine navigation target
+        let desired_pos = match (command, target.entity) {
+            (WingmanCommand::Attack, Some(target_entity)) => target_transforms
+                .get(target_entity)
+                .map(|t| t.translation.truncate())
+                .unwrap_or_else(|_| {
+                    companion_follow_target(player_pos, follow_ai.follow_distance)
+                }),
+            _ => companion_follow_target(player_pos, follow_ai.follow_distance),
+        };
+
+        let to_target = desired_pos - companion_pos;
+        let dist = to_target.length();
+
+        // Thrust only when far enough and roughly facing target
+        if dist > 15.0 {
+            let facing = facing_from_angle(flight.angle);
+            let alignment = facing.dot(to_target.normalize_or_zero());
+            if alignment > 0.3 {
+                // Soft speed cap: reduce thrust near max_speed
+                let speed = velocity.0.length();
+                let effectiveness = (1.0 - speed / flight.max_speed).max(0.0);
+                velocity.0 += facing * flight.thrust_force * effectiveness * dt;
+            }
+        }
+
+        // Drag
+        let drag_factor = (1.0 - flight.drag * dt).max(0.0);
+        velocity.0 *= drag_factor;
+        if velocity.0.length_squared() < 0.1 {
+            velocity.0 = Vec2::ZERO;
+        }
     }
 }
 

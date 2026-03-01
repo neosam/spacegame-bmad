@@ -19,7 +19,7 @@ use crate::core::spawning::{
 use crate::core::station::{Docked, NeedsStationVisual, Station, StationType};
 use crate::core::tutorial::{generate_tutorial_zone, GravityWellBoundary, GravityWellGenerator, TutorialConfig, TutorialStation, TutorialWreck};
 use crate::social::companion::{CompanionData, NeedsCompanionVisual};
-use crate::social::companion_personality::BarkDisplay;
+use crate::social::companion_personality::{BarkDisplay, PlayerOpinions, format_opinion_score};
 use crate::social::faction::FactionId;
 use crate::core::weapons::{
     ActiveWeapon, Energy, FireCooldown, NeedsLaserVisual, NeedsProjectileVisual, WeaponConfig,
@@ -1414,8 +1414,10 @@ pub fn spawn_bark_hud(mut commands: Commands) {
 }
 
 /// Updates bark HUD visibility and text from the `BarkDisplay` resource.
+/// If `PlayerOpinions` is available, appends the opinion score: `Wing-1 (+12): "Target down!"`
 pub fn update_bark_hud(
     bark_display: Res<BarkDisplay>,
+    opinions: Option<Res<PlayerOpinions>>,
     mut query: Query<(&mut Text, &mut Visibility), With<BarkHudMarker>>,
 ) {
     let Ok((mut text, mut visibility)) = query.single_mut() else {
@@ -1423,7 +1425,15 @@ pub fn update_bark_hud(
     };
     match &bark_display.current {
         Some((name, bark)) => {
-            text.0 = format!("{name}: \"{bark}\"");
+            // Look up opinion score by matching companion name via entity — we display
+            // the first opinion score available as a proxy for the speaking companion.
+            let score_str = opinions
+                .as_ref()
+                .and_then(|o| o.scores.values().next().copied())
+                .map(format_opinion_score)
+                .map(|s| format!(" {s}"))
+                .unwrap_or_default();
+            text.0 = format!("{name}{score_str}: \"{bark}\"");
             *visibility = Visibility::Visible;
         }
         None => {

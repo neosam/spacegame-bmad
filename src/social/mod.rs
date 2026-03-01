@@ -11,13 +11,14 @@ use bevy::prelude::*;
 
 use self::companion::{
     CompanionRoster, handle_recruit_companion, handle_wingman_commands,
-    update_companion_follow, update_companion_positions,
+    update_companion_rotation, update_companion_thrust_and_drag, update_companion_positions,
     handle_companion_survival, update_retreating_companions,
 };
 use self::companion_personality::{
     BarkDisplay, PlayerOpinions, PeerOpinions,
     emit_barks_on_game_events, emit_bark_on_command_change, tick_bark_display,
     update_player_opinions, update_peer_opinions, update_personality_behavior,
+    update_companion_target, fire_companion_weapon, detect_companion_damage,
 };
 use self::enemy_ai::{
     update_enemy_facing, update_fighter_ai, update_heavy_cruiser_ai, update_scout_drone_ai,
@@ -49,10 +50,11 @@ impl Plugin for SocialPlugin {
         app.init_resource::<CompanionRoster>();
         // Story 6a-1: Recruit companion when docked + recruit action pressed
         app.add_systems(Update, handle_recruit_companion);
-        // Story 6a-2: Companion follow AI
-        app.add_systems(Update, update_companion_follow);
+        // Story 6c-1: Companion ship physics (replaces old update_companion_follow)
+        app.add_systems(Update, update_companion_rotation);
+        app.add_systems(Update, update_companion_thrust_and_drag.after(update_companion_rotation));
         // Story 6a-2: Companion position integration (apply velocity)
-        app.add_systems(Update, update_companion_positions.after(update_companion_follow));
+        app.add_systems(Update, update_companion_positions.after(update_companion_thrust_and_drag));
         // Story 6a-3: Wingman command cycling
         app.add_systems(Update, handle_wingman_commands);
         // Story 6a-5: Companion survival (retreat to station on player death)
@@ -74,6 +76,13 @@ impl Plugin for SocialPlugin {
         app.add_systems(Update, update_peer_opinions);
 
         // Story 6b-4: Personality combat behavior
-        app.add_systems(Update, update_personality_behavior.before(update_companion_follow));
+        app.add_systems(Update, update_personality_behavior.before(update_companion_rotation));
+
+        // Story 6c-3: Target acquisition
+        app.add_systems(Update, update_companion_target.before(update_companion_rotation));
+        // Story 6c-2: Companion weapon firing
+        app.add_systems(Update, fire_companion_weapon.after(update_companion_rotation));
+        // Story 6c-4: Damage taken bark
+        app.add_systems(Update, detect_companion_damage);
     }
 }

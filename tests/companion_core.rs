@@ -17,10 +17,11 @@ use void_drifter::infrastructure::events::EventSeverityConfig;
 use void_drifter::shared::components::Velocity;
 use void_drifter::shared::events::{GameEvent, GameEventKind};
 use void_drifter::social::companion::{
-    Companion, CompanionData, CompanionFollowAI, CompanionRetreating, CompanionRoster,
-    CompanionSaveEntry, WingmanCommand,
+    Companion, CompanionData, CompanionFollowAI, CompanionFlight, CompanionRetreating,
+    CompanionRoster, CompanionSaveEntry, WingmanCommand,
     companion_follow_velocity, faction_id_to_str, str_to_faction_id,
 };
+use void_drifter::social::companion_personality::{CompanionTarget, CompanionWeapon, CompanionPrevHealth};
 use void_drifter::social::faction::FactionId;
 use void_drifter::infrastructure::save::player_save::PlayerSave;
 
@@ -44,9 +45,11 @@ fn companion_test_app() -> App {
         (
             void_drifter::social::companion::handle_recruit_companion,
             void_drifter::social::companion::handle_wingman_commands,
-            void_drifter::social::companion::update_companion_follow,
+            void_drifter::social::companion::update_companion_rotation,
+            void_drifter::social::companion::update_companion_thrust_and_drag
+                .after(void_drifter::social::companion::update_companion_rotation),
             void_drifter::social::companion::update_companion_positions
-                .after(void_drifter::social::companion::update_companion_follow),
+                .after(void_drifter::social::companion::update_companion_thrust_and_drag),
             void_drifter::social::companion::handle_companion_survival,
             void_drifter::social::companion::update_retreating_companions
                 .after(void_drifter::social::companion::handle_companion_survival),
@@ -209,11 +212,15 @@ fn companion_follows_player_over_time() {
         .expect("Player should have Transform")
         .translation = Vec3::new(200.0, 0.0, 0.0);
 
-    // Spawn companion at origin with follow AI
+    // Spawn companion at origin with follow AI + ship flight (6c-1 physics)
     app.world_mut().spawn((
         Companion,
         CompanionData { name: "Wing-1".to_string(), faction: FactionId::Neutral },
         CompanionFollowAI::default(),
+        CompanionFlight::default(),
+        CompanionTarget::default(),
+        CompanionWeapon::default(),
+        CompanionPrevHealth { value: 100.0 },
         WingmanCommand::Defend,
         Velocity::default(),
         Transform::from_translation(Vec3::ZERO),
@@ -221,8 +228,8 @@ fn companion_follows_player_over_time() {
 
     let initial_x = 0.0_f32;
 
-    // Run several frames
-    for _ in 0..30 {
+    // Run more frames — ship physics needs time to rotate before thrusting
+    for _ in 0..60 {
         app.update();
     }
 
