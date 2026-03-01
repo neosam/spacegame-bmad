@@ -46,6 +46,8 @@ pub enum GameEventKind {
     TutorialZoneSpawned,
     /// Player docked at the tutorial station, receiving the Spread weapon.
     StationDocked,
+    /// GravityWellGenerator was destroyed — tutorial escape complete.
+    GeneratorDestroyed,
 }
 
 /// A game event emitted as a Bevy message by gameplay systems.

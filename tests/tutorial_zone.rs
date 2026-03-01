@@ -7,10 +7,11 @@ use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use void_drifter::core::flight::Player;
 use void_drifter::core::tutorial::{
-    advance_phase_on_wreck_shot, apply_gravity_well, check_tutorial_wave_complete,
-    dock_at_station, generate_tutorial_zone, spawn_tutorial_enemies, validate_tutorial_seed,
-    GravityWellGenerator, SpreadUnlocked, TutorialConfig, TutorialEnemy, TutorialEnemyWave,
-    TutorialPhase, TutorialStation, TutorialWreck, TutorialZone, WeaponsLocked, WreckShotState,
+    advance_phase_on_wreck_shot, apply_gravity_well, check_generator_destroyed,
+    check_tutorial_wave_complete, dock_at_station, generate_tutorial_zone, spawn_tutorial_enemies,
+    validate_tutorial_seed, GravityWellGenerator, SpreadUnlocked, TutorialConfig, TutorialEnemy,
+    TutorialEnemyWave, TutorialPhase, TutorialStation, TutorialWreck, TutorialZone, WeaponsLocked,
+    WreckShotState,
 };
 use void_drifter::core::spawning::{ScoutDrone, SpawningConfig};
 use void_drifter::shared::components::JustDamaged;
@@ -1122,6 +1123,230 @@ fn hundred_seed_station_dock_radius_fits_station_range() {
         assert!(
             result.is_ok(),
             "Seed {seed} should still pass layout validation with dock_radius present: {:?}",
+            result.expect_err("Expected Ok")
+        );
+    }
+}
+
+// ── Generator Destruction Integration Tests ──────────────────────────────
+
+/// Minimal app with check_generator_destroyed system for isolated testing.
+fn generator_destroyed_test_app() -> App {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.add_plugins(bevy::state::app::StatesPlugin);
+    app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+        Duration::from_secs_f64(1.0 / 60.0),
+    ));
+    app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
+    app.init_state::<TutorialPhase>();
+    app.add_message::<void_drifter::shared::events::GameEvent>();
+    app.insert_resource(void_drifter::infrastructure::events::EventSeverityConfig::default());
+    app.add_systems(FixedUpdate, check_generator_destroyed);
+    // Prime
+    app.update();
+    app
+}
+
+#[test]
+fn generator_has_collider() {
+    let mut app = tutorial_test_app();
+
+    use void_drifter::core::collision::Collider;
+    let mut query = app
+        .world_mut()
+        .query_filtered::<&Collider, With<GravityWellGenerator>>();
+    let collider = query
+        .iter(app.world())
+        .next()
+        .expect("GravityWellGenerator should have a Collider");
+    assert!(
+        collider.radius > 0.0,
+        "Generator collider radius should be positive, got {}",
+        collider.radius
+    );
+}
+
+#[test]
+fn generator_collider_radius_positive() {
+    let mut app = tutorial_test_app();
+
+    use void_drifter::core::collision::Collider;
+    let mut query = app
+        .world_mut()
+        .query_filtered::<&Collider, With<GravityWellGenerator>>();
+    let collider = query
+        .iter(app.world())
+        .next()
+        .expect("Generator should have Collider");
+    assert!(
+        collider.radius >= 1.0,
+        "Generator collider radius should be at least 1.0 to be hittable, got {}",
+        collider.radius
+    );
+}
+
+#[test]
+fn phase_advances_to_generator_destroyed_when_generator_gone() {
+    let mut app = generator_destroyed_test_app();
+
+    // Manually set phase to StationVisited
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::StationVisited);
+    app.update(); // Apply state transition to StationVisited
+
+    // No generator entity spawned — check_generator_destroyed should fire
+    app.update(); // check_generator_destroyed runs, sets NextState to GeneratorDestroyed
+    app.update(); // Apply state transition to GeneratorDestroyed
+
+    let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::GeneratorDestroyed,
+        "Phase should advance to GeneratorDestroyed when generator is absent"
+    );
+}
+
+#[test]
+fn phase_stays_station_visited_while_generator_alive() {
+    let mut app = generator_destroyed_test_app();
+
+    // Spawn a living generator BEFORE transitioning to StationVisited
+    // so that check_generator_destroyed sees it on the same frame as the transition.
+    app.world_mut().spawn((
+        GravityWellGenerator {
+            safe_radius: 2000.0,
+            pull_strength: 50.0,
+            requires_projectile: true,
+        },
+        Health { current: 100.0, max: 100.0 },
+        Transform::from_translation(Vec3::ZERO),
+    ));
+
+    // Set phase to StationVisited and apply the transition
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::StationVisited);
+    app.update(); // Apply state transition + check_generator_destroyed runs — generator exists
+
+    let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::StationVisited,
+        "Phase should remain StationVisited while generator is alive"
+    );
+}
+
+#[test]
+fn generator_destroyed_is_idempotent() {
+    let mut app = generator_destroyed_test_app();
+
+    // Phase already at GeneratorDestroyed
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::GeneratorDestroyed);
+    app.update(); // Apply state transition
+
+    // No generator — but phase is already GeneratorDestroyed, should be no-op
+    app.update();
+
+    let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::GeneratorDestroyed,
+        "Phase should remain GeneratorDestroyed — idempotent"
+    );
+}
+
+#[test]
+fn check_generator_not_triggered_in_non_station_visited_phase() {
+    let mut app = generator_destroyed_test_app();
+
+    // Phase is Complete (not StationVisited) — no generator
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::Complete);
+    app.update();
+
+    app.update(); // check_generator_destroyed should be a no-op
+
+    let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::Complete,
+        "Phase should remain Complete — check_generator_destroyed guards on StationVisited"
+    );
+}
+
+#[test]
+fn gravity_well_stops_when_generator_despawned_integration() {
+    let mut app = gravity_well_test_app();
+
+    // Spawn generator
+    let generator_entity = app
+        .world_mut()
+        .spawn((
+            GravityWellGenerator {
+                safe_radius: 100.0,
+                pull_strength: 50.0,
+                requires_projectile: true,
+            },
+            Transform::from_translation(Vec3::ZERO),
+        ))
+        .id();
+
+    // Player far outside safe_radius
+    let player = app
+        .world_mut()
+        .spawn((
+            Player,
+            Velocity::default(),
+            Transform::from_translation(Vec3::new(500.0, 0.0, 0.0)),
+        ))
+        .id();
+
+    // Confirm pull is applied when generator exists
+    app.update();
+    let vel_before = app
+        .world()
+        .entity(player)
+        .get::<Velocity>()
+        .expect("Player should have Velocity")
+        .0;
+    assert!(vel_before.x < 0.0, "Should have pull before despawn");
+
+    // Despawn the generator (simulates destruction)
+    app.world_mut().entity_mut(generator_entity).despawn();
+
+    // Reset velocity to zero
+    app.world_mut()
+        .entity_mut(player)
+        .insert(Velocity::default());
+
+    // Run again — no generator, no force
+    app.update();
+
+    let vel_after = app
+        .world()
+        .entity(player)
+        .get::<Velocity>()
+        .expect("Player should have Velocity");
+    assert!(
+        vel_after.0.length() < f32::EPSILON,
+        "No gravity pull after generator despawned, got {:?}",
+        vel_after.0
+    );
+}
+
+#[test]
+fn hundred_seed_validation_still_passes_with_generator_collider() {
+    let config = TutorialConfig::default();
+    for seed in 0..100 {
+        let result = validate_tutorial_seed(seed, &config);
+        assert!(
+            result.is_ok(),
+            "Seed {seed} should still pass validation after generator collider added: {:?}",
             result.expect_err("Expected Ok")
         );
     }

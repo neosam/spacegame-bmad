@@ -134,6 +134,8 @@ pub enum TutorialPhase {
     Complete,
     /// Player docked at station after generator destruction — tutorial fully done
     StationVisited,
+    /// GravityWellGenerator destroyed — gravity well dissolved, player free to leave
+    GeneratorDestroyed,
 }
 
 // ── Layout Generation ───────────────────────────────────────────────────
@@ -330,6 +332,7 @@ pub fn spawn_tutorial_zone(
             current: config.generator_health,
             max: config.generator_health,
         },
+        crate::core::collision::Collider { radius: 30.0 },
         Transform::from_translation(layout.generator_position.extend(0.0)),
     ));
 
@@ -560,6 +563,41 @@ pub fn dock_at_station(
                 game_time: time.elapsed_secs_f64(),
             });
         }
+    }
+}
+
+// ── Generator Destruction Detection ─────────────────────────────────────
+
+/// Detects when the `GravityWellGenerator` entity has been destroyed (despawned)
+/// and advances the tutorial phase from `StationVisited` to `GeneratorDestroyed`.
+///
+/// The gravity well pull stops naturally because `apply_gravity_well` iterates
+/// `Query<(&GravityWellGenerator, &Transform)>` — with no entity present, no force
+/// is applied. Zero additional code needed.
+///
+/// The transition is idempotent: once `GeneratorDestroyed`, the guard returns immediately.
+/// Runs in `CoreSet::Events` after `despawn_destroyed` has removed entities with
+/// health <= 0, so the absence check is authoritative within the same frame.
+pub fn check_generator_destroyed(
+    phase: Res<State<TutorialPhase>>,
+    mut next_phase: ResMut<NextState<TutorialPhase>>,
+    generator_query: Query<Entity, With<GravityWellGenerator>>,
+    mut game_events: bevy::ecs::message::MessageWriter<crate::shared::events::GameEvent>,
+    time: Res<Time>,
+    severity_config: Res<crate::infrastructure::events::EventSeverityConfig>,
+) {
+    if *phase.get() != TutorialPhase::StationVisited {
+        return;
+    }
+    if generator_query.iter().next().is_none() {
+        let kind = crate::shared::events::GameEventKind::GeneratorDestroyed;
+        game_events.write(crate::shared::events::GameEvent {
+            severity: severity_config.severity_for(&kind),
+            kind,
+            position: Vec2::ZERO,
+            game_time: time.elapsed_secs_f64(),
+        });
+        next_phase.set(TutorialPhase::GeneratorDestroyed);
     }
 }
 
@@ -1169,5 +1207,41 @@ mod tests {
         // Verify SpreadUnlocked can be constructed (it's a marker — no fields)
         let _marker = SpreadUnlocked;
         // If it compiles and is a Component, the test passes
+    }
+
+    // ── Generator Destruction Unit Tests ────────────────────────────────
+
+    #[test]
+    fn tutorial_phase_generator_destroyed_variant_exists() {
+        // Ensure GeneratorDestroyed can be constructed and is distinct from StationVisited
+        let station_visited = TutorialPhase::StationVisited;
+        let generator_destroyed = TutorialPhase::GeneratorDestroyed;
+        assert_ne!(
+            station_visited,
+            generator_destroyed,
+            "GeneratorDestroyed should differ from StationVisited"
+        );
+    }
+
+    #[test]
+    fn tutorial_phase_sequence_all_variants_distinct() {
+        // Verify all tutorial phase variants are distinct
+        let phases = [
+            TutorialPhase::Flying,
+            TutorialPhase::Shooting,
+            TutorialPhase::SpreadUnlocked,
+            TutorialPhase::Complete,
+            TutorialPhase::StationVisited,
+            TutorialPhase::GeneratorDestroyed,
+        ];
+        for i in 0..phases.len() {
+            for j in (i + 1)..phases.len() {
+                assert_ne!(
+                    phases[i],
+                    phases[j],
+                    "TutorialPhase variants at index {i} and {j} should be distinct"
+                );
+            }
+        }
     }
 }

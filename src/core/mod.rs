@@ -21,9 +21,9 @@ use self::spawning::{
     SpawningConfig,
 };
 use self::tutorial::{
-    advance_phase_on_wreck_shot, apply_gravity_well, check_tutorial_wave_complete,
-    dock_at_station, spawn_tutorial_enemies, spawn_tutorial_zone, update_weapons_lock,
-    TutorialConfig, TutorialPhase,
+    advance_phase_on_wreck_shot, apply_gravity_well, check_generator_destroyed,
+    check_tutorial_wave_complete, dock_at_station, spawn_tutorial_enemies, spawn_tutorial_zone,
+    update_weapons_lock, TutorialConfig, TutorialPhase,
 };
 use self::weapons::{
     fire_weapon, move_spread_projectiles, regenerate_energy, switch_weapon, tick_fire_cooldown,
@@ -239,6 +239,14 @@ impl Plugin for CorePlugin {
 
         // Station docking: runs in CoreSet::Events, after Damage has settled
         app.add_systems(FixedUpdate, dock_at_station.in_set(CoreSet::Events));
+
+        // Generator destruction detection: runs in CoreSet::Events after dock_at_station
+        app.add_systems(
+            FixedUpdate,
+            check_generator_destroyed
+                .in_set(CoreSet::Events)
+                .after(dock_at_station),
+        );
 
         // Tutorial weapon lock system
         app.add_systems(FixedUpdate, update_weapons_lock.before(CoreSet::Input));
