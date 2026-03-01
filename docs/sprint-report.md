@@ -1,9 +1,9 @@
-# Sprint Report — Epic 10: Art & Audio Polish (Iteration 1)
+# Sprint Report — Epic 11: Platform & Release (Iteration 1)
 
 **Datum:** 2026-03-01
-**Epic:** 10 — Art & Audio Polish
-**Tests bei Sprint-Start:** 756 (nach Epic 9)
-**Tests bei Sprint-Ende:** 788 (+32)
+**Epic:** 11 — Platform & Release
+**Tests bei Sprint-Start:** 788 (nach Epic 10)
+**Tests bei Sprint-Ende:** 799 (+11)
 
 ---
 
@@ -11,15 +11,13 @@
 
 | Story | Titel | Status | Tests |
 |-------|-------|--------|-------|
-| 10-4 | Atmospheric Background | ✅ done | +3 (759) |
-| 10-2 | Visual & Audio Juice | ✅ done | +5 (764) |
-| 10-1 | Vector Art (Ship-Varianten) | ✅ done | +10 (774) |
-| 10-5 | Music Crossfade | ✅ done | +5 (779) |
-| 10-3 | Juice Settings | ✅ done | +6 (785) |
-| 10-6 | Ambient Audio | ✅ done | +3 (788) |
+| 11-1 | WASM Feature Subset | done | +1 (789) |
+| 11-2 | Performance Optimierung | done | +6 (795) |
+| 11-3 | Steam Deck UI Scaling | done | +4 (799) |
+| 11-4 | Build Pipeline | done | +0 (799) |
 
-**6 / 6 Stories abgeschlossen (100%)**
-**Parallelisierung:** 10-4, 10-2, 10-1, 10-5 parallel implementiert.
+**4 / 4 Stories abgeschlossen (100%)**
+**Parallelisierung:** Alle 4 Stories parallel implementiert (keine Abhängigkeiten untereinander).
 
 ---
 
@@ -27,56 +25,53 @@
 
 | Datei | Änderung |
 |-------|----------|
-| `src/rendering/background.rs` | `NebulaConfig`, `setup_nebula_background`, 4. Starfield-Layer |
-| `src/rendering/effects.rs` | `ThrusterParticle`, `ThrusterAssets`, `JuiceSettings`, alle Juice-Systeme |
-| `src/rendering/vector_art.rs` | Tier-basierte Spieler-Meshes (3 Silhouetten), `generate_scout_drone_mesh()` |
-| `src/rendering/mod.rs` | Alle neuen Systeme registriert |
-| `src/infrastructure/audio.rs` | `MusicState`, `MusicTrack`, `AudioAssets`, `AudioInfrastructurePlugin`, `play_event_sfx` |
-| `src/infrastructure/mod.rs` | `audio` Modul exportiert |
-| `assets/config/juice.ron` | Neue Config-Datei für visuelle Effekte |
+| `assets/config/wasm_spawning.ron` | Neu: WASM-spezifische Spawn-Limits (chunk_radius: 2, max_asteroids: 4, max_enemies: 2) |
+| `src/core/spawning.rs` | `WasmSpawningConfig` Resource mit `load()` — lädt wasm_spawning.ron unter WASM |
+| `src/core/mod.rs` | `WasmSpawningConfig::load()` beim Plugin-Start registriert |
+| `src/rendering/effects.rs` | `MAX_THRUSTER_PARTICLES`: WASM=5, Native=50 (cfg-guards) |
+| `src/rendering/mod.rs` | `NebulaConfig.enabled=false` unter WASM; `DisplayConfig` Resource + Startup-Loader; alle HUD-Texte skaliert |
+| `assets/config/display.ron` | Neu: ui_scale=1.0, hud_text_size=18.0, minimap_size=120.0 |
+| `src/core/collision.rs` | `aabb_prefilter()` Funktion + AABB-Vorfilter in allen 4 Kollisionssystemen |
+| `tests/performance.rs` | Neu: AABB-Prefilter-Tests, 200-Entity-Kollisionstest, Particle-Cap-Test |
+| `Makefile` | Neu: build-native, build-wasm, build-linux, build-windows, test, clean |
+| `.github/workflows/ci.yml` | Neu: CI-Pipeline (test + build-wasm) |
+| `dist/index.html` | Neu: WASM-Host-HTML |
 
 ---
 
-## Feature-Überblick
+## Technische Highlights
 
-### Atmospheric Background (10-4)
-- 4. Starfield-Layer: sehr dim, sehr langsame Parallax (0.005) für Tiefenwirkung
-- 5 statische Nebula-Wolken (Radius 400–1200) in blau-lila, orange-rot, cyan-grün
-- `NebulaConfig { enabled, base_alpha }` zum Ein/Ausschalten
+### Story 11-1: WASM Feature Subset
+- `WasmSpawningConfig` Resource als separates WASM-Konfigurationsobjekt
+- `cfg(target_arch = "wasm32")` Guards in `effects.rs` (Particle-Cap) und `rendering/mod.rs` (Nebula)
+- `NebulaConfig.enabled = false` unter WASM für weniger GPU-Last im Browser
+- `wasm_spawning.ron` mit reduzierten Spawn-Werten für Browser-Performance
 
-### Visual Juice (10-2)
-- Thruster-Trail: orange Partikel (radius 3) am Schiff-Heck wenn velocity > 10
-- Fade-out über 0.15s, max 20 Partikel gleichzeitig
-- Laser-Impact-Flash: bereits vorhanden, keine Änderung nötig
+### Story 11-2: Performance Optimierung
+- `aabb_prefilter(pos_a, radius_a, pos_b, radius_b)` — günstige Distanzprüfung vor teurer Kollisionsberechnung
+- AABB-Slop von 50.0 für konservative Fehlertoleranz (keine False Negatives)
+- Vorfilter in: `check_laser_collisions`, `check_projectile_collisions`, `check_enemy_projectile_collisions`, `check_contact_collisions`
+- Particle-Cap erhöht auf 50 (statt 20) für bessere visuelle Qualität bei vertretbarer GPU-Last
+- `tests/performance.rs`: 6 neue Tests verifizieren AABB-Korrektheit und 200-Entity-Verhalten
 
-### Juice Settings (10-3)
-- `assets/config/juice.ron` — 5 Toggle-Felder
-- `JuiceSettings` Resource, aus RON geladen (Fallback: Default)
-- Alle Juice-Systeme respektieren ihre Settings-Flags
+### Story 11-3: Steam Deck UI Scaling
+- `DisplayConfig { ui_scale, hud_text_size, minimap_size }` als konfigurierbares Resource
+- `STEAM_DECK=1` env-var setzt `ui_scale=1.4` automatisch
+- Alle HUD-Elemente (Credits, Vitals, Bark, Coords, Save-Indicator, Boss-Retreat) verwenden `display.effective_font_size()` bzw. `font_size * display.ui_scale`
+- Graceful fallback zu `DisplayConfig::default()` wenn `display.ron` fehlt
+- 4 neue Tests: Default-Werte, Deserialisierung, STEAM_DECK-Override, effective_font_size
 
-### Vector Art (10-1)
-- `generate_player_mesh(tier)`: 3 Silhouetten — Tier 1–2 (original), Tier 3–4 (breitere Flügel), Tier 5 (Doppelflügel)
-- `generate_scout_drone_mesh()`: gleichseitiges Dreieck (neu)
-- Fighter, HeavyCruiser, Boss hatten bereits faction-spezifische Meshes
-
-### Music Crossfade (10-5)
-- `bevy_kira_audio::AudioPlugin` registriert (kein Konflikt da Bevy ohne default audio features)
-- `MusicState` enum: None/Exploration/Combat/Arena/Docked
-- `detect_music_state`: InWormhole → Arena, Flying → Exploration
-
-### Ambient Audio (10-6)
-- `AudioAssets`: 7 SFX-Slots (alle Optional, graceful wenn Dateien fehlen)
-- `play_event_sfx`: WeaponFired, EnemyDestroyed, PlayerDeath, StationDocked, WormholeEntered → SFX
-- Lazy Loading via AssetServer — kein Crash ohne .ogg-Dateien
+### Story 11-4: Build Pipeline
+- `Makefile` mit Targets: `build-native`, `build-wasm`, `build-linux`, `build-windows`, `build-all`, `test`, `clean`
+- `.github/workflows/ci.yml`: GitHub Actions CI mit `cargo test` und `cargo build --target wasm32-unknown-unknown`
+- `dist/index.html`: HTML-Host für WASM-Bundle
 
 ---
 
-## Hinweis: Simon Playtest erforderlich
+## Qualitätssicherung
 
-Gemäß Epic-10-DoD ist Simon's Playtest-Feedback das primäre Acceptance Criteria. Dieser Sprint hat die technische Infrastruktur geliefert — der Playtest entscheidet ob weitere Iteration nötig ist.
-
-**Keine echten Audio-Assets vorhanden** — Audio-Infrastruktur compiliert und läuft, aber es sind noch `.ogg`-Dateien in `assets/audio/sfx/` einzupflegen für tatsächlichen Sound.
-
----
-
-## Tests: 788 — alle grün ✅
+- Alle 799 Tests grün
+- `tutorial_happy_path_full_flow` unverändert bestanden
+- Core/Rendering-Trennung eingehalten: `WasmSpawningConfig` in `core/`, `DisplayConfig` in `rendering/`
+- Kein `unwrap()` in Tests
+- Alle WASM-spezifischer Code hinter `#[cfg(target_arch = "wasm32")]`
