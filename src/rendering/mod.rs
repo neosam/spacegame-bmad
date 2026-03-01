@@ -23,7 +23,8 @@ use crate::social::companion_personality::{BarkDisplay, PlayerOpinions, format_o
 use crate::social::enemy_ai::{AttackWarning, BossRetreatBark};
 use crate::social::faction::FactionId;
 use crate::core::weapons::{
-    ActiveWeapon, Energy, FireCooldown, NeedsLaserVisual, NeedsProjectileVisual, WeaponConfig,
+    ActiveWeapon, Energy, FireCooldown, NeedsEnemyProjectileVisual,
+    NeedsLaserVisual, NeedsProjectileVisual, WeaponConfig,
 };
 use crate::shared::components::Velocity;
 use crate::world::WorldConfig;
@@ -102,6 +103,9 @@ impl Plugin for RenderingPlugin {
         // Bark HUD (companion one-liners)
         app.add_systems(Startup, spawn_bark_hud);
         app.add_systems(Update, update_bark_hud);
+        // Coords HUD (above minimap, top-right)
+        app.add_systems(Startup, spawn_coords_hud);
+        app.add_systems(Update, update_coords_hud);
         // Story 7-2: Boss attack warning visual (pulsing color)
         app.add_systems(Update, update_boss_warning_visual);
         // Story 7-5: Boss retreat HUD
@@ -120,6 +124,7 @@ impl Plugin for RenderingPlugin {
                 setup_player,
                 setup_laser_assets,
                 setup_projectile_assets,
+                setup_enemy_projectile_assets,
                 setup_asteroid_assets,
                 setup_drone_assets,
                 setup_fighter_assets,
@@ -145,6 +150,7 @@ impl Plugin for RenderingPlugin {
             (
                 render_laser_pulses,
                 render_spread_projectiles,
+                render_enemy_projectiles,
                 render_asteroids,
                 render_drones,
                 render_fighters,
@@ -231,6 +237,39 @@ fn render_laser_pulses(
                 MeshMaterial2d(laser_assets.material.clone()),
             ))
             .remove::<NeedsLaserVisual>();
+    }
+}
+
+/// Cached mesh and material handles for enemy projectiles (red).
+#[derive(Resource)]
+struct EnemyProjectileAssets {
+    mesh: Handle<Mesh>,
+    material: Handle<ColorMaterial>,
+}
+
+fn setup_enemy_projectile_assets(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let mesh = meshes.add(generate_projectile_mesh(4.0));
+    let material = materials.add(ColorMaterial::from(Color::srgb(1.0, 0.1, 0.1)));
+    commands.insert_resource(EnemyProjectileAssets { mesh, material });
+}
+
+fn render_enemy_projectiles(
+    mut commands: Commands,
+    assets: Res<EnemyProjectileAssets>,
+    query: Query<Entity, With<NeedsEnemyProjectileVisual>>,
+) {
+    for entity in query.iter() {
+        commands
+            .entity(entity)
+            .insert((
+                Mesh2d(assets.mesh.clone()),
+                MeshMaterial2d(assets.material.clone()),
+            ))
+            .remove::<NeedsEnemyProjectileVisual>();
     }
 }
 
@@ -1485,6 +1524,39 @@ pub fn update_bark_hud(
             *visibility = Visibility::Hidden;
         }
     }
+}
+
+// ── Coords HUD ───────────────────────────────────────────────────────────
+
+#[derive(Component)]
+struct CoordsHudMarker;
+
+pub fn spawn_coords_hud(mut commands: Commands) {
+    commands.spawn((
+        CoordsHudMarker,
+        Text::new(""),
+        TextFont { font_size: 12.0, ..default() },
+        TextColor(Color::srgba(0.7, 0.9, 1.0, 0.85)),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(8.0),
+            right: Val::Px(20.0),
+            ..default()
+        },
+    ));
+}
+
+pub fn update_coords_hud(
+    player_query: Query<&Transform, With<Player>>,
+    mut query: Query<&mut Text, With<CoordsHudMarker>>,
+) {
+    let Ok(transform) = player_query.single() else { return };
+    let Ok(mut text) = query.single_mut() else { return };
+    let x = transform.translation.x;
+    let y = transform.translation.y;
+    let chunk_x = (x / 1000.0).floor() as i32;
+    let chunk_y = (y / 1000.0).floor() as i32;
+    text.0 = format!("Chunk ({chunk_x}, {chunk_y})\n({x:.0}, {y:.0})");
 }
 
 // ── Story 7-2: Boss Attack Warning Visual ────────────────────────────────

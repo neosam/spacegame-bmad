@@ -344,6 +344,71 @@ pub fn tick_spread_projectiles(
     }
 }
 
+/// Enemy projectile — moves toward the player and damages only the player on contact.
+/// Spawned by `spawn_enemy_projectiles` from `PendingEnemyShotQueue`.
+#[derive(Component)]
+pub struct EnemyProjectile {
+    pub direction: Vec2,
+    pub speed: f32,
+    pub damage: f32,
+    /// Remaining lifetime in seconds before despawn.
+    pub timer: f32,
+}
+
+/// Marker so rendering can attach a distinct visual for enemy shots.
+#[derive(Component)]
+pub struct NeedsEnemyProjectileVisual;
+
+/// Reads `PendingEnemyShotQueue` and spawns `EnemyProjectile` entities.
+pub fn spawn_enemy_projectiles(
+    mut commands: Commands,
+    mut queue: ResMut<crate::social::enemy_ai::PendingEnemyShotQueue>,
+) {
+    for shot in queue.shots.drain(..) {
+        let dir = (shot.target - shot.origin);
+        let dir = if dir.length() > 0.0 { dir.normalize() } else { Vec2::X };
+        // Spawn outside the enemy collider (offset 35 units)
+        let spawn_pos = shot.origin + dir * 35.0;
+        commands.spawn((
+            EnemyProjectile {
+                direction: dir,
+                speed: 300.0,
+                damage: shot.damage,
+                timer: 4.0,
+            },
+            NeedsEnemyProjectileVisual,
+            Transform::from_translation(spawn_pos.extend(0.0)),
+        ));
+    }
+}
+
+/// Moves enemy projectiles along their direction each tick.
+pub fn move_enemy_projectiles(
+    time: Res<Time>,
+    mut query: Query<(&EnemyProjectile, &mut Transform)>,
+) {
+    let dt = time.delta_secs();
+    for (proj, mut transform) in query.iter_mut() {
+        transform.translation.x += proj.direction.x * proj.speed * dt;
+        transform.translation.y += proj.direction.y * proj.speed * dt;
+    }
+}
+
+/// Ticks enemy projectile timers and despawns expired ones.
+pub fn tick_enemy_projectiles(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut EnemyProjectile)>,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut proj) in query.iter_mut() {
+        proj.timer -= dt;
+        if proj.timer <= 0.0 {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
 /// Toggles the player's active weapon when switch input is active.
 /// Emits `GameEvent::WeaponSwitched` on each toggle.
 pub fn switch_weapon(

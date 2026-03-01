@@ -149,12 +149,12 @@ development_status:
   epic-6c-retrospective: done
 
   # ── Epic 7: Boss Encounters (Should | Dependencies: Epic 4, 5) ──
-  epic-7: backlog
-  7-1-boss-encounters: backlog
-  7-2-boss-telegraphing: backlog
-  7-3-faction-bosses: backlog
-  7-4-boss-loot: backlog
-  7-5-boss-flee: backlog
+  epic-7: done
+  7-1-boss-encounters: done
+  7-2-boss-telegraphing: done
+  7-3-faction-bosses: done
+  7-4-boss-loot: done
+  7-5-boss-flee: done
   epic-7-retrospective: optional
 
   # ── Epic 8: Logbook UI (Should | Dependencies: Epic 6a) ──

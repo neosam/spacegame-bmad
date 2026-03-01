@@ -13,7 +13,8 @@ use bevy::prelude::*;
 
 use self::camera::camera_follow_player;
 use self::collision::{
-    apply_damage, check_contact_collisions, check_laser_collisions, check_projectile_collisions,
+    apply_damage, check_contact_collisions, check_enemy_projectile_collisions,
+    check_laser_collisions, check_projectile_collisions,
     despawn_destroyed, handle_player_death, tick_contact_cooldown, tick_invincibility, DamageQueue,
     DestroyedPositions, LaserHitPositions,
 };
@@ -44,7 +45,8 @@ use self::tutorial::{
     validate_tutorial_config, TutorialConfig, TutorialPhase,
 };
 use self::weapons::{
-    fire_weapon, move_spread_projectiles, regenerate_energy, switch_weapon, tick_fire_cooldown,
+    fire_weapon, move_spread_projectiles, move_enemy_projectiles, regenerate_energy,
+    spawn_enemy_projectiles, switch_weapon, tick_enemy_projectiles, tick_fire_cooldown,
     tick_laser_pulses, tick_spread_projectiles, LaserFired, SpreadFired, WeaponConfig,
 };
 
@@ -208,6 +210,9 @@ impl Plugin for CorePlugin {
                 tick_laser_pulses,
                 move_spread_projectiles,
                 tick_spread_projectiles,
+                spawn_enemy_projectiles,
+                move_enemy_projectiles,
+                tick_enemy_projectiles,
             )
                 .chain()
                 .after(CoreSet::Physics)
@@ -223,6 +228,7 @@ impl Plugin for CorePlugin {
             (
                 check_laser_collisions,
                 check_projectile_collisions,
+                check_enemy_projectile_collisions,
                 check_contact_collisions,
             )
                 .in_set(CoreSet::Collision),

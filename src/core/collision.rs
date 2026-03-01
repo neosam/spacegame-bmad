@@ -6,7 +6,7 @@ use crate::shared::components::{ContactDamageCooldown, Invincible, JustDamaged, 
 use crate::shared::events::{GameEvent, GameEventKind};
 use super::flight::Player;
 use super::spawning::{Asteroid, BossEnemy, Fighter, HeavyCruiser, ScoutDrone, Sniper};
-use super::weapons::{LaserFired, SpreadProjectile, WeaponConfig};
+use super::weapons::{EnemyProjectile, LaserFired, SpreadProjectile, WeaponConfig};
 use crate::core::tutorial::GravityWellGenerator;
 
 /// Radius used for spread projectile collision checks.
@@ -179,6 +179,27 @@ pub fn check_projectile_collisions(
                 commands.entity(proj_entity).despawn();
                 break; // Projectile can only hit one target
             }
+        }
+    }
+}
+
+/// Checks enemy projectile collisions against the player only.
+/// Enemy shots cannot hit other enemies.
+pub fn check_enemy_projectile_collisions(
+    mut commands: Commands,
+    projectiles: Query<(Entity, &Transform, &EnemyProjectile)>,
+    player: Query<(Entity, &Transform, &Collider), With<Player>>,
+    mut damage_queue: ResMut<DamageQueue>,
+) {
+    let Ok((player_entity, player_transform, player_collider)) = player.single() else {
+        return;
+    };
+    let player_pos = Vec2::new(player_transform.translation.x, player_transform.translation.y);
+    for (proj_entity, proj_transform, proj) in projectiles.iter() {
+        let proj_pos = Vec2::new(proj_transform.translation.x, proj_transform.translation.y);
+        if circle_circle_intersection(proj_pos, PROJECTILE_RADIUS, player_pos, player_collider.radius) {
+            damage_queue.entries.push((player_entity, proj.damage));
+            commands.entity(proj_entity).despawn();
         }
     }
 }
