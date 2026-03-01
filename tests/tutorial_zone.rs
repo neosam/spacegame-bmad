@@ -7,9 +7,11 @@ use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use void_drifter::core::flight::Player;
 use void_drifter::core::tutorial::{
-    apply_gravity_well, generate_tutorial_zone, validate_tutorial_seed, GravityWellGenerator,
-    TutorialConfig, TutorialPhase, TutorialStation, TutorialZone, WeaponsLocked,
+    advance_phase_on_wreck_shot, apply_gravity_well, generate_tutorial_zone,
+    validate_tutorial_seed, GravityWellGenerator, TutorialConfig, TutorialPhase, TutorialStation,
+    TutorialWreck, TutorialZone, WeaponsLocked, WreckShotState,
 };
+use void_drifter::shared::components::JustDamaged;
 use void_drifter::shared::components::Velocity;
 use void_drifter::core::weapons::{ActiveWeapon, Energy, FireCooldown, LaserPulse};
 use void_drifter::core::input::ActionState;
@@ -424,5 +426,178 @@ fn gravity_well_with_full_tutorial_zone() {
         vel.0.x < 0.0,
         "Player outside tutorial zone safe_radius should be pulled back, got {:?}",
         vel.0
+    );
+}
+
+// ── Laser at Wreck Integration Tests ────────────────────────────────────
+
+/// Create a minimal app with the advance_phase_on_wreck_shot system for testing.
+fn wreck_phase_test_app() -> App {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.add_plugins(bevy::state::app::StatesPlugin);
+    app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+        Duration::from_secs_f64(1.0 / 60.0),
+    ));
+    app.init_state::<TutorialPhase>();
+    app.add_systems(FixedUpdate, advance_phase_on_wreck_shot);
+    // Prime
+    app.update();
+    app
+}
+
+#[test]
+fn tutorial_zone_spawns_wreck_entity() {
+    let mut app = tutorial_test_app();
+
+    let wreck_count = app
+        .world_mut()
+        .query_filtered::<Entity, With<TutorialWreck>>()
+        .iter(app.world())
+        .count();
+    assert_eq!(wreck_count, 1, "Should spawn exactly one tutorial wreck");
+}
+
+#[test]
+fn tutorial_wreck_spawns_with_shot_state_false() {
+    let mut app = tutorial_test_app();
+
+    let mut query = app.world_mut().query::<&WreckShotState>();
+    let shot_state = query
+        .iter(app.world())
+        .next()
+        .expect("Should have a WreckShotState");
+    assert!(
+        !shot_state.has_been_shot,
+        "WreckShotState should start as not shot"
+    );
+}
+
+#[test]
+fn wreck_spawns_within_safe_radius_all_seeds() {
+    let config = TutorialConfig::default();
+    for seed in 0..100 {
+        let layout = generate_tutorial_zone(seed, &config);
+        let dist = (layout.wreck_position - layout.zone_center).length();
+        assert!(
+            dist <= config.safe_radius,
+            "Seed {seed}: wreck at {dist:.1} exceeds safe_radius {}",
+            config.safe_radius
+        );
+    }
+}
+
+#[test]
+fn phase_advances_shooting_to_spread_unlocked_when_wreck_hit() {
+    let mut app = wreck_phase_test_app();
+
+    // Manually set phase to Shooting
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::Shooting);
+    app.update(); // Apply state transition: Flying -> Shooting
+
+    // Spawn wreck with JustDamaged (simulates a laser hit this frame)
+    app.world_mut().spawn((
+        TutorialWreck,
+        WreckShotState { has_been_shot: false },
+        JustDamaged { amount: 10.0 },
+    ));
+
+    app.update(); // advance_phase_on_wreck_shot runs, sets NextState to SpreadUnlocked
+    app.update(); // Apply state transition: Shooting -> SpreadUnlocked
+
+    let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::SpreadUnlocked,
+        "Phase should advance to SpreadUnlocked after wreck is hit"
+    );
+}
+
+#[test]
+fn phase_does_not_advance_when_wreck_not_hit() {
+    let mut app = wreck_phase_test_app();
+
+    // Manually set phase to Shooting
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::Shooting);
+    app.update(); // Apply state transition
+
+    // Spawn wreck WITHOUT JustDamaged (not hit this frame)
+    app.world_mut().spawn((
+        TutorialWreck,
+        WreckShotState { has_been_shot: false },
+        // No JustDamaged component
+    ));
+
+    app.update();
+
+    let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::Shooting,
+        "Phase should remain Shooting when wreck is not hit"
+    );
+}
+
+#[test]
+fn phase_advance_is_idempotent_once_spread_unlocked() {
+    let mut app = wreck_phase_test_app();
+
+    // Phase already at SpreadUnlocked
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::SpreadUnlocked);
+    app.update(); // Apply state transition
+
+    // Wreck gets hit again (already shot)
+    app.world_mut().spawn((
+        TutorialWreck,
+        WreckShotState { has_been_shot: true },
+        JustDamaged { amount: 10.0 },
+    ));
+
+    app.update();
+
+    let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::SpreadUnlocked,
+        "Phase should remain SpreadUnlocked — idempotent on repeat hits"
+    );
+}
+
+#[test]
+fn wreck_shot_state_set_true_on_first_hit() {
+    let mut app = wreck_phase_test_app();
+
+    // Set phase to Shooting
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::Shooting);
+    app.update();
+
+    // Spawn wreck with JustDamaged
+    let wreck = app
+        .world_mut()
+        .spawn((
+            TutorialWreck,
+            WreckShotState { has_been_shot: false },
+            JustDamaged { amount: 10.0 },
+        ))
+        .id();
+
+    app.update();
+
+    let shot_state = app
+        .world()
+        .entity(wreck)
+        .get::<WreckShotState>()
+        .expect("Wreck should have WreckShotState");
+    assert!(
+        shot_state.has_been_shot,
+        "WreckShotState should be true after first hit"
     );
 }

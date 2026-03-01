@@ -26,6 +26,10 @@ pub struct TutorialConfig {
     pub player_offset_max: f32,
     /// Health of the gravity well generator
     pub generator_health: f32,
+    /// Minimum distance from zone center for wreck placement
+    pub wreck_offset_min: f32,
+    /// Maximum distance from zone center for wreck placement
+    pub wreck_offset_max: f32,
 }
 
 impl Default for TutorialConfig {
@@ -40,6 +44,8 @@ impl Default for TutorialConfig {
             player_offset_min: 50.0,
             player_offset_max: 150.0,
             generator_health: 100.0,
+            wreck_offset_min: 400.0,
+            wreck_offset_max: 700.0,
         }
     }
 }
@@ -66,6 +72,17 @@ pub struct GravityWellGenerator {
 #[derive(Component, Debug)]
 pub struct TutorialStation {
     pub defective: bool,
+}
+
+/// Marker component for the tutorial wreck entity that grants the laser weapon.
+#[derive(Component, Debug)]
+pub struct TutorialWreck;
+
+/// Tracks whether the tutorial wreck has been shot by the player's laser.
+/// When `has_been_shot` transitions to true, the tutorial phase advances.
+#[derive(Component, Debug)]
+pub struct WreckShotState {
+    pub has_been_shot: bool,
 }
 
 // ── Resources ───────────────────────────────────────────────────────────
@@ -104,6 +121,7 @@ pub struct TutorialLayout {
     pub station_position: Vec2,
     pub generator_position: Vec2,
     pub zone_center: Vec2,
+    pub wreck_position: Vec2,
 }
 
 const TUTORIAL_SEED_PRIME: u64 = 9_876_543_210_123_456_789;
@@ -146,11 +164,15 @@ pub fn generate_tutorial_zone(seed: u64, config: &TutorialConfig) -> TutorialLay
     );
     let generator_position = zone_center + generator_offset;
 
+    let wreck_offset = random_offset(&mut rng, config.wreck_offset_min, config.wreck_offset_max);
+    let wreck_position = zone_center + wreck_offset;
+
     TutorialLayout {
         player_spawn,
         station_position,
         generator_position,
         zone_center,
+        wreck_position,
     }
 }
 
@@ -195,6 +217,16 @@ pub fn validate_tutorial_layout(
         violations.push(ConstraintViolation {
             description: format!(
                 "Player spawn at distance {player_dist:.1} exceeds safe_radius {}",
+                config.safe_radius
+            ),
+        });
+    }
+
+    let wreck_dist = (layout.wreck_position - layout.zone_center).length();
+    if wreck_dist > config.safe_radius {
+        violations.push(ConstraintViolation {
+            description: format!(
+                "Wreck at distance {wreck_dist:.1} exceeds safe_radius {}",
                 config.safe_radius
             ),
         });
@@ -275,6 +307,15 @@ pub fn spawn_tutorial_zone(
             max: config.generator_health,
         },
         Transform::from_translation(layout.generator_position.extend(0.0)),
+    ));
+
+    // Spawn tutorial wreck — the player shoots this to unlock laser weapon
+    commands.spawn((
+        TutorialWreck,
+        WreckShotState { has_been_shot: false },
+        crate::core::collision::Collider { radius: 20.0 },
+        crate::core::collision::Health { current: 50.0, max: 50.0 },
+        Transform::from_translation(layout.wreck_position.extend(0.0)),
     ));
 
     // Mark tutorial area chunks as occupied so chunk generation skips them
@@ -361,6 +402,29 @@ pub fn apply_gravity_well(
     }
 }
 
+// ── Laser-at-Wreck Phase Progression ────────────────────────────────────
+
+/// Detects when the `TutorialWreck` entity receives damage (via `JustDamaged` component)
+/// and advances the `TutorialPhase` from `Shooting` to `SpreadUnlocked`.
+/// The transition is idempotent: once `has_been_shot` is true, no further action is taken.
+pub fn advance_phase_on_wreck_shot(
+    mut wreck_query: Query<
+        &mut WreckShotState,
+        (With<TutorialWreck>, With<crate::shared::components::JustDamaged>),
+    >,
+    phase: Res<State<TutorialPhase>>,
+    mut next_phase: ResMut<NextState<TutorialPhase>>,
+) {
+    for mut shot_state in wreck_query.iter_mut() {
+        if !shot_state.has_been_shot {
+            shot_state.has_been_shot = true;
+            if *phase.get() == TutorialPhase::Shooting {
+                next_phase.set(TutorialPhase::SpreadUnlocked);
+            }
+        }
+    }
+}
+
 // ── Unit Tests ──────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -379,6 +443,8 @@ mod tests {
         assert!(config.player_offset_min > 0.0);
         assert!(config.player_offset_max >= config.player_offset_min);
         assert!(config.generator_health > 0.0);
+        assert!(config.wreck_offset_min > 0.0);
+        assert!(config.wreck_offset_max >= config.wreck_offset_min);
     }
 
     #[test]
@@ -393,11 +459,15 @@ mod tests {
             player_offset_min: 30.0,
             player_offset_max: 100.0,
             generator_health: 80.0,
+            wreck_offset_min: 400.0,
+            wreck_offset_max: 700.0,
         )"#;
         let config = TutorialConfig::from_ron(ron_str).expect("Should parse RON");
         assert!((config.safe_radius - 1500.0).abs() < f32::EPSILON);
         assert!((config.pull_strength - 40.0).abs() < f32::EPSILON);
         assert!((config.generator_health - 80.0).abs() < f32::EPSILON);
+        assert!((config.wreck_offset_min - 400.0).abs() < f32::EPSILON);
+        assert!((config.wreck_offset_max - 700.0).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -503,6 +573,7 @@ mod tests {
             station_position: Vec2::new(config.safe_radius + 100.0, 0.0),
             generator_position: Vec2::ZERO,
             zone_center: Vec2::ZERO,
+            wreck_position: Vec2::ZERO,
         };
         let result = validate_tutorial_layout(&layout, &config);
         assert!(result.is_err(), "Out-of-bounds station should fail validation");
@@ -592,6 +663,77 @@ mod tests {
                 config.generator_offset_max
             );
         }
+    }
+
+    // ── Wreck Component Tests ───────────────────────────────────────────
+
+    #[test]
+    fn wreck_shot_state_starts_not_shot() {
+        let state = WreckShotState { has_been_shot: false };
+        assert!(!state.has_been_shot, "WreckShotState should start as not shot");
+    }
+
+    #[test]
+    fn wreck_offset_within_config_range() {
+        let config = TutorialConfig::default();
+        for seed in 0..50 {
+            let layout = generate_tutorial_zone(seed, &config);
+            let dist = (layout.wreck_position - layout.zone_center).length();
+            assert!(
+                dist >= config.wreck_offset_min - 0.01 && dist <= config.wreck_offset_max + 0.01,
+                "Seed {seed}: wreck offset {dist:.1} not in [{}, {}]",
+                config.wreck_offset_min,
+                config.wreck_offset_max
+            );
+        }
+    }
+
+    #[test]
+    fn wreck_within_safe_radius_all_seeds() {
+        let config = TutorialConfig::default();
+        for seed in 0..100 {
+            let layout = generate_tutorial_zone(seed, &config);
+            let dist = (layout.wreck_position - layout.zone_center).length();
+            assert!(
+                dist <= config.safe_radius,
+                "Seed {seed}: wreck at distance {dist:.1} exceeds safe_radius {}",
+                config.safe_radius
+            );
+        }
+    }
+
+    #[test]
+    fn wreck_position_is_deterministic() {
+        let config = TutorialConfig::default();
+        let layout1 = generate_tutorial_zone(42, &config);
+        let layout2 = generate_tutorial_zone(42, &config);
+        assert!(
+            (layout1.wreck_position.x - layout2.wreck_position.x).abs() < f32::EPSILON,
+            "Wreck position X should be deterministic"
+        );
+        assert!(
+            (layout1.wreck_position.y - layout2.wreck_position.y).abs() < f32::EPSILON,
+            "Wreck position Y should be deterministic"
+        );
+    }
+
+    #[test]
+    fn validate_tutorial_layout_catches_out_of_bounds_wreck() {
+        let config = TutorialConfig::default();
+        let layout = TutorialLayout {
+            player_spawn: Vec2::ZERO,
+            station_position: Vec2::ZERO,
+            generator_position: Vec2::ZERO,
+            zone_center: Vec2::ZERO,
+            wreck_position: Vec2::new(config.safe_radius + 100.0, 0.0),
+        };
+        let result = validate_tutorial_layout(&layout, &config);
+        assert!(result.is_err(), "Out-of-bounds wreck should fail validation");
+        let violations = result.expect_err("Should have violations");
+        assert!(
+            violations.iter().any(|v| v.description.contains("Wreck")),
+            "Should mention wreck in violation"
+        );
     }
 
     // ── Gravity Well Physics Tests ──────────────────────────────────────

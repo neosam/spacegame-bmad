@@ -20,7 +20,7 @@ use self::spawning::{
     drift_entities, spawn_respawn_timers, tick_respawn_timers,
     SpawningConfig,
 };
-use self::tutorial::{apply_gravity_well, spawn_tutorial_zone, update_weapons_lock, TutorialConfig, TutorialPhase};
+use self::tutorial::{advance_phase_on_wreck_shot, apply_gravity_well, spawn_tutorial_zone, update_weapons_lock, TutorialConfig, TutorialPhase};
 use self::weapons::{
     fire_weapon, move_spread_projectiles, regenerate_energy, switch_weapon, tick_fire_cooldown,
     tick_laser_pulses, tick_spread_projectiles, LaserFired, SpreadFired, WeaponConfig,
@@ -203,11 +203,12 @@ impl Plugin for CorePlugin {
                 .in_set(CoreSet::Collision),
         );
 
-        // Damage application in Damage set (4-way chain: apply → player death → respawn timers → despawn)
+        // Damage application in Damage set (chain: apply → wreck phase → player death → respawn timers → despawn)
         app.add_systems(
             FixedUpdate,
             (
                 apply_damage,
+                advance_phase_on_wreck_shot,
                 handle_player_death,
                 spawn_respawn_timers,
                 despawn_destroyed,

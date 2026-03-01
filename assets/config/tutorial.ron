@@ -8,4 +8,6 @@
     player_offset_min: 50.0,
     player_offset_max: 150.0,
     generator_health: 100.0,
+    wreck_offset_min: 400.0,
+    wreck_offset_max: 700.0,
 )
