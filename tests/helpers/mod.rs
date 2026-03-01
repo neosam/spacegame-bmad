@@ -196,9 +196,12 @@ pub fn spawn_player_with_velocity(app: &mut App, velocity: Vec2) -> Entity {
         .id()
 }
 
-/// Set a player entity's active weapon to Spread.
+/// Set a player entity's active weapon to Spread (also inserts SpreadUnlocked).
 #[allow(dead_code)]
 pub fn set_active_weapon_spread(app: &mut App, entity: Entity) {
+    app.world_mut()
+        .entity_mut(entity)
+        .insert(void_drifter::core::tutorial::SpreadUnlocked);
     *app.world_mut()
         .entity_mut(entity)
         .get_mut::<ActiveWeapon>()

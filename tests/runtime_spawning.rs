@@ -46,7 +46,10 @@ fn drone_destroyed_by_spread_projectiles() {
     let mut app = test_app();
     let player = spawn_player(&mut app);
 
-    // Switch to spread weapon
+    // Switch to spread weapon (requires SpreadUnlocked)
+    app.world_mut()
+        .entity_mut(player)
+        .insert(void_drifter::core::tutorial::SpreadUnlocked);
     *app.world_mut()
         .entity_mut(player)
         .get_mut::<ActiveWeapon>()

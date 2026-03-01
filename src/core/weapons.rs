@@ -182,6 +182,7 @@ pub fn fire_weapon(
             &mut Energy,
             &ActiveWeapon,
             Option<&crate::core::tutorial::WeaponsLocked>,
+            Option<&crate::core::tutorial::SpreadUnlocked>,
         ),
         With<Player>,
     >,
@@ -196,8 +197,11 @@ pub fn fire_weapon(
         return;
     }
 
-    for (player_entity, transform, mut cooldown, mut energy, active_weapon, weapons_locked) in player_query.iter_mut() {
+    for (player_entity, transform, mut cooldown, mut energy, active_weapon, weapons_locked, spread_unlocked) in player_query.iter_mut() {
         if weapons_locked.is_some() {
+            continue;
+        }
+        if *active_weapon == ActiveWeapon::Spread && spread_unlocked.is_none() {
             continue;
         }
         if cooldown.timer > 0.0 {
@@ -344,7 +348,7 @@ pub fn tick_spread_projectiles(
 /// Emits `GameEvent::WeaponSwitched` on each toggle.
 pub fn switch_weapon(
     action_state: Res<ActionState>,
-    mut query: Query<(&mut ActiveWeapon, &Transform), With<Player>>,
+    mut query: Query<(&mut ActiveWeapon, &Transform, Option<&crate::core::tutorial::SpreadUnlocked>), With<Player>>,
     mut game_events: MessageWriter<GameEvent>,
     time: Res<Time>,
     severity_config: Res<EventSeverityConfig>,
@@ -352,13 +356,19 @@ pub fn switch_weapon(
     if !action_state.switch_weapon {
         return;
     }
-    for (mut weapon, transform) in query.iter_mut() {
+    for (mut weapon, transform, spread_unlocked) in query.iter_mut() {
         let from = match *weapon {
             ActiveWeapon::Laser => WeaponKind::Laser,
             ActiveWeapon::Spread => WeaponKind::Spread,
         };
         *weapon = match *weapon {
-            ActiveWeapon::Laser => ActiveWeapon::Spread,
+            ActiveWeapon::Laser => {
+                if spread_unlocked.is_some() {
+                    ActiveWeapon::Spread
+                } else {
+                    ActiveWeapon::Laser
+                }
+            }
             ActiveWeapon::Spread => ActiveWeapon::Laser,
         };
         let to = match *weapon {
@@ -517,7 +527,7 @@ mod tests {
 
         let entity = app
             .world_mut()
-            .spawn((Player, ActiveWeapon::Laser, Transform::default()))
+            .spawn((Player, ActiveWeapon::Laser, Transform::default(), crate::core::tutorial::SpreadUnlocked))
             .id();
 
         // Set switch_weapon input
@@ -560,6 +570,31 @@ mod tests {
             *weapon,
             ActiveWeapon::Laser,
             "Should toggle from Spread to Laser"
+        );
+    }
+
+    #[test]
+    fn switch_weapon_blocked_without_spread_unlocked() {
+        let mut app = setup_switch_weapon_app();
+
+        let entity = app
+            .world_mut()
+            .spawn((Player, ActiveWeapon::Laser, Transform::default()))
+            // NO SpreadUnlocked component
+            .id();
+
+        app.world_mut().resource_mut::<ActionState>().switch_weapon = true;
+        app.update();
+
+        let weapon = app
+            .world()
+            .entity(entity)
+            .get::<ActiveWeapon>()
+            .expect("Should have ActiveWeapon");
+        assert_eq!(
+            *weapon,
+            ActiveWeapon::Laser,
+            "Should not switch to Spread without SpreadUnlocked"
         );
     }
 

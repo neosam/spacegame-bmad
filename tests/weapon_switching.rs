@@ -2,14 +2,22 @@ mod helpers;
 
 use helpers::{spawn_player, test_app};
 use void_drifter::core::input::ActionState;
+use void_drifter::core::tutorial::SpreadUnlocked;
 use void_drifter::core::weapons::{
     ActiveWeapon, Energy, FireCooldown, LaserPulse, SpreadProjectile,
 };
 
+/// Spawn a player with SpreadUnlocked for weapon-switching tests.
+fn spawn_player_with_spread(app: &mut bevy::prelude::App) -> bevy::prelude::Entity {
+    let entity = spawn_player(app);
+    app.world_mut().entity_mut(entity).insert(SpreadUnlocked);
+    entity
+}
+
 #[test]
 fn switch_to_spread_then_fire_spawns_spread_projectiles() {
     let mut app = test_app();
-    let entity = spawn_player(&mut app);
+    let entity = spawn_player_with_spread(&mut app);
 
     // Verify starts as Laser
     let weapon = app
@@ -67,7 +75,7 @@ fn switch_to_spread_then_fire_spawns_spread_projectiles() {
 #[test]
 fn switch_back_to_laser_then_fire_spawns_laser_pulse() {
     let mut app = test_app();
-    let entity = spawn_player(&mut app);
+    let entity = spawn_player_with_spread(&mut app);
 
     // Switch to Spread
     app.world_mut().resource_mut::<ActionState>().switch_weapon = true;
@@ -127,7 +135,7 @@ fn switch_back_to_laser_then_fire_spawns_laser_pulse() {
 #[test]
 fn fire_cooldown_persists_across_weapon_switch() {
     let mut app = test_app();
-    let entity = spawn_player(&mut app);
+    let entity = spawn_player_with_spread(&mut app);
 
     // Fire laser to set cooldown
     app.world_mut().resource_mut::<ActionState>().fire = true;
@@ -168,7 +176,7 @@ fn fire_cooldown_persists_across_weapon_switch() {
 #[test]
 fn energy_persists_across_weapon_switch() {
     let mut app = test_app();
-    let entity = spawn_player(&mut app);
+    let entity = spawn_player_with_spread(&mut app);
 
     // Drain some energy
     app.world_mut()
@@ -199,7 +207,7 @@ fn energy_persists_across_weapon_switch() {
 #[test]
 fn multiple_rapid_switches_settle_on_correct_weapon() {
     let mut app = test_app();
-    let entity = spawn_player(&mut app);
+    let entity = spawn_player_with_spread(&mut app);
 
     // Switch 3 times: Laser → Spread → Laser → Spread
     for _ in 0..3 {
