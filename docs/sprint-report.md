@@ -1,3 +1,113 @@
+# Sprint Report — Epic 5: Progression & Upgrades
+
+**Datum:** 2026-02-28
+**Epic:** 5 — Progression & Upgrades
+**Status:** ✅ Abgeschlossen
+
+---
+
+## Zusammenfassung
+
+Epic 5 "Progression & Upgrades" wurde vollständig implementiert. Alle 6 Stories wurden kohärent als ein Feature-Set umgesetzt. Die Testsuite wuchs von **605 Tests** (Ende Epic 4) auf **622 Tests** (+17 neue Tests).
+
+---
+
+## Stories
+
+| Story | Titel | Status |
+|-------|-------|:------:|
+| 5-1 | Craft Upgrades | ✅ done |
+| 5-2 | Upgrade Tiers | ✅ done |
+| 5-3 | Weapon Upgrades | ✅ done |
+| 5-4 | Recipe Discovery | ✅ done |
+| 5-5 | Visual Ship Changes | ✅ done |
+| 5-6 | Craft-Buy Distinction | ✅ done |
+
+---
+
+## Implementierte Features
+
+### Upgrade-System (`src/core/upgrades.rs`)
+- `ShipSystem` enum (8 Varianten): Thrust, MaxSpeed, Rotation, EnergyCapacity, EnergyRegen, ScannerRange, HullStrength, CargoCapacity
+- `WeaponSystem` enum (5 Varianten): LaserDamage, LaserFireRate, SpreadDamage, SpreadFireRate, EnergyEfficiency
+- `AcquisitionMethod { CraftOnly, BuyOnly, CraftOrBuy }` — Story 5-6
+- `InstalledUpgrades { ship: HashMap<ShipSystem, u8>, weapon: HashMap<WeaponSystem, u8> }`
+- `DiscoveredRecipes` — startet mit 13 Tier-1-Rezepten (8 Schiff + 5 Waffe)
+- `CraftingRequest` Resource — entkoppelter Crafting-Trigger
+- `BaseStats` Resource — speichert unkomprimierte Basiswerte für korrekte Recompute
+- `compute_upgrade_multiplier(tier) -> f32` — Pure Function (tier 0=1.0, tier 5=1.5)
+- `can_craft()` — Pure Function, prüft Materialien + Credits
+
+### Systems
+- `init_base_stats` (Startup) — initialisiert BaseStats aus FlightConfig + WeaponConfig
+- `process_crafting_request` — verarbeitet CraftRequest, zieht Materialien/Credits ab
+- `apply_upgrade_effects` — skaliert FlightConfig + WeaponConfig aus BaseStats × Multiplikator
+- `emit_craft_events` — B0002-safe Event-Emission (PendingCraftEvents Buffer)
+- `mark_player_needs_upgrade_visual` — setzt `NeedsShipUpgradeVisual` bei Änderung
+- `discover_recipe_for_chunk` — Tier-2/3 Rezepte durch Chunk-Entdeckung
+
+### Visuelle Schiffsveränderungen
+- `NeedsShipUpgradeVisual` Marker-Komponente (src/shared/components.rs)
+- `update_ship_upgrade_visual` in Rendering — Hull-Tier → Schiffsfarbe:
+  - Tier 0: Gold | Tier 1-2: Blau | Tier 3-4: Hellgold | Tier 5: Silber
+
+### Save/Load
+- SAVE_VERSION 4 → 5
+- 13 neue `#[serde(default)]` Felder in PlayerSave (je 1 pro System)
+- `InstalledUpgrades` wird in from_world/apply_to_world korrekt serialisiert
+
+### Events
+- `GameEventKind::UpgradeCrafted { system_name: String, tier: u8 }`
+- `EventSeverityConfig`: 14 → 15 Mappings (UpgradeCrafted → Tier2)
+
+---
+
+## Neue Tests (`tests/craft_upgrades.rs`)
+
+17 neue Tests (10 Integration + 7 Unit):
+1. `can_craft_with_sufficient_materials` — Pure Function
+2. `can_craft_fails_insufficient_scrap` — Pure Function
+3. `can_craft_fails_insufficient_credits` — Pure Function
+4. `upgrade_multiplier_scales_correctly` — Pure Function
+5. `craft_deducts_materials` — App Test
+6. `craft_increments_tier` — App Test
+7. `craft_requires_docked` — App Test (Crafting nur wenn gedockt)
+8. `upgrade_save_load_roundtrip` — Serialisierung
+9. `can_craft_buy_only_recipe` — AcquisitionMethod
+10. `discover_recipe_adds_to_list` — DiscoveredRecipes
+
+---
+
+## Architektur-Muster (bestätigt)
+
+- **Pure Functions**: `can_craft()`, `compute_upgrade_multiplier()` — vollständig testbar ohne App
+- **BaseStats Pattern**: Basiswerte gespeichert, dann Recompute bei jedem Upgrade
+- **B0002 Buffer**: `PendingCraftEvents` für Event-Emission
+- **Core/Rendering-Trennung**: `NeedsShipUpgradeVisual` Marker — Rendering reagiert
+- **`is_changed()` Guard**: `apply_upgrade_effects` läuft nur wenn `InstalledUpgrades` geändert
+
+---
+
+## Commit
+
+```
+feat(5-1..5-6): Epic 5 Progression & Upgrades — craft system, 5-tier upgrades, weapon upgrades, recipe discovery, visual ship changes, craft/buy distinction. 622 tests.
+```
+
+---
+
+## Nächster Sprint
+
+**Epic 6a: Companion Core** (Dependencies: Epic 3 ✅, Epic 4 ✅)
+- 6a-1 Recruit Companion
+- 6a-2 Companion Follow
+- 6a-3 Wingman Commands
+- 6a-4 Companion Visuals
+- 6a-5 Companion Survival
+- 6a-6 Companion Save
+
+---
+
 # Sprint Report — Epic 4: Combat Depth
 
 **Datum:** 2026-02-28
