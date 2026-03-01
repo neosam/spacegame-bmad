@@ -122,22 +122,31 @@ development_status:
   epic-5-retrospective: optional
 
   # ── Epic 6a: Companion Core (Should | Dependencies: Epic 3, 4) ──
-  epic-6a: backlog
-  6a-1-recruit-companion: backlog
-  6a-2-companion-follow: backlog
-  6a-3-wingman-commands: backlog
-  6a-4-companion-visuals: backlog
-  6a-5-companion-survival: backlog
-  6a-6-companion-save: backlog
+  epic-6a: done
+  6a-1-recruit-companion: done
+  6a-2-companion-follow: done
+  6a-3-wingman-commands: done
+  6a-4-companion-visuals: done
+  6a-5-companion-survival: done
+  6a-6-companion-save: done
   epic-6a-retrospective: optional
 
   # ── Epic 6b: Companion Personality (Should | Dependencies: Epic 6a) ──
-  epic-6b: backlog
-  6b-1-contextual-barks: backlog
-  6b-2-opinion-system: backlog
-  6b-3-inter-companion-opinions: backlog
-  6b-4-personality-combat: backlog
-  epic-6b-retrospective: optional
+  epic-6b: done
+  6b-1-contextual-barks: done
+  6b-2-opinion-system: done
+  6b-3-inter-companion-opinions: done
+  6b-4-personality-combat: done
+  epic-6b-retrospective: done
+
+  # ── Epic 6c: Companion Combat (Should | Dependencies: Epic 6b) ──
+  epic-6c: backlog
+  6c-1-companion-ship-flight: backlog
+  6c-2-companion-weapon: backlog
+  6c-3-target-acquisition: backlog
+  6c-4-damage-taken-bark: backlog
+  6c-5-opinion-hud: backlog
+  epic-6c-retrospective: optional
 
   # ── Epic 7: Boss Encounters (Should | Dependencies: Epic 4, 5) ──
   epic-7: backlog

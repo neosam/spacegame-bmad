@@ -1,9 +1,9 @@
-# Sprint Backlog — Epic 6b: Companion Personality
+# Sprint Backlog — Epic 6c: Companion Combat
 
-**Sprint:** 7
-**Epic:** 6b — Companion Personality
+**Sprint:** 8
+**Epic:** 6c — Companion Combat
 **Datum:** 2026-02-28
-**Dependencies:** Epic 6a ✅
+**Dependencies:** Epic 6b ✅
 
 ---
 
@@ -11,23 +11,37 @@
 
 | Story ID | Titel | Status | Abhängigkeiten |
 |----------|-------|:------:|----------------|
-| 6b-1 | Companion Barks | done | keine |
-| 6b-2 | Player Opinion | done | 6b-1 |
-| 6b-3 | Companion-to-Companion Opinions | done | 6b-2 |
-| 6b-4 | Personality Combat Behavior | done | 6b-1 |
+| 6c-1 | Companion Ship Flight | todo | keine |
+| 6c-2 | Companion Weapon | todo | 6c-1 |
+| 6c-3 | Target Acquisition | todo | 6c-1 |
+| 6c-4 | DamageTaken Bark | todo | 6c-1, 6c-2 |
+| 6c-5 | Opinion HUD | todo | keine |
 
 ---
 
-## Story Beschreibungen (aus epics.md)
+## Story Beschreibungen
 
-### 6b-1: Companion Barks
-As a player, my companions react to situations with contextual barks so that they feel alive.
+### 6c-1: Companion Ship Flight
+Als Spieler sehe ich meinen Companion sich realistisch drehen und in Flugrichtung beschleunigen, damit er wie ein echtes Schiff wirkt und nicht wie ein schwebendes Objekt.
 
-### 6b-2: Player Opinion
-As a player, I notice companions have opinions about me that change based on my actions so that my choices matter.
+**Technisch:** Companion braucht eigene Rotationslogik (dreht sich zum Zielvektor), Thrust in Blickrichtung, Drag — analog zu `apply_rotation` + `apply_thrust` + `apply_drag` des Players, aber KI-gesteuert.
 
-### 6b-3: Companion-to-Companion Opinions
-As a player, I notice companions have opinions about each other so that crew dynamics emerge.
+### 6c-2: Companion Weapon
+Als Spieler sieht mein Companion im Attack-Modus auf Feinde in Reichweite und feuert mit eigenem Cooldown, damit er aktiv zum Kampf beiträgt.
 
-### 6b-4: Personality Combat Behavior
-As a player, companions behave differently in combat based on their personality so that each feels unique.
+**Technisch:** Companion bekommt `CompanionWeapon { damage, range, cooldown_secs }` Component. System feuert Projektile auf das aktuelle Ziel.
+
+### 6c-3: Target Acquisition
+Als Spieler richtet sich mein Companion im Attack-Modus auf den nächsten Feind aus und verfolgt ihn, damit das Kampfverhalten glaubwürdig ist.
+
+**Technisch:** `CompanionTarget { entity: Option<Entity> }` Component. System sucht nächsten Feind innerhalb `aggro_range`, setzt Target, dreht Companion dorthin.
+
+### 6c-4: DamageTaken Bark
+Als Spieler höre ich meinen Companion reagieren wenn er getroffen wird, damit er sich lebendig anfühlt.
+
+**Technisch:** `DamageTaken`-BarkTrigger in `pick_bark()` ist bereits implementiert — nur das auslösende System fehlt. Health-Change-Detektion auf Companion-Entities.
+
+### 6c-5: Opinion HUD
+Als Spieler sehe ich kurz die aktuelle Stimmung meines Companions (z.B. "Wing-1 mag dich sehr"), damit die Opinion-Werte spürbar werden.
+
+**Technisch:** Opinion-Score neben Bark-Text anzeigen, oder als separates kleines Label neben dem Companion-Namen.
