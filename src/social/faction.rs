@@ -1,6 +1,7 @@
 /// Faction identity and behavior parameter components for Epic 4: Combat Depth.
 use bevy::prelude::*;
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
+use std::collections::HashMap;
 
 /// Which faction an entity belongs to.
 /// Faction determines FSM parameters (aggression, flee threshold, reinforcement calls).
@@ -28,6 +29,87 @@ pub struct FleeThreshold(pub f32);
 /// Distance at which an enemy transitions from Chase to Attack.
 #[derive(Component, Debug, Clone)]
 pub struct AttackRange(pub f32);
+
+// ── Faction Behavior Profiles (Story 4-6) ────────────────────────────────
+
+/// How a faction prefers to engage in combat.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum AttackStyle {
+    /// Rush player, no hesitation.
+    Aggressive,
+    /// Hold back, engage only when provoked or attacked.
+    Defensive,
+    /// Unpredictable movement and attack patterns.
+    Erratic,
+}
+
+/// Faction-wide behavior modifiers applied to AI parameters.
+#[derive(Debug, Clone)]
+pub struct FactionBehaviorProfile {
+    /// Multiplier on aggro range (>1.0 = more aggressive detection).
+    pub aggro_multiplier: f32,
+    /// Multiplier on flee threshold (>1.0 = flee sooner).
+    pub flee_multiplier: f32,
+    /// Preferred attack style.
+    pub preferred_attack_style: AttackStyle,
+}
+
+/// Resource mapping each faction to its behavior profile.
+/// Pre-populated with default values; can be overridden via config.
+#[derive(Resource, Debug)]
+pub struct FactionBehaviorProfiles {
+    pub profiles: HashMap<FactionId, FactionBehaviorProfile>,
+}
+
+impl Default for FactionBehaviorProfiles {
+    fn default() -> Self {
+        let mut profiles = HashMap::new();
+        profiles.insert(FactionId::Pirates, FactionBehaviorProfile {
+            aggro_multiplier: 1.5,
+            flee_multiplier: 0.8,
+            preferred_attack_style: AttackStyle::Aggressive,
+        });
+        profiles.insert(FactionId::Military, FactionBehaviorProfile {
+            aggro_multiplier: 0.8,
+            flee_multiplier: 1.2,
+            preferred_attack_style: AttackStyle::Defensive,
+        });
+        profiles.insert(FactionId::Aliens, FactionBehaviorProfile {
+            aggro_multiplier: 1.2,
+            flee_multiplier: 1.0,
+            preferred_attack_style: AttackStyle::Erratic,
+        });
+        profiles.insert(FactionId::RogueDrones, FactionBehaviorProfile {
+            aggro_multiplier: 1.0,
+            flee_multiplier: 0.5,
+            preferred_attack_style: AttackStyle::Aggressive,
+        });
+        profiles.insert(FactionId::Neutral, FactionBehaviorProfile {
+            aggro_multiplier: 0.0, // Never aggro
+            flee_multiplier: 2.0,  // Always flee
+            preferred_attack_style: AttackStyle::Defensive,
+        });
+        Self { profiles }
+    }
+}
+
+/// Pure function: applies faction behavior modifiers to base AI parameters.
+/// Returns (effective_aggro_range, effective_flee_threshold).
+pub fn apply_faction_modifiers(
+    base_aggro: f32,
+    base_flee_threshold: f32,
+    faction: &FactionId,
+    profiles: &FactionBehaviorProfiles,
+) -> (f32, f32) {
+    if let Some(profile) = profiles.profiles.get(faction) {
+        (
+            base_aggro * profile.aggro_multiplier,
+            base_flee_threshold * profile.flee_multiplier,
+        )
+    } else {
+        (base_aggro, base_flee_threshold)
+    }
+}
 
 // ── Faction Noise ─────────────────────────────────────────────────────────
 
@@ -70,6 +152,100 @@ pub fn faction_at_position(x: f32, y: f32, seed: u32) -> FactionId {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Story 4-6: Faction Behavior Profile tests ──
+
+    #[test]
+    fn faction_behavior_profiles_default_has_all_factions() {
+        let profiles = FactionBehaviorProfiles::default();
+        assert!(profiles.profiles.contains_key(&FactionId::Pirates), "Should have Pirates");
+        assert!(profiles.profiles.contains_key(&FactionId::Military), "Should have Military");
+        assert!(profiles.profiles.contains_key(&FactionId::Aliens), "Should have Aliens");
+        assert!(profiles.profiles.contains_key(&FactionId::RogueDrones), "Should have RogueDrones");
+        assert!(profiles.profiles.contains_key(&FactionId::Neutral), "Should have Neutral");
+    }
+
+    #[test]
+    fn pirates_are_more_aggressive_than_military() {
+        let profiles = FactionBehaviorProfiles::default();
+        let pirates = profiles.profiles.get(&FactionId::Pirates)
+            .expect("Pirates profile should exist");
+        let military = profiles.profiles.get(&FactionId::Military)
+            .expect("Military profile should exist");
+        assert!(
+            pirates.aggro_multiplier > military.aggro_multiplier,
+            "Pirates ({}) should be more aggressive than Military ({})",
+            pirates.aggro_multiplier,
+            military.aggro_multiplier
+        );
+    }
+
+    #[test]
+    fn apply_faction_modifiers_pirates_increase_aggro() {
+        let profiles = FactionBehaviorProfiles::default();
+        let (effective_aggro, _) = apply_faction_modifiers(200.0, 0.2, &FactionId::Pirates, &profiles);
+        assert!(
+            effective_aggro > 200.0,
+            "Pirates should increase aggro range above base (200), got {effective_aggro}"
+        );
+    }
+
+    #[test]
+    fn apply_faction_modifiers_military_reduce_aggro() {
+        let profiles = FactionBehaviorProfiles::default();
+        let (effective_aggro, _) = apply_faction_modifiers(200.0, 0.2, &FactionId::Military, &profiles);
+        assert!(
+            effective_aggro < 200.0,
+            "Military should reduce aggro range below base (200), got {effective_aggro}"
+        );
+    }
+
+    #[test]
+    fn apply_faction_modifiers_is_pure_function() {
+        let profiles = FactionBehaviorProfiles::default();
+        let r1 = apply_faction_modifiers(200.0, 0.2, &FactionId::Aliens, &profiles);
+        let r2 = apply_faction_modifiers(200.0, 0.2, &FactionId::Aliens, &profiles);
+        assert!(
+            (r1.0 - r2.0).abs() < f32::EPSILON && (r1.1 - r2.1).abs() < f32::EPSILON,
+            "apply_faction_modifiers must be deterministic"
+        );
+    }
+
+    #[test]
+    fn attack_style_pirates_aggressive() {
+        let profiles = FactionBehaviorProfiles::default();
+        let pirates = profiles.profiles.get(&FactionId::Pirates)
+            .expect("Pirates profile should exist");
+        assert_eq!(
+            pirates.preferred_attack_style,
+            AttackStyle::Aggressive,
+            "Pirates should use Aggressive attack style"
+        );
+    }
+
+    #[test]
+    fn attack_style_military_defensive() {
+        let profiles = FactionBehaviorProfiles::default();
+        let military = profiles.profiles.get(&FactionId::Military)
+            .expect("Military profile should exist");
+        assert_eq!(
+            military.preferred_attack_style,
+            AttackStyle::Defensive,
+            "Military should use Defensive attack style"
+        );
+    }
+
+    #[test]
+    fn attack_style_aliens_erratic() {
+        let profiles = FactionBehaviorProfiles::default();
+        let aliens = profiles.profiles.get(&FactionId::Aliens)
+            .expect("Aliens profile should exist");
+        assert_eq!(
+            aliens.preferred_attack_style,
+            AttackStyle::Erratic,
+            "Aliens should use Erratic attack style"
+        );
+    }
 
     #[test]
     fn faction_at_position_is_deterministic() {
