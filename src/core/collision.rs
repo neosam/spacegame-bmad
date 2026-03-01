@@ -14,6 +14,19 @@ pub const PROJECTILE_RADIUS: f32 = 2.0;
 
 // ── Collision math ──────────────────────────────────────────────────────
 
+/// AABB pre-filter slop: extra padding added to bounding box checks.
+/// Conservative value to avoid false negatives on edge cases.
+const AABB_SLOP: f32 = 50.0;
+
+/// Returns true if `pos_a` and `pos_b` are close enough that a collision is possible.
+/// Used as a cheap pre-filter before more expensive intersection math.
+#[inline]
+pub fn aabb_prefilter(pos_a: Vec2, radius_a: f32, pos_b: Vec2, radius_b: f32) -> bool {
+    let max_dist = radius_a + radius_b + AABB_SLOP;
+    // Use squared distance to avoid sqrt when possible
+    pos_a.distance_squared(pos_b) <= max_dist * max_dist
+}
+
 /// Checks if a ray intersects a circle, returns hit point if found.
 /// Returns None if ray misses or circle is behind origin or beyond range.
 pub fn ray_circle_intersection(
@@ -121,6 +134,11 @@ pub fn check_laser_collisions(
         for (entity, transform, collider) in colliders.iter() {
             let center = Vec2::new(transform.translation.x, transform.translation.y);
 
+            // AABB pre-filter: skip if entity is definitely outside laser range
+            if !aabb_prefilter(laser.origin, laser.range + collider.radius, center, 0.0) {
+                continue;
+            }
+
             if let Some(hit_point) = ray_circle_intersection(
                 laser.origin,
                 laser.direction,
@@ -169,6 +187,11 @@ pub fn check_projectile_collisions(
                 target_transform.translation.y,
             );
 
+            // AABB pre-filter: skip if projectile is far from target
+            if !aabb_prefilter(proj_center, PROJECTILE_RADIUS, target_center, collider.radius) {
+                continue;
+            }
+
             if circle_circle_intersection(
                 proj_center,
                 PROJECTILE_RADIUS,
@@ -197,6 +220,10 @@ pub fn check_enemy_projectile_collisions(
     let player_pos = Vec2::new(player_transform.translation.x, player_transform.translation.y);
     for (proj_entity, proj_transform, proj) in projectiles.iter() {
         let proj_pos = Vec2::new(proj_transform.translation.x, proj_transform.translation.y);
+        // AABB pre-filter: skip if projectile is too far from player
+        if !aabb_prefilter(proj_pos, PROJECTILE_RADIUS, player_pos, player_collider.radius) {
+            continue;
+        }
         if circle_circle_intersection(proj_pos, PROJECTILE_RADIUS, player_pos, player_collider.radius) {
             damage_queue.entries.push((player_entity, proj.damage));
             commands.entity(proj_entity).despawn();
@@ -256,6 +283,11 @@ pub fn check_contact_collisions(
             target_transform.translation.x,
             target_transform.translation.y,
         );
+
+        // AABB pre-filter: skip if target is too far for contact collision
+        if !aabb_prefilter(player_pos, player_collider.radius, target_pos, target_collider.radius) {
+            continue;
+        }
 
         if circle_circle_intersection(
             player_pos,
