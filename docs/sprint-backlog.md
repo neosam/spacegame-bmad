@@ -1,9 +1,9 @@
-# Sprint Backlog — Epic 6c: Companion Combat
+# Sprint Backlog — Bugfix Sprint BF-1: Respawn & Tutorial Zone
 
-**Sprint:** 8
-**Epic:** 6c — Companion Combat
+**Sprint:** BF-1
+**Typ:** Bugfix Sprint
 **Datum:** 2026-02-28
-**Dependencies:** Epic 6b ✅
+**Dependencies:** keine (pre-existing bugs seit Epic 1)
 
 ---
 
@@ -11,37 +11,50 @@
 
 | Story ID | Titel | Status | Abhängigkeiten |
 |----------|-------|:------:|----------------|
-| 6c-1 | Companion Ship Flight | done | keine |
-| 6c-2 | Companion Weapon | done | 6c-1 |
-| 6c-3 | Target Acquisition | done | 6c-1 |
-| 6c-4 | DamageTaken Bark | done | 6c-1, 6c-2 |
-| 6c-5 | Opinion HUD | done | keine |
+| BF-1 | Respawn an letzter Station | todo | keine |
+| BF-2 | Tutorial Zone Schutz | todo | keine |
 
 ---
 
 ## Story Beschreibungen
 
-### 6c-1: Companion Ship Flight
-Als Spieler sehe ich meinen Companion sich realistisch drehen und in Flugrichtung beschleunigen, damit er wie ein echtes Schiff wirkt und nicht wie ein schwebendes Objekt.
+### BF-1: Respawn an letzter Station
 
-**Technisch:** Companion braucht eigene Rotationslogik (dreht sich zum Zielvektor), Thrust in Blickrichtung, Drag — analog zu `apply_rotation` + `apply_thrust` + `apply_drag` des Players, aber KI-gesteuert.
+**Problem:** Bei Tod wird der Spieler zu `Vec3::ZERO` teleportiert (`handle_player_death` in `src/core/collision.rs`). In der offenen Welt ist das ein komplett anderer Ort als wo der Spieler zuletzt war.
 
-### 6c-2: Companion Weapon
-Als Spieler sieht mein Companion im Attack-Modus auf Feinde in Reichweite und feuert mit eigenem Cooldown, damit er aktiv zum Kampf beiträgt.
+**Fix:**
+- Neue Resource `LastDockedStation { position: Vec2 }` in `src/core/station.rs`
+- In `handle_dock_player` (oder `handle_undock_player`): Position der Station speichern wenn gedockt wird
+- In `handle_player_death`: `transform.translation = last_station.position.extend(0.0)` statt `Vec3::ZERO`
+- Fallback: `Vec3::ZERO` wenn noch nie gedockt (Tutorial-Start)
 
-**Technisch:** Companion bekommt `CompanionWeapon { damage, range, cooldown_secs }` Component. System feuert Projektile auf das aktuelle Ziel.
+**Acceptance Criteria:**
+- Nach dem Tod spawnt der Spieler an der letzten genutzten Station
+- Erster Tod (noch nie gedockt) → Respawn weiterhin bei `Vec3::ZERO`
+- Unit test: `handle_player_death` nutzt `LastDockedStation` wenn vorhanden
 
-### 6c-3: Target Acquisition
-Als Spieler richtet sich mein Companion im Attack-Modus auf den nächsten Feind aus und verfolgt ihn, damit das Kampfverhalten glaubwürdig ist.
+---
 
-**Technisch:** `CompanionTarget { entity: Option<Entity> }` Component. System sucht nächsten Feind innerhalb `aggro_range`, setzt Target, dreht Companion dorthin.
+### BF-2: Tutorial Zone Schutz
 
-### 6c-4: DamageTaken Bark
-Als Spieler höre ich meinen Companion reagieren wenn er getroffen wird, damit er sich lebendig anfühlt.
+**Problem:** `update_chunks` unloadet alle Chunks außerhalb des `load_radius`. Wenn der Spieler die Tutorial Zone verlässt, werden ihre Chunks entladen. Bei Rückkehr (z.B. nach Respawn) generiert das System die Chunks **prozedural** — Asteroid-Biom statt Tutorial Zone.
 
-**Technisch:** `DamageTaken`-BarkTrigger in `pick_bark()` ist bereits implementiert — nur das auslösende System fehlt. Health-Change-Detektion auf Companion-Entities.
+**Fix:**
+- `TutorialZoneChunks { coords: HashSet<ChunkCoord> }` Resource in `src/world/mod.rs`
+- Beim Startup: Tutorial-Zone-Chunks in die Resource eintragen (Chunks rund um (0,0) innerhalb des Tutorial-Radius)
+- In `update_chunks`: Tutorial-Zone-Chunks vom Unloading ausschließen (nie in `to_unload`)
+- In `generate_chunk` / Chunk-Loading: Tutorial-Zone-Chunks nicht prozedural neu befüllen wenn schon aktiv
 
-### 6c-5: Opinion HUD
-Als Spieler sehe ich kurz die aktuelle Stimmung meines Companions (z.B. "Wing-1 mag dich sehr"), damit die Opinion-Werte spürbar werden.
+**Acceptance Criteria:**
+- Nach Verlassen und Rückkehr zur Tutorial Zone sieht sie gleich aus wie beim ersten Besuch
+- Prozedurale Chunks außerhalb der Tutorial Zone unverändert
+- Unit test: Tutorial-Zone-Chunks werden nicht in `to_unload` aufgenommen
 
-**Technisch:** Opinion-Score neben Bark-Text anzeigen, oder als separates kleines Label neben dem Companion-Namen.
+---
+
+## Technischer Kontext
+
+- `handle_player_death` → `src/core/collision.rs:276`
+- `handle_dock_player` → `src/core/station.rs`
+- `update_chunks` → `src/world/mod.rs:286`
+- Tutorial Zone Spawn → `src/core/tutorial.rs` + `src/rendering/mod.rs`
