@@ -20,7 +20,10 @@ use self::spawning::{
     drift_entities, spawn_respawn_timers, tick_respawn_timers,
     SpawningConfig,
 };
-use self::tutorial::{advance_phase_on_wreck_shot, apply_gravity_well, spawn_tutorial_zone, update_weapons_lock, TutorialConfig, TutorialPhase};
+use self::tutorial::{
+    advance_phase_on_wreck_shot, apply_gravity_well, check_tutorial_wave_complete,
+    spawn_tutorial_enemies, spawn_tutorial_zone, update_weapons_lock, TutorialConfig, TutorialPhase,
+};
 use self::weapons::{
     fire_weapon, move_spread_projectiles, regenerate_energy, switch_weapon, tick_fire_cooldown,
     tick_laser_pulses, tick_spread_projectiles, LaserFired, SpreadFired, WeaponConfig,
@@ -203,7 +206,7 @@ impl Plugin for CorePlugin {
                 .in_set(CoreSet::Collision),
         );
 
-        // Damage application in Damage set (chain: apply → wreck phase → player death → respawn timers → despawn)
+        // Damage application in Damage set (chain: apply → wreck phase → player death → respawn timers → despawn → wave check)
         app.add_systems(
             FixedUpdate,
             (
@@ -212,10 +215,14 @@ impl Plugin for CorePlugin {
                 handle_player_death,
                 spawn_respawn_timers,
                 despawn_destroyed,
+                check_tutorial_wave_complete,
             )
                 .chain()
                 .in_set(CoreSet::Damage),
         );
+
+        // Tutorial enemy wave spawn: fires once when SpreadUnlocked phase is entered
+        app.add_systems(OnEnter(TutorialPhase::SpreadUnlocked), spawn_tutorial_enemies);
 
         // Post-damage systems: cooldown tick, invincibility tick, respawn tick, drift
         app.add_systems(

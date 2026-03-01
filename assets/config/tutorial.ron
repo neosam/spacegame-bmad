@@ -10,4 +10,6 @@
     generator_health: 100.0,
     wreck_offset_min: 400.0,
     wreck_offset_max: 700.0,
+    tutorial_enemy_count: 3,
+    tutorial_enemy_spawn_radius: 150.0,
 )

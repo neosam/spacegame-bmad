@@ -30,6 +30,10 @@ pub struct TutorialConfig {
     pub wreck_offset_min: f32,
     /// Maximum distance from zone center for wreck placement
     pub wreck_offset_max: f32,
+    /// Number of tutorial enemies to spawn after laser is acquired
+    pub tutorial_enemy_count: usize,
+    /// Radius around the wreck in which tutorial enemies are spawned
+    pub tutorial_enemy_spawn_radius: f32,
 }
 
 impl Default for TutorialConfig {
@@ -46,6 +50,8 @@ impl Default for TutorialConfig {
             generator_health: 100.0,
             wreck_offset_min: 400.0,
             wreck_offset_max: 700.0,
+            tutorial_enemy_count: 3,
+            tutorial_enemy_spawn_radius: 150.0,
         }
     }
 }
@@ -85,6 +91,11 @@ pub struct WreckShotState {
     pub has_been_shot: bool,
 }
 
+/// Marker component for enemies spawned as part of the tutorial wave.
+/// Distinguishes them from normal map enemies — they do not respawn on death.
+#[derive(Component, Debug)]
+pub struct TutorialEnemy;
+
 // ── Resources ───────────────────────────────────────────────────────────
 
 /// Tracks the tutorial zone state: center, seed, and layout metadata.
@@ -93,6 +104,14 @@ pub struct TutorialZone {
     pub center: Vec2,
     pub seed: u64,
     pub layout: TutorialLayout,
+}
+
+/// Tracks the number of tutorial wave enemies that remain alive.
+/// Inserted by `spawn_tutorial_enemies` when the wave begins.
+/// When `remaining` reaches 0, the tutorial phase advances to `Complete`.
+#[derive(Resource, Debug, Default)]
+pub struct TutorialEnemyWave {
+    pub remaining: usize,
 }
 
 // ── State Machine ───────────────────────────────────────────────────────
@@ -425,6 +444,68 @@ pub fn advance_phase_on_wreck_shot(
     }
 }
 
+// ── Tutorial Enemy Wave ──────────────────────────────────────────────────
+
+/// Spawns a wave of `TutorialEnemy` Scout Drones near the wreck position.
+/// Runs `OnEnter(TutorialPhase::SpreadUnlocked)` — fires exactly once on phase entry.
+/// Also inserts the `TutorialEnemyWave` resource to track wave completion.
+pub fn spawn_tutorial_enemies(
+    mut commands: Commands,
+    tutorial_zone: Res<TutorialZone>,
+    tutorial_config: Res<TutorialConfig>,
+    spawning_config: Res<crate::core::spawning::SpawningConfig>,
+) {
+    let wreck_pos = tutorial_zone.layout.wreck_position;
+    let count = tutorial_config.tutorial_enemy_count;
+    let radius = tutorial_config.tutorial_enemy_spawn_radius;
+
+    for _ in 0..count {
+        let angle = rand::random::<f32>() * std::f32::consts::TAU;
+        let dist = rand::random::<f32>() * radius;
+        let offset = Vec2::new(angle.cos() * dist, angle.sin() * dist);
+        let pos = wreck_pos + offset;
+
+        commands.spawn((
+            TutorialEnemy,
+            crate::core::spawning::ScoutDrone,
+            crate::core::spawning::NeedsDroneVisual,
+            crate::core::collision::Collider { radius: spawning_config.drone_radius },
+            crate::core::collision::Health {
+                current: spawning_config.drone_health,
+                max: spawning_config.drone_health,
+            },
+            crate::shared::components::Velocity::default(),
+            Transform::from_translation(pos.extend(0.0)),
+        ));
+    }
+
+    commands.insert_resource(TutorialEnemyWave { remaining: count });
+}
+
+/// Checks if all tutorial wave enemies have been destroyed and advances the phase.
+/// Runs in `CoreSet::Damage` after `despawn_destroyed`.
+/// The check is idempotent: if phase is already `Complete`, it returns immediately.
+pub fn check_tutorial_wave_complete(
+    phase: Res<State<TutorialPhase>>,
+    mut next_phase: ResMut<NextState<TutorialPhase>>,
+    wave: Option<Res<TutorialEnemyWave>>,
+    enemy_query: Query<&crate::core::collision::Health, With<TutorialEnemy>>,
+) {
+    // Only act during SpreadUnlocked phase
+    if *phase.get() != TutorialPhase::SpreadUnlocked {
+        return;
+    }
+    // Only act if the wave resource has been inserted (i.e. spawn happened)
+    let Some(_wave) = wave else { return };
+
+    // Count tutorial enemies still alive (positive health — not yet despawned)
+    let alive = enemy_query.iter().filter(|h| h.current > 0.0).count();
+
+    if alive == 0 {
+        next_phase.set(TutorialPhase::Complete);
+    }
+}
+
 // ── Unit Tests ──────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -445,6 +526,8 @@ mod tests {
         assert!(config.generator_health > 0.0);
         assert!(config.wreck_offset_min > 0.0);
         assert!(config.wreck_offset_max >= config.wreck_offset_min);
+        assert!(config.tutorial_enemy_count > 0);
+        assert!(config.tutorial_enemy_spawn_radius > 0.0);
     }
 
     #[test]
@@ -461,6 +544,8 @@ mod tests {
             generator_health: 80.0,
             wreck_offset_min: 400.0,
             wreck_offset_max: 700.0,
+            tutorial_enemy_count: 5,
+            tutorial_enemy_spawn_radius: 200.0,
         )"#;
         let config = TutorialConfig::from_ron(ron_str).expect("Should parse RON");
         assert!((config.safe_radius - 1500.0).abs() < f32::EPSILON);
@@ -468,6 +553,8 @@ mod tests {
         assert!((config.generator_health - 80.0).abs() < f32::EPSILON);
         assert!((config.wreck_offset_min - 400.0).abs() < f32::EPSILON);
         assert!((config.wreck_offset_max - 700.0).abs() < f32::EPSILON);
+        assert_eq!(config.tutorial_enemy_count, 5);
+        assert!((config.tutorial_enemy_spawn_radius - 200.0).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -955,5 +1042,34 @@ mod tests {
             "No force without generator, got {:?}",
             vel.0
         );
+    }
+
+    // ── Tutorial Enemy Wave Unit Tests ──────────────────────────────────
+
+    #[test]
+    fn tutorial_config_default_has_enemy_count_and_radius() {
+        let config = TutorialConfig::default();
+        assert!(
+            config.tutorial_enemy_count > 0,
+            "tutorial_enemy_count should be > 0, got {}",
+            config.tutorial_enemy_count
+        );
+        assert!(
+            config.tutorial_enemy_spawn_radius > 0.0,
+            "tutorial_enemy_spawn_radius should be > 0, got {}",
+            config.tutorial_enemy_spawn_radius
+        );
+    }
+
+    #[test]
+    fn tutorial_enemy_wave_default_has_zero_remaining() {
+        let wave = TutorialEnemyWave::default();
+        assert_eq!(wave.remaining, 0, "TutorialEnemyWave default should have remaining=0");
+    }
+
+    #[test]
+    fn tutorial_enemy_wave_can_be_set() {
+        let wave = TutorialEnemyWave { remaining: 3 };
+        assert_eq!(wave.remaining, 3, "TutorialEnemyWave remaining should be 3");
     }
 }

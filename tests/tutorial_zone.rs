@@ -7,10 +7,12 @@ use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use void_drifter::core::flight::Player;
 use void_drifter::core::tutorial::{
-    advance_phase_on_wreck_shot, apply_gravity_well, generate_tutorial_zone,
-    validate_tutorial_seed, GravityWellGenerator, TutorialConfig, TutorialPhase, TutorialStation,
-    TutorialWreck, TutorialZone, WeaponsLocked, WreckShotState,
+    advance_phase_on_wreck_shot, apply_gravity_well, check_tutorial_wave_complete,
+    generate_tutorial_zone, spawn_tutorial_enemies, validate_tutorial_seed, GravityWellGenerator,
+    TutorialConfig, TutorialEnemy, TutorialEnemyWave, TutorialPhase, TutorialStation, TutorialWreck,
+    TutorialZone, WeaponsLocked, WreckShotState,
 };
+use void_drifter::core::spawning::{ScoutDrone, SpawningConfig};
 use void_drifter::shared::components::JustDamaged;
 use void_drifter::shared::components::Velocity;
 use void_drifter::core::weapons::{ActiveWeapon, Energy, FireCooldown, LaserPulse};
@@ -599,5 +601,288 @@ fn wreck_shot_state_set_true_on_first_hit() {
     assert!(
         shot_state.has_been_shot,
         "WreckShotState should be true after first hit"
+    );
+}
+
+// ── Enemies After Laser Integration Tests ───────────────────────────────
+
+/// Create a minimal app with spawn_tutorial_enemies and check_tutorial_wave_complete
+/// for isolated integration testing of the enemy wave.
+fn enemy_wave_test_app() -> App {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.add_plugins(bevy::state::app::StatesPlugin);
+    app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+        Duration::from_secs_f64(1.0 / 60.0),
+    ));
+    app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
+    app.insert_resource(TutorialConfig::default());
+    app.insert_resource(SpawningConfig::default());
+    app.init_state::<TutorialPhase>();
+    app.add_systems(FixedUpdate, check_tutorial_wave_complete);
+    app.add_systems(OnEnter(TutorialPhase::SpreadUnlocked), spawn_tutorial_enemies);
+    // Prime
+    app.update();
+    app
+}
+
+#[test]
+fn tutorial_enemies_spawn_on_spread_unlocked_phase() {
+    let mut app = enemy_wave_test_app();
+
+    // Insert the TutorialZone resource so spawn_tutorial_enemies can read it
+    let config = TutorialConfig::default();
+    use void_drifter::core::tutorial::{TutorialLayout, TutorialZone};
+    app.insert_resource(TutorialZone {
+        center: Vec2::ZERO,
+        seed: 42,
+        layout: TutorialLayout {
+            player_spawn: Vec2::new(50.0, 0.0),
+            station_position: Vec2::new(300.0, 0.0),
+            generator_position: Vec2::new(1700.0, 0.0),
+            zone_center: Vec2::ZERO,
+            wreck_position: Vec2::new(500.0, 0.0),
+        },
+    });
+
+    // Transition to SpreadUnlocked — triggers OnEnter(SpreadUnlocked) which calls spawn_tutorial_enemies
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::SpreadUnlocked);
+    app.update(); // Apply transition + run OnEnter
+
+    let enemy_count = app
+        .world_mut()
+        .query_filtered::<Entity, With<TutorialEnemy>>()
+        .iter(app.world())
+        .count();
+    assert_eq!(
+        enemy_count,
+        config.tutorial_enemy_count,
+        "Should spawn {} tutorial enemies, got {}",
+        config.tutorial_enemy_count,
+        enemy_count
+    );
+}
+
+#[test]
+fn tutorial_enemies_have_correct_components() {
+    let mut app = enemy_wave_test_app();
+
+    use void_drifter::core::tutorial::{TutorialLayout, TutorialZone};
+    app.insert_resource(TutorialZone {
+        center: Vec2::ZERO,
+        seed: 42,
+        layout: TutorialLayout {
+            player_spawn: Vec2::new(50.0, 0.0),
+            station_position: Vec2::new(300.0, 0.0),
+            generator_position: Vec2::new(1700.0, 0.0),
+            zone_center: Vec2::ZERO,
+            wreck_position: Vec2::new(500.0, 0.0),
+        },
+    });
+
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::SpreadUnlocked);
+    app.update();
+
+    // Each tutorial enemy should have ScoutDrone, Health, Velocity, Transform
+    let mut query = app
+        .world_mut()
+        .query_filtered::<(&ScoutDrone, &Health, &Velocity, &Transform), With<TutorialEnemy>>();
+    let enemies: Vec<_> = query.iter(app.world()).collect();
+    let config = TutorialConfig::default();
+    assert_eq!(
+        enemies.len(),
+        config.tutorial_enemy_count,
+        "Should have {} tutorial enemies with all components",
+        config.tutorial_enemy_count
+    );
+
+    let spawning_config = SpawningConfig::default();
+    for (_drone, health, _vel, _transform) in &enemies {
+        assert!(
+            (health.max - spawning_config.drone_health).abs() < f32::EPSILON,
+            "Enemy health.max should match spawning_config.drone_health"
+        );
+        assert!(
+            health.current > 0.0,
+            "Enemy should spawn with positive health"
+        );
+    }
+}
+
+#[test]
+fn tutorial_enemy_wave_resource_tracks_count() {
+    let mut app = enemy_wave_test_app();
+
+    use void_drifter::core::tutorial::{TutorialLayout, TutorialZone};
+    app.insert_resource(TutorialZone {
+        center: Vec2::ZERO,
+        seed: 42,
+        layout: TutorialLayout {
+            player_spawn: Vec2::new(50.0, 0.0),
+            station_position: Vec2::new(300.0, 0.0),
+            generator_position: Vec2::new(1700.0, 0.0),
+            zone_center: Vec2::ZERO,
+            wreck_position: Vec2::new(500.0, 0.0),
+        },
+    });
+
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::SpreadUnlocked);
+    app.update();
+
+    let config = TutorialConfig::default();
+    let wave = app
+        .world()
+        .get_resource::<TutorialEnemyWave>()
+        .expect("TutorialEnemyWave resource should exist after spawn");
+    assert_eq!(
+        wave.remaining,
+        config.tutorial_enemy_count,
+        "TutorialEnemyWave.remaining should equal tutorial_enemy_count"
+    );
+}
+
+/// Minimal app with only the wave completion check — no spawn system.
+/// Used for tests that manually control the wave state.
+fn wave_completion_test_app() -> App {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.add_plugins(bevy::state::app::StatesPlugin);
+    app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+        Duration::from_secs_f64(1.0 / 60.0),
+    ));
+    app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
+    app.init_state::<TutorialPhase>();
+    app.add_systems(FixedUpdate, check_tutorial_wave_complete);
+    // Prime
+    app.update();
+    app
+}
+
+#[test]
+fn phase_advances_to_complete_when_all_tutorial_enemies_destroyed() {
+    let mut app = wave_completion_test_app();
+
+    // Set phase to SpreadUnlocked
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::SpreadUnlocked);
+    app.update(); // Apply state transition
+
+    // Insert the wave resource manually (simulating that spawn happened)
+    app.insert_resource(TutorialEnemyWave { remaining: 0 });
+
+    // Spawn 0 TutorialEnemy entities — none alive means wave complete
+    // (We don't spawn any, so the count is 0)
+
+    app.update(); // check_tutorial_wave_complete runs, should set Complete
+    app.update(); // Apply state transition to Complete
+
+    let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::Complete,
+        "Phase should advance to Complete when all tutorial enemies are destroyed"
+    );
+}
+
+#[test]
+fn phase_stays_spread_unlocked_while_enemies_alive() {
+    let mut app = wave_completion_test_app();
+
+    // Set phase to SpreadUnlocked
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::SpreadUnlocked);
+    app.update(); // Apply state transition
+
+    // Insert wave resource and spawn living enemies
+    app.insert_resource(TutorialEnemyWave { remaining: 2 });
+    app.world_mut().spawn((
+        TutorialEnemy,
+        Health { current: 30.0, max: 30.0 },
+    ));
+    app.world_mut().spawn((
+        TutorialEnemy,
+        Health { current: 30.0, max: 30.0 },
+    ));
+
+    app.update(); // check_tutorial_wave_complete runs — enemies alive, no phase change
+
+    let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::SpreadUnlocked,
+        "Phase should remain SpreadUnlocked while tutorial enemies are alive"
+    );
+}
+
+#[test]
+fn tutorial_enemies_do_not_trigger_respawn_timers() {
+    use void_drifter::core::spawning::{spawn_respawn_timers, RespawnTimer};
+
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.insert_resource(SpawningConfig::default());
+    app.add_systems(Update, spawn_respawn_timers);
+    app.update(); // Prime
+
+    // Spawn a TutorialEnemy ScoutDrone with health = 0 (destroyed)
+    app.world_mut().spawn((
+        TutorialEnemy,
+        ScoutDrone,
+        Health { current: 0.0, max: 30.0 },
+        Transform::from_translation(Vec3::new(100.0, 200.0, 0.0)),
+    ));
+
+    app.update();
+
+    // No RespawnTimer should be created for the TutorialEnemy
+    let timer_count = app
+        .world_mut()
+        .query_filtered::<Entity, With<RespawnTimer>>()
+        .iter(app.world())
+        .count();
+    assert_eq!(
+        timer_count,
+        0,
+        "TutorialEnemy should NOT trigger a RespawnTimer — got {} timers",
+        timer_count
+    );
+}
+
+#[test]
+fn normal_scout_drone_still_triggers_respawn_timer() {
+    use void_drifter::core::spawning::{spawn_respawn_timers, RespawnTimer};
+
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.insert_resource(SpawningConfig::default());
+    app.add_systems(Update, spawn_respawn_timers);
+    app.update(); // Prime
+
+    // Spawn a normal ScoutDrone (no TutorialEnemy) with health = 0 (destroyed)
+    app.world_mut().spawn((
+        ScoutDrone,
+        Health { current: 0.0, max: 30.0 },
+        Transform::from_translation(Vec3::new(50.0, 60.0, 0.0)),
+    ));
+
+    app.update();
+
+    let timer_count = app
+        .world_mut()
+        .query_filtered::<Entity, With<RespawnTimer>>()
+        .iter(app.world())
+        .count();
+    assert_eq!(
+        timer_count,
+        1,
+        "Normal ScoutDrone should still trigger a RespawnTimer"
     );
 }

@@ -149,13 +149,18 @@ pub fn spawn_initial_entities(mut commands: Commands, config: Res<SpawningConfig
 /// Watches for destroyed Asteroid/ScoutDrone entities and spawns RespawnTimer entities.
 /// Runs BEFORE despawn_destroyed in the Damage chain so we can detect entities with
 /// health <= 0 and record their position and spawn type before they are removed.
+/// TutorialEnemy entities are excluded — they must NOT respawn when destroyed.
 #[allow(clippy::type_complexity)]
 pub fn spawn_respawn_timers(
     mut commands: Commands,
     config: Res<SpawningConfig>,
     query: Query<
         (&Health, &Transform, Option<&Asteroid>, Option<&ScoutDrone>),
-        (Without<Player>, Or<(With<Asteroid>, With<ScoutDrone>)>),
+        (
+            Without<Player>,
+            Without<crate::core::tutorial::TutorialEnemy>,
+            Or<(With<Asteroid>, With<ScoutDrone>)>,
+        ),
     >,
 ) {
     for (health, transform, asteroid, drone) in query.iter() {
