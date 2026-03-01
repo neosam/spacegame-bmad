@@ -9,9 +9,9 @@ use void_drifter::core::flight::Player;
 use void_drifter::core::tutorial::{
     advance_phase_on_wreck_shot, apply_gravity_well, check_generator_destroyed,
     check_tutorial_wave_complete, dock_at_station, generate_tutorial_zone, spawn_tutorial_enemies,
-    validate_tutorial_seed, GravityWellGenerator, SpreadUnlocked, TutorialConfig, TutorialEnemy,
-    TutorialEnemyWave, TutorialPhase, TutorialStation, TutorialWreck, TutorialZone, WeaponsLocked,
-    WreckShotState,
+    start_destruction_cascade, tick_cascade_timer, validate_tutorial_seed, CascadeTimer,
+    GravityWellGenerator, SpreadUnlocked, TutorialConfig, TutorialEnemy, TutorialEnemyWave,
+    TutorialPhase, TutorialStation, TutorialWreck, TutorialZone, WeaponsLocked, WreckShotState,
 };
 use void_drifter::core::spawning::{ScoutDrone, SpawningConfig};
 use void_drifter::shared::components::JustDamaged;
@@ -1347,6 +1347,217 @@ fn hundred_seed_validation_still_passes_with_generator_collider() {
         assert!(
             result.is_ok(),
             "Seed {seed} should still pass validation after generator collider added: {:?}",
+            result.expect_err("Expected Ok")
+        );
+    }
+}
+
+// ── Destruction Cascade Integration Tests ───────────────────────────────
+
+/// Minimal app with start_destruction_cascade and tick_cascade_timer for isolated testing.
+fn cascade_test_app() -> App {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.add_plugins(bevy::state::app::StatesPlugin);
+    app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+        Duration::from_secs_f64(1.0 / 60.0),
+    ));
+    app.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0));
+    app.insert_resource(TutorialConfig::default());
+    app.init_state::<TutorialPhase>();
+    app.add_message::<void_drifter::shared::events::GameEvent>();
+    app.insert_resource(void_drifter::infrastructure::events::EventSeverityConfig::default());
+    app.add_systems(OnEnter(TutorialPhase::GeneratorDestroyed), start_destruction_cascade);
+    app.add_systems(FixedUpdate, tick_cascade_timer);
+    // Prime
+    app.update();
+    app
+}
+
+#[test]
+fn cascade_timer_inserted_on_generator_destroyed_phase() {
+    let mut app = cascade_test_app();
+
+    // Transition to GeneratorDestroyed — triggers OnEnter(GeneratorDestroyed)
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::GeneratorDestroyed);
+    app.update(); // Apply transition + run OnEnter(GeneratorDestroyed)
+
+    let timer = app
+        .world()
+        .get_resource::<CascadeTimer>()
+        .expect("CascadeTimer should be inserted on entering GeneratorDestroyed phase");
+    assert!(
+        timer.remaining > 0.0,
+        "CascadeTimer.remaining should be positive after insertion, got {}",
+        timer.remaining
+    );
+}
+
+#[test]
+fn cascade_timer_not_inserted_in_other_phases() {
+    let mut app = cascade_test_app();
+
+    // Phase is Flying (default) — no cascade timer should be present
+    assert!(
+        app.world().get_resource::<CascadeTimer>().is_none(),
+        "CascadeTimer should not be present in Flying phase"
+    );
+}
+
+#[test]
+fn phase_advances_to_tutorial_complete_after_cascade_delay() {
+    let mut app = cascade_test_app();
+
+    // Transition to GeneratorDestroyed
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::GeneratorDestroyed);
+    app.update(); // Apply transition + insert CascadeTimer (default 2.0s)
+
+    // Tick enough frames to exceed 2.0s (2.0 / (1/60) = 120 frames + 1 for safety)
+    for _ in 0..130 {
+        app.update();
+    }
+
+    // One more update to apply the state transition
+    app.update();
+
+    let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::TutorialComplete,
+        "Phase should advance to TutorialComplete after cascade delay expires"
+    );
+}
+
+#[test]
+fn tutorial_wreck_despawned_after_cascade() {
+    let mut app = cascade_test_app();
+
+    // Spawn a tutorial wreck
+    app.world_mut().spawn((
+        TutorialWreck,
+        Transform::from_translation(Vec3::new(500.0, 0.0, 0.0)),
+    ));
+
+    // Confirm wreck exists before cascade
+    let wreck_count_before = app
+        .world_mut()
+        .query_filtered::<Entity, With<TutorialWreck>>()
+        .iter(app.world())
+        .count();
+    assert_eq!(wreck_count_before, 1, "Should have one wreck before cascade");
+
+    // Transition to GeneratorDestroyed
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::GeneratorDestroyed);
+    app.update(); // Apply transition + insert CascadeTimer
+
+    // Tick 130 frames (> 2s at 60fps)
+    for _ in 0..130 {
+        app.update();
+    }
+
+    let wreck_count_after = app
+        .world_mut()
+        .query_filtered::<Entity, With<TutorialWreck>>()
+        .iter(app.world())
+        .count();
+    assert_eq!(
+        wreck_count_after, 0,
+        "TutorialWreck should be despawned after cascade fires"
+    );
+}
+
+#[test]
+fn tutorial_station_despawned_after_cascade() {
+    let mut app = cascade_test_app();
+
+    // Spawn a tutorial station
+    app.world_mut().spawn((
+        TutorialStation { defective: false },
+        Transform::from_translation(Vec3::new(200.0, 0.0, 0.0)),
+    ));
+
+    // Transition to GeneratorDestroyed
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::GeneratorDestroyed);
+    app.update();
+
+    // Tick 130 frames
+    for _ in 0..130 {
+        app.update();
+    }
+
+    let station_count = app
+        .world_mut()
+        .query_filtered::<Entity, With<TutorialStation>>()
+        .iter(app.world())
+        .count();
+    assert_eq!(
+        station_count, 0,
+        "TutorialStation should be despawned after cascade fires"
+    );
+}
+
+#[test]
+fn cascade_is_idempotent_no_panic_without_wreck_or_station() {
+    let mut app = cascade_test_app();
+
+    // No wreck or station entities — cascade should fire without panicking
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::GeneratorDestroyed);
+    app.update();
+
+    // Tick 130 frames — cascade fires with empty queries (no-op despawns)
+    for _ in 0..130 {
+        app.update();
+    }
+    app.update(); // Apply state transition
+
+    let phase = app.world().resource::<bevy::prelude::State<TutorialPhase>>();
+    assert_eq!(
+        *phase.get(),
+        TutorialPhase::TutorialComplete,
+        "Phase should advance to TutorialComplete even when no entities to despawn"
+    );
+}
+
+#[test]
+fn cascade_timer_removed_after_cascade_fires() {
+    let mut app = cascade_test_app();
+
+    // Transition to GeneratorDestroyed
+    app.world_mut()
+        .resource_mut::<bevy::prelude::NextState<TutorialPhase>>()
+        .set(TutorialPhase::GeneratorDestroyed);
+    app.update();
+
+    // Tick until cascade fires
+    for _ in 0..130 {
+        app.update();
+    }
+
+    // CascadeTimer should be removed after cascade fires
+    assert!(
+        app.world().get_resource::<CascadeTimer>().is_none(),
+        "CascadeTimer should be removed after cascade fires"
+    );
+}
+
+#[test]
+fn hundred_seed_validation_still_passes_after_cascade() {
+    let config = TutorialConfig::default();
+    for seed in 0..100 {
+        let result = validate_tutorial_seed(seed, &config);
+        assert!(
+            result.is_ok(),
+            "Seed {seed} should still pass validation after cascade feature added: {:?}",
             result.expect_err("Expected Ok")
         );
     }

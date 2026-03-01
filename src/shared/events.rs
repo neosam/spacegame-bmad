@@ -48,6 +48,8 @@ pub enum GameEventKind {
     StationDocked,
     /// GravityWellGenerator was destroyed — tutorial escape complete.
     GeneratorDestroyed,
+    /// Destruction cascade complete — tutorial fully finished.
+    TutorialComplete,
 }
 
 /// A game event emitted as a Bevy message by gameplay systems.

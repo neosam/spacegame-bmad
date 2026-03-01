@@ -36,6 +36,8 @@ pub struct TutorialConfig {
     pub tutorial_enemy_spawn_radius: f32,
     /// Distance from station within which the player docks and receives the Spread weapon
     pub dock_radius: f32,
+    /// Delay in seconds after GeneratorDestroyed before cascade despawn fires
+    pub cascade_delay_secs: f32,
 }
 
 impl Default for TutorialConfig {
@@ -55,6 +57,7 @@ impl Default for TutorialConfig {
             tutorial_enemy_count: 3,
             tutorial_enemy_spawn_radius: 150.0,
             dock_radius: 150.0,
+            cascade_delay_secs: 2.0,
         }
     }
 }
@@ -136,6 +139,8 @@ pub enum TutorialPhase {
     StationVisited,
     /// GravityWellGenerator destroyed — gravity well dissolved, player free to leave
     GeneratorDestroyed,
+    /// Destruction cascade complete — tutorial fully finished
+    TutorialComplete,
 }
 
 // ── Layout Generation ───────────────────────────────────────────────────
@@ -601,6 +606,74 @@ pub fn check_generator_destroyed(
     }
 }
 
+// ── Destruction Cascade ─────────────────────────────────────────────────
+
+/// Countdown timer resource inserted when `GeneratorDestroyed` phase is entered.
+/// When `remaining` reaches zero, the cascade despawn fires and phase advances to
+/// `TutorialComplete`.
+#[derive(Resource, Debug)]
+pub struct CascadeTimer {
+    pub remaining: f32,
+}
+
+/// `OnEnter(TutorialPhase::GeneratorDestroyed)` system.
+/// Inserts a `CascadeTimer` with the delay from `TutorialConfig.cascade_delay_secs`.
+/// Runs exactly once when the phase transitions into `GeneratorDestroyed`.
+pub fn start_destruction_cascade(mut commands: Commands, config: Res<TutorialConfig>) {
+    commands.insert_resource(CascadeTimer {
+        remaining: config.cascade_delay_secs,
+    });
+}
+
+/// `FixedUpdate` system that ticks the `CascadeTimer` each frame.
+/// Guards: phase must be `GeneratorDestroyed` and `CascadeTimer` must be present.
+/// When the timer expires:
+/// - All `TutorialWreck` entities are despawned
+/// - All `TutorialStation` entities are despawned
+/// - `GameEvent::TutorialComplete` is emitted (Tier1)
+/// - Phase advances to `TutorialComplete`
+/// - `CascadeTimer` resource is removed to prevent re-triggering
+pub fn tick_cascade_timer(
+    mut commands: Commands,
+    time: Res<Time>,
+    phase: Res<State<TutorialPhase>>,
+    mut next_phase: ResMut<NextState<TutorialPhase>>,
+    cascade_timer: Option<ResMut<CascadeTimer>>,
+    wreck_query: Query<Entity, With<TutorialWreck>>,
+    station_query: Query<Entity, With<TutorialStation>>,
+    mut game_events: bevy::ecs::message::MessageWriter<crate::shared::events::GameEvent>,
+    severity_config: Res<crate::infrastructure::events::EventSeverityConfig>,
+) {
+    if *phase.get() != TutorialPhase::GeneratorDestroyed {
+        return;
+    }
+    let Some(mut timer) = cascade_timer else {
+        return;
+    };
+    timer.remaining -= time.delta_secs();
+    if timer.remaining <= 0.0 {
+        // Despawn all remaining tutorial-specific entities
+        for entity in wreck_query.iter() {
+            commands.entity(entity).despawn();
+        }
+        for entity in station_query.iter() {
+            commands.entity(entity).despawn();
+        }
+        // Emit completion event
+        let kind = crate::shared::events::GameEventKind::TutorialComplete;
+        game_events.write(crate::shared::events::GameEvent {
+            severity: severity_config.severity_for(&kind),
+            kind,
+            position: Vec2::ZERO,
+            game_time: time.elapsed_secs_f64(),
+        });
+        // Advance to terminal state
+        next_phase.set(TutorialPhase::TutorialComplete);
+        // Remove timer so it does not fire again
+        commands.remove_resource::<CascadeTimer>();
+    }
+}
+
 // ── Unit Tests ──────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -624,6 +697,7 @@ mod tests {
         assert!(config.tutorial_enemy_count > 0);
         assert!(config.tutorial_enemy_spawn_radius > 0.0);
         assert!(config.dock_radius > 0.0);
+        assert!(config.cascade_delay_secs > 0.0);
     }
 
     #[test]
@@ -643,6 +717,7 @@ mod tests {
             tutorial_enemy_count: 5,
             tutorial_enemy_spawn_radius: 200.0,
             dock_radius: 120.0,
+            cascade_delay_secs: 3.0,
         )"#;
         let config = TutorialConfig::from_ron(ron_str).expect("Should parse RON");
         assert!((config.safe_radius - 1500.0).abs() < f32::EPSILON);
@@ -653,6 +728,7 @@ mod tests {
         assert_eq!(config.tutorial_enemy_count, 5);
         assert!((config.tutorial_enemy_spawn_radius - 200.0).abs() < f32::EPSILON);
         assert!((config.dock_radius - 120.0).abs() < f32::EPSILON);
+        assert!((config.cascade_delay_secs - 3.0).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -1233,6 +1309,7 @@ mod tests {
             TutorialPhase::Complete,
             TutorialPhase::StationVisited,
             TutorialPhase::GeneratorDestroyed,
+            TutorialPhase::TutorialComplete,
         ];
         for i in 0..phases.len() {
             for j in (i + 1)..phases.len() {
@@ -1243,5 +1320,49 @@ mod tests {
                 );
             }
         }
+    }
+
+    // ── Destruction Cascade Unit Tests ──────────────────────────────────
+
+    #[test]
+    fn tutorial_phase_tutorial_complete_variant_exists() {
+        // Ensure TutorialComplete can be constructed and is distinct from GeneratorDestroyed
+        let generator_destroyed = TutorialPhase::GeneratorDestroyed;
+        let tutorial_complete = TutorialPhase::TutorialComplete;
+        assert_ne!(
+            generator_destroyed,
+            tutorial_complete,
+            "TutorialComplete should differ from GeneratorDestroyed"
+        );
+    }
+
+    #[test]
+    fn cascade_timer_can_be_constructed_with_positive_remaining() {
+        let timer = CascadeTimer { remaining: 2.0 };
+        assert!(
+            timer.remaining > 0.0,
+            "CascadeTimer.remaining should be positive, got {}",
+            timer.remaining
+        );
+    }
+
+    #[test]
+    fn tutorial_config_cascade_delay_default_positive() {
+        let config = TutorialConfig::default();
+        assert!(
+            config.cascade_delay_secs > 0.0,
+            "cascade_delay_secs should be positive, got {}",
+            config.cascade_delay_secs
+        );
+    }
+
+    #[test]
+    fn tutorial_config_cascade_delay_default_value() {
+        let config = TutorialConfig::default();
+        assert!(
+            (config.cascade_delay_secs - 2.0).abs() < f32::EPSILON,
+            "cascade_delay_secs default should be 2.0, got {}",
+            config.cascade_delay_secs
+        );
     }
 }

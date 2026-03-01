@@ -23,7 +23,8 @@ use self::spawning::{
 use self::tutorial::{
     advance_phase_on_wreck_shot, apply_gravity_well, check_generator_destroyed,
     check_tutorial_wave_complete, dock_at_station, spawn_tutorial_enemies, spawn_tutorial_zone,
-    update_weapons_lock, TutorialConfig, TutorialPhase,
+    start_destruction_cascade, tick_cascade_timer, update_weapons_lock, TutorialConfig,
+    TutorialPhase,
 };
 use self::weapons::{
     fire_weapon, move_spread_projectiles, regenerate_energy, switch_weapon, tick_fire_cooldown,
@@ -225,6 +226,12 @@ impl Plugin for CorePlugin {
         // Tutorial enemy wave spawn: fires once when SpreadUnlocked phase is entered
         app.add_systems(OnEnter(TutorialPhase::SpreadUnlocked), spawn_tutorial_enemies);
 
+        // Destruction cascade: fires once on entering GeneratorDestroyed phase
+        app.add_systems(
+            OnEnter(TutorialPhase::GeneratorDestroyed),
+            start_destruction_cascade,
+        );
+
         // Post-damage systems: cooldown tick, invincibility tick, respawn tick, drift
         app.add_systems(
             FixedUpdate,
@@ -246,6 +253,14 @@ impl Plugin for CorePlugin {
             check_generator_destroyed
                 .in_set(CoreSet::Events)
                 .after(dock_at_station),
+        );
+
+        // Cascade timer tick: runs in CoreSet::Events after check_generator_destroyed
+        app.add_systems(
+            FixedUpdate,
+            tick_cascade_timer
+                .in_set(CoreSet::Events)
+                .after(check_generator_destroyed),
         );
 
         // Tutorial weapon lock system

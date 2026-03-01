@@ -13,4 +13,5 @@
     tutorial_enemy_count: 3,
     tutorial_enemy_spawn_radius: 150.0,
     dock_radius: 150.0,
+    cascade_delay_secs: 2.0,
 )
